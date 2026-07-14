@@ -1,0 +1,69 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "warn",
+    "style": "warn",
+    "restriction": "warn",
+    "nursery": "off"
+  },
+  "rules": {
+    "no-console": "off",
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "prefer-const": "error",
+    "no-var": "error",
+    "eqeqeq": [
+      "error",
+      "always",
+      {
+        "null": "ignore"
+      }
+    ],
+    "no-debugger": "error",
+    "no-alert": "error",
+    "no-duplicate-imports": "error"
+  },
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "dist-react",
+    "electron/dist-react",
+    "release",
+    "build",
+    "*.min.js",
+    "**/*.d.ts"
+  ],
+  "overrides": [
+    {
+      "files": ["electron/**/*.js"],
+      "rules": {
+        "no-require-imports": "off",
+        "prefer-module": "off",
+        "prefer-node-protocol": "off",
+        "no-null": "off",
+        "no-magic-numbers": "off",
+        "id-length": "off",
+        "no-await-in-loop": "off",
+        "no-empty": "off",
+        "no-plusplus": "off",
+        "curly": "off",
+        "catch-error-name": "off",
+        "sort-keys": "off",
+        "no-async-await": "off",
+        "no-implicit-coercion": "off",
+        "no-ternary": "off",
+        "no-useless-escape": "off",
+        "func-style": "off",
+        "no-implicit-globals": "off",
+        "max-statements": "off"
+      }
+    }
+  ]
+}

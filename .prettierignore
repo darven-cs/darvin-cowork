@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-react
+electron/dist-react
+release
+build
+coverage
+*.min.js
+*.min.css
+pnpm-lock.yaml
+yarn.lock
+package-lock.json
+*.go

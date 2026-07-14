@@ -1,0 +1,46 @@
+{
+  "name": "darvin-cowork",
+  "version": "1.0.0",
+  "description": "",
+  "main": "electron/main.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev:web": "cd frontend && npm run dev -- --port 5175",
+    "dev:electron": "cross-env HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= NO_PROXY=localhost,127.0.0.1 NODE_ENV=development wait-on -t 30000 tcp:127.0.0.1:5175 && cross-env HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= NO_PROXY=localhost,127.0.0.1 NODE_ENV=development ELECTRON_START_URL=http://localhost:5175 electron . --no-sandbox",
+    "dev": "concurrently -k -n VITE,ELEC -c cyan,green \"npm:dev:web\" \"npm:dev:electron\"",
+    "build:react": "cd frontend && npm run build",
+    "build": "npm run build:react",
+    "start": "electron . --no-sandbox",
+    "build:start": "npm run build && npm run start",
+    "start:go": "cd backend && go run ./cmd",
+    "build:go": "cd backend && go build -o ../go-server ./cmd",
+    "test": "npm --prefix frontend test",
+    "test:watch": "npm --prefix frontend run test:watch",
+    "test:go": "cd backend && go test ./...",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run lint && npm run format:check && npm test && npm run test:go",
+    "commitlint": "commitlint --edit",
+    "prepare": "husky"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.1",
+    "@commitlint/config-conventional": "^21.2.0",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^43.1.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "oxlint": "^1.73.0",
+    "prettier": "^3.9.5",
+    "wait-on": "^9.0.10"
+  }
+}
