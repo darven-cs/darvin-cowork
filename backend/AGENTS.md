@@ -9,7 +9,7 @@
 ## 命令
 
 ```bash
-go run ./cmd                    # 启动（监听 127.0.0.1:8080）
+go run ./cmd/server             # 启动（监听 127.0.0.1:8080）
 go build ./...                  # 全量编译
 go test ./...                   # 全量测试
 go vet ./...                    # 静态检查
@@ -19,22 +19,31 @@ go vet ./...                    # 静态检查
 
 ```
 backend/
-├── cmd/main.go                 ← 入口，组装路由 + 启动 server
+├── cmd/server/main.go          ← 入口，组装路由 + 启动 server
 ├── internal/
-│   ├── <domain>/               ← 业务包（每个 domain 一个）
+│   ├── agent/                  ← Agent 推理调度引擎（v0.1 第 2-3 周填充）
+│   ├── memory/                 ← 四层记忆系统 SOUL/USER/MEMORY/会话（v0.1 第 3-4 周填充）
+│   ├── tools/                  ← 基础工具调用：文件/终端/搜索（v0.1 第 2-3 周填充）
+│   ├── mcp/                    ← MCP 协议客户端 stdio + HTTP/SSE（v0.1 第 4 周填充）
+│   ├── gateway/                ← OpenClaw Gateway WebSocket 客户端（v0.1 第 1 周填充）
+│   ├── config/                 ← 配置集中入口（监听地址 / API 路径前缀 / 默认值）
+│   ├── <domain>/               ← 其他业务包（每个 domain 一个）
 │   │   ├── handler.go          ← HTTP handler
 │   │   ├── service.go          ← 业务逻辑
 │   │   ├── store.go            ← 持久化（如果需要）
 │   │   └── types.go            ← 该 domain 的 struct / interface
 │   └── middleware/             ← 跨 domain 中间件
+├── pkg/                        ← 可被外部 import 的公共库（v0.1 占位）
 └── go.mod
 ```
+
+> 注：`internal/config` 是配置集中入口，v0.1 第 3 周接入 Viper 之前先在这里集中默认值。新增 handler 或 goroutine 需要配置时一律从 `config.Default()` 取，不要在业务包里硬编码监听地址或路径前缀。
 
 ## 新增 handler
 
 1. 在 `internal/<domain>/` 下建文件
 2. handler 函数签名：`func (h *Handler) MethodName(w http.ResponseWriter, r *http.Request)`
-3. 在 `cmd/main.go` 注册路由
+3. 在 `cmd/server/main.go` 注册路由
 4. 加对应 `handler_test.go`
 
 ## 错误处理
