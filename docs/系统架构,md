@@ -1,0 +1,32 @@
+# 技术选型
+这里使用electron做桌面端
+
+## 前端
+React+axios
+
+## 后端
+
+
+# 初始化项目
+```
+初始化
+npm init -y  
+
+// 创建前端模板
+npm create vite@latest frontend --template react
+cd frontend
+npm install
+
+Oxlint 速度更加快
+
+// 初始化后端
+cd backend
+go mod init darvin-cowork
+
+// 
+npm install electron --save-dev
+npm install cross-env --save-dev # 跨平台环境变量
+
+cd electron
+touch main.js 创建进程入口:启动后端->创建窗口加载react页面->关闭窗口杀掉GO进程
+```
