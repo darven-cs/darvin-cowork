@@ -1,0 +1,4 @@
+{
+  "files": [],
+  "references": [{ "path": "./main" }, { "path": "./preload" }, { "path": "./renderer" }]
+}

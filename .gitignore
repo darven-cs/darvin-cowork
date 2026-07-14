@@ -6,9 +6,15 @@ node_modules/
 dist/
 dist-react/
 electron/dist-react/
+frontend/out/
 build/
 release/
 coverage/
+
+# resources binaries (keep .gitkeep, ignore actual icons)
+resources/icons/*.png
+resources/icons/*.ico
+resources/icons/*.icns
 
 # Binaries
 go-server
