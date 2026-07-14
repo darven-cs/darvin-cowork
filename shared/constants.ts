@@ -6,8 +6,8 @@
  *
  * 新增 IPC 频道：
  *   1. 在这里加常量
- *   2. preload.ts 暴露 window.api.xxx
- *   3. main.ts 注册 ipcMain.handle
+ *   2. frontend/preload/index.ts 暴露 window.api.xxx
+ *   3. frontend/main/ipc.ts 注册 ipcMain.handle
  *   4. renderer 通过 window.api.xxx() 调用
  */
 

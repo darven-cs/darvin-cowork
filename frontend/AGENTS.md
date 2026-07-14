@@ -1,83 +1,57 @@
-# frontend/AGENTS.md — React 渲染层专属
+# frontend/AGENTS.md — Electron + React 工作区
+
+> frontend 工作区总入口。本目录由 **electron-vite** 统一编译三层，命令在根 `package.json` 里跑。
 
 ## 技术栈
 
-- React 18 + Vite 8 + TypeScript
+- Electron 43+
+- TypeScript（主进程 + preload + renderer 全 TS）
+- electron-vite 6 beta（dev / build / preview 一体化）
+- React 19 + Vite 8（renderer 层）
 - Tailwind CSS
-- 未来：Redux Toolkit（如需全局状态）
+
+## 三层结构
+
+| 目录        | 职责                                                               | 详细规则             |
+| ----------- | ------------------------------------------------------------------ | -------------------- |
+| `main/`     | Electron 主进程：BrowserWindow、IPC handler、Go 子进程生命周期     | `main/AGENTS.md`     |
+| `preload/`  | 预加载脚本：`contextBridge.exposeInMainWorld('api', ...)` 安全桥接 | `preload/AGENTS.md`  |
+| `renderer/` | React 渲染层：页面、组件、状态、API 调用                           | `renderer/AGENTS.md` |
 
 ## 命令
 
+所有命令在根 `package.json`，**不在** frontend/ 单独跑：
+
 ```bash
-npm run dev              # vite dev server 5175
-npm test                 # vitest run
-npm run test:watch       # vitest
-npm run build            # vite build，输出到 ../electron/dist-react
-npm run lint             # oxlint
+npm run dev      # electron-vite dev frontend（三层统一 HMR + 启 Electron 窗口）
+npm run build    # electron-vite build frontend（产物在 frontend/out/{main,preload,renderer}/）
+npm run preview  # electron-vite preview frontend（跑构建产物）
+npm test         # vitest run --config frontend/renderer/vitest.config.ts
 ```
 
-## 目录约定
+## electron.vite.config.ts
 
-```
-frontend/src/
-├── main.tsx             ← 入口（Vite 默认生成）
-├── App.tsx              ← 顶层组件
-├── pages/               ← 路由级页面
-│   ├── Home.tsx
-│   └── SessionDetail.tsx
-├── components/          ← 跨页面复用组件
-│   ├── PromptInput.tsx
-│   └── MessageBubble.tsx
-├── services/            ← 业务逻辑 + 外部接口封装
-│   ├── cowork.ts        ← 后端 API 调用
-│   └── i18n.ts          ← t() 工具
-├── store/               ← Redux slices（如果引入）
-├── locales/             ← i18n 字典
-│   ├── zh.json
-│   └── en.json
-└── shared/              ← symlink 到 /shared
-```
+**一份配置**管三层（`main` / `preload` / `renderer`），不要在 main/preload/renderer 下各自建 `vite.config.ts`。
 
-## 新增页面
+关键段：
 
-1. 在 `pages/` 下建文件
-2. 在 `App.tsx` 注册路由（如有 react-router）
-3. 涉及后端 → 在 `services/cowork.ts` 加 API 方法
-4. 涉及 IPC → 在 `shared/constants.ts` 加频道名常量
+- `main.plugins`：`externalizeDepsPlugin()`（把 `electron` 等依赖外置）
+- `preload.plugins`：同上
+- `renderer.root`：`'renderer'`
+- `renderer.server.proxy`：dev 期 `/api → http://127.0.0.1:8080`
 
-## 新增组件
+修改配置后跑 `npm run dev` 验证三层都正常。
 
-- 跨多个页面复用 → `components/`
-- 一次性内部用 → 与页面文件同目录
+## 产物
 
-## i18n
+`frontend/out/` 由 electron-vite 生成，**不要入库**（已在 `.gitignore` / `.prettierignore` / `.oxlintrc.json` 的 ignorePatterns）。
 
-**绝不**写硬编码字符串。必须：
-
-```tsx
-import { t } from '@/services/i18n';
-return <button>{t('action.submit')}</button>;
-```
-
-新增 key 时**同时**编辑 `zh.json` 和 `en.json`，缺一个不能 commit。
-
-## 测试
-
-- 工具型组件（纯 props in / JSX out）→ 直接写 Vitest
-- 涉及 hook / fetch → 用 `vi.mock()` mock 外部依赖
-- 文件命名：`*.test.tsx` 与源文件同目录
-- jsdom 默认环境已经够用，不要引 @testing-library 除非真要
-
-## 样式
-
-- 优先 Tailwind utility class
-- 复杂重复样式抽到 `components/ui/` 或本地 className
-- 不用内联 style 除非真的只能用一次
-- 颜色 / 间距用 Tailwind token，不要硬编码 hex
+- `frontend/out/main/index.js` ← 根 `package.json` 的 `main` 字段指向这里
+- `frontend/out/preload/index.js`
+- `frontend/out/renderer/index.html` ← 生产期 Electron `loadFile` 加载
 
 ## 不要做
 
-- 不要把业务逻辑塞进组件，全部走 `services/`
-- 不要在组件里直接 fetch，全部走 `services/`
-- 不要在 `pages/` 里建子目录（直接平铺）
-- 不要改 `vite.config.ts` 的 `base: './'`（保证打包后路径正确）
+- 不要在 `main/` `preload/` `renderer/` 下各自建 `vite.config.ts` / `tsconfig.json`（除已指定的）
+- 不要直接 `npm install` 到 frontend 工作区（依赖在根 `package.json`）
+- 不要在主进程 / preload 里 import 渲染层代码（跨边界）
