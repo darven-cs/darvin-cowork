@@ -3,17 +3,27 @@ import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
-import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
-import { WebpackPlugin } from '@electron-forge/plugin-webpack';
+import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
-
-import { mainConfig } from './webpack.main.config';
-import { rendererConfig } from './webpack.renderer.config';
 
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    // Go agent 二进制随包分发，置于 resources/bin/，不进 asar（spawn 需要可执行权限）
+    extraResources: [
+      {
+        from: 'bin',
+        to: 'bin',
+        filter: (filePath) => {
+          // 仅打包当前平台的二进制，避免 dev 机器把 darwin+linux 全打进去
+          const { platform, arch } = process;
+          const suffix = platform === 'win32' ? '.exe' : '';
+          const name = `darvin-agent-${platform}-${arch}${suffix}`;
+          return filePath.endsWith(name) || filePath.endsWith('.gitkeep');
+        },
+      },
+    ],
   },
   rebuildConfig: {},
   makers: [
@@ -23,25 +33,24 @@ const config: ForgeConfig = {
     new MakerDeb({}),
   ],
   plugins: [
-    new AutoUnpackNativesPlugin({}),
-    new WebpackPlugin({
-      mainConfig,
-      renderer: {
-        config: rendererConfig,
-        entryPoints: [
-          {
-            html: './src/index.html',
-            js: './src/renderer.ts',
-            name: 'main_window',
-            preload: {
-              js: './src/preload.ts',
-            },
-          },
-        ],
-      },
+    new VitePlugin({
+      build: [
+        {
+          entry: 'src/main/index.ts',
+          config: 'vite.main.config.ts',
+        },
+        {
+          entry: 'src/preload/index.ts',
+          config: 'vite.preload.config.ts',
+        },
+      ],
+      renderer: [
+        {
+          name: 'main_window',
+          config: 'vite.renderer.config.ts',
+        },
+      ],
     }),
-    // Fuses are used to enable/disable various Electron functionality
-    // at package time, before code signing the application
     new FusesPlugin({
       version: FuseVersion.V1,
       [FuseV1Options.RunAsNode]: false,
