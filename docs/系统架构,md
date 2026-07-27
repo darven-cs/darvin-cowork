@@ -1,32 +1,55 @@
+# 项目描述
+这是一个工作桌面agent,适用于日常工作,包括创作,数据分析,ppt制作,视频制作,日常文件处理等问题,是个人的贴心助手,配置个人工作流使用
 # 技术选型
-这里使用electron做桌面端
+electron作为桌面开发,golang作为agent runtime去跑(eletron子进程),Vue3是前端页面编写
 
 ## 前端
-React+axios
+
 
 ## 后端
+golang+enio+sqlite
+
+# 项目架构
+主进程
+    |
+    v
+    preload
+    |
+    v
+    渲染进程
+
+主要功能:agent循环,工具调用,记忆系统,skills系统,mcp系统,上下文管理(压缩),模型切换,视频生成
+Darvin-cowork
+├── package.json
+├── tsconfig.json
+├── electron-builder.yml
+├── bin/.gitkeep                          # Go 编译产物落点
+├── scripts/build-go.js
+├── src/
+│   ├── main/
+│   │   ├── main.ts                       # 4 (生命周期 + 启动 RuntimeManager)
+│   │   ├── preload.ts                    # 5
+│   │   └── runtime/
+│   │       ├── manager.ts                # 6
+│   │       └── client.ts                 # (B 部分会细化)
+│   └── renderer/
+│       └── index.html                    # 渲染进程
+|   |__backend
+└── README.md
 
 
 # 初始化项目
-```
-初始化
-npm init -y  
 
-// 创建前端模板
-npm create vite@latest frontend --template react
-cd frontend
-npm install
 
-Oxlint 速度更加快
+# 开发流程
+1.功能文档
+2.定义协议
+3.桌面端开发页面
+4.编写golang运行时
 
-// 初始化后端
-cd backend
-go mod init darvin-cowork
 
-// 
-npm install electron --save-dev
-npm install cross-env --save-dev # 跨平台环境变量
-
-cd electron
-touch main.js 创建进程入口:启动后端->创建窗口加载react页面->关闭窗口杀掉GO进程
-```
+# 项目启动流程
+1.启动主进程
+2.preload
+3.启动golang子进程
+4.启动渲染进程
