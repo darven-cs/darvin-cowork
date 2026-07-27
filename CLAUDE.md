@@ -10,5 +10,4 @@
 ## 三句话总结
 
 1. 这是一个 Electron + Vue3 + Go 桌面应用原型
-2. 改 TS 跑 `npm run lint:changed`，改 Go 跑 `go test ./...`，提交前跑 `npm run check`
-3. 不主动 commit，不主动 broad refactor，不写 `Co-Authored-By`
+2. 不主动 commit，不主动 broad refactor，不写 `Co-Authored-By`
