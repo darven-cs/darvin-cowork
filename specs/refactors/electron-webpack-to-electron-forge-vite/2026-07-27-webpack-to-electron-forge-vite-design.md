@@ -6,7 +6,7 @@
 - 当前项目使用 `electron-forge + webpack` 构建，打包速度慢
 - TypeScript 版本老旧 (~4.5.4)，`baseUrl` 已 deprecated
 - 需要迁移到更现代的 `vite` 构建，保留 electron-forge 的打包分发能力
-- 架构上预留了 Golang Agent 运行时（`docs/系统架构,md`），需要在仓库里建立对应的构建与分发链路
+- 架构上预留了 Golang Agent 运行时（`docs/系统架构.md`），需要在仓库里建立对应的构建与分发链路
 
 ### 1.2 目标
 - 替换构建工具：webpack → vite (`@electron-forge/plugin-vite`)
