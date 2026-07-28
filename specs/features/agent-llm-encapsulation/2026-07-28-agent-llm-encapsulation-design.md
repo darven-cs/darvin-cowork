@@ -79,7 +79,7 @@ type ModelProvider interface {
 }
 ```
 
-`Stream` 返回的 `*StreamingResponse` 暴露 `Events() <-chan StreamEvent` 与 `Err() error` 两个方法。
+`Stream` 返回的 `*StreamingResponse` 暴露 `Events <-chan StreamEvent` 字段（**字段，不是方法**）与 `Err() error` 方法。调用方通过 `for ev := range sr.Events()` 消费事件；`sr.Err()` 在 channel 关闭后返回最后一次错误。
 
 ### FR-2：统一数据类型
 
@@ -91,10 +91,10 @@ type ModelProvider interface {
 - `ToolChoice`：含 `Type("auto"|"any"|"none"|"tool") / Name`
 - `CompletionRequest`：含 `Model / Messages / Temperature / MaxTokens / TopP / TopK / StopSequences / Tools / ToolChoice / System / Stream / Extra`
 - `CompletionResponse`：含 `Model / Content / ToolCalls / FinishReason / Usage`
-- `FinishReason`：`stop / length / tool_calls / content_filter / error`
+- `FinishReason`：`stop / length / tool_calls / content_filter / error`，另在 agent-loop 落地后追加 `aborted`（executor 合成，标识被 Agent.Abort 或 queue.Steer 中断的轮次，**不再由 provider 返回**）
 - `Usage`：`PromptTokens / CompletionTokens / TotalTokens`
 - `ParameterSchema` + `ParameterProperty`：JSON Schema 子集
-- `StreamEvent` 接口：`StartEvent / TextDeltaEvent{Delta} / ToolCallStartEvent{ID,Name} / ToolCallDeltaEvent{ID,Delta} / ToolCallEndEvent{ID,Name,Arguments} / DoneEvent{Response} / ErrorEvent{Err}`
+- `StreamEvent` 接口：`StartEvent{Partial AssistantMessage} / TextDeltaEvent{Delta} / ToolCallStartEvent{ID,Name} / ToolCallDeltaEvent{ID,Delta} / ToolCallEndEvent{ID,Name,Arguments} / DoneEvent{Response CompletionResponse} / ErrorEvent{Err}`
 
 ### FR-3：统一错误类型
 
@@ -237,9 +237,11 @@ internal/agent/
 
 ### 4.2 关键设计决策
 
-#### 4.2.1 流式协议：channel-based `Events()`
+#### 4.2.1 流式协议：channel-based `Events`（**struct 字段**）
 
-`StreamingResponse.Events()` 返回 `<-chan StreamEvent`，调用方 `for ev := range stream.Events()` 消费；`Err()` 在通道关闭后返回最后一次错误。**不**用回调 / `interface{}` / `io.Reader` —— channel + 强类型事件最贴合 Go 习惯，且便于上层 `select` 监听 ctx 取消。
+`StreamingResponse` 暴露 `Events <-chan StreamEvent`（**字段，不是方法**）与 `Err() error`。调用方 `for ev := range sr.Events` 消费；`Err()` 在通道关闭后返回最后一次错误。**不**用回调 / `interface{}` / `io.Reader` —— channel + 强类型事件最贴合 Go 习惯，且便于上层 `select` 监听 ctx 取消。
+
+`StartEvent.Partial AssistantMessage{Model}` 携带流开始时的 model id 占位（供 UI 立即渲染 streaming placeholder；后续 TextDeltaEvent / ToolCallStartEvent 继续填充）。
 
 `DoneEvent` 携带完整的 `CompletionResponse`（含累计 Usage、最终 FinishReason），Agent 主循环拿到后即可结算本轮。
 
@@ -409,7 +411,7 @@ go build ./... && ./bin/darvin-agent-$(go env GOOS)-$(go env GOARCH)
 
 ## 8. 后续 spec 候选（不在本 spec 范围内）
 
-1. `agent-runtime-core`：Agent 主循环、session 管理、tool 注册表（`runtime.go` / `agent.go` / `session.go` / `executor.go`）
+1. `agent-runtime-core`：Agent 主循环、session 管理、tool 注册表（`runtime.go` / `agent.go` / `session.go` / `executor.go`）——已以 `agent-loop` spec 落地，详见同目录 `2026-07-28-agent-loop-design.md`
 2. `openai-provider`：OpenAI Completions / Responses provider 实现 + 跨模型消息转换
 3. `gemini-provider`：Google Gemini provider 实现
 4. `thinking-and-cache`：思考块跨轮次签名、prompt cache key、cache retention 配置
@@ -418,3 +420,87 @@ go build ./... && ./bin/darvin-agent-$(go env GOOS)-$(go env GOARCH)
 7. `context-engine`：上下文组装 + 压缩（DAG / projection）
 
 每个后续 spec 都按本 spec 的接口约定（`ModelProvider` + 统一事件）扩展，不在本 spec 内提前暴露。
+
+---
+
+## 9. 实现偏差与说明（Implementation Notes）
+
+落地时对前述章节做了若干有意偏离，逐条记录，便于后续 spec 引用与回溯。
+
+### 9.1 `StreamingResponse.Events` 是 struct 字段
+
+§FR-1 / §4.2.1 原稿把 `Events` 写成 `<-chan StreamEvent` 的**方法**。实际落地为 struct 字段：
+
+```go
+type StreamingResponse struct {
+    Events <-chan StreamEvent  // 字段
+    err     error
+    body    io.ReadCloser
+}
+```
+
+`Err() error` 仍是方法。同步给出三个 provider 包专用工具函数：
+
+- `NewStreamingResponse(events chan StreamEvent, body io.ReadCloser) *StreamingResponse`：provider 构造时用。
+- `SetErr(err error)`：goroutine 在 channel close 前记录 terminal error，幂等。
+- `Close() error`：释放底层 HTTP body；消费者通常不直接调用（goroutine 退出前会 `body.Close()`）。
+
+### 9.2 `FinishReasonAborted` 由 agent-loop 引入
+
+§FR-2 列出 `stop / length / tool_calls / content_filter / error` 五个常量。`agent-loop` spec 落地时在 `internal/agent/executor/executor.go` 检测 `ctx.Canceled`，把被打断轮次的 assistant 消息打上 `FinishReasonAborted = "aborted"` 写回 Session。该常量加在 `internal/agent/llm/types.go`：
+
+```go
+FinishReasonAborted FinishReason = "aborted"
+// 由 executor 合成，不会由任何 provider 直接返回。
+```
+
+调用方判断被 abort：用 `errors.Is(err, ErrAborted)` 或 `messages[i].StopReason == llm.FinishReasonAborted`。
+
+### 9.3 `Tool.Type` 字段加在 Anthropic 落地期
+
+§FR-2 列出 `Tool{Name, Description, Parameters}` 三字段。Anthropic provider 落地期增加 `Type string`（OpenAI 兼容，默认 `"function"`），为后续接 OpenAI provider 时统一形态。
+
+### 9.4 `HTTPClient.Logger` 是接口注入而非 `*zap.Logger` 直接依赖
+
+§FR-5 写"复用 `internal/logger` 的 logger 打印请求/响应 debug 日志"。实际为避免 llm 包对 zap 的硬依赖，定义了本地最小接口：
+
+```go
+type Logger interface {
+    Debugw(msg string, keysAndValues ...any)
+    Infow(msg string, keysAndValues ...any)
+    Warnw(msg string, keysAndValues ...any)
+    Errorw(msg string, keysAndValues ...any)
+}
+```
+
+`*zap.SugaredLogger` / `*slog.Logger` / agent 自身的 `*logger.Logger` 都隐式满足。nil logger 容忍（logDebug 会短路）。**不**引第三方日志库。
+
+### 9.5 默认错误解析器覆盖 Anthropic / OpenAI / Gemini 三家 envelope
+
+§FR-5 只承诺"返回 `*ProviderError`"。`HTTPClient` 同时落地了 `defaultProviderErrorParser` —— 识别三种 envelope：
+
+- Anthropic：`{"type":"error","error":{"type":"<code>","message":"..."}}`
+- OpenAI：`{"error":{"type":"<code>","message":"..."}}`
+- Google：`{"error":{"code":<int>,"message":"...","status":"..."}}`
+- Generic：`{"message":"..."}`
+
+并提供 `ProviderErrorParser func(statusCode, body)` 接缝供后续 provider 替换。这样后续 `openai-provider` / `gemini-provider` spec 不必重复实现 4xx/5xx 错误码映射。
+
+### 9.6 重试退避表为闭包内 `backoff []time.Duration`
+
+§FR-5 写"指数退避（1s / 2s）"但未指定形态。实际在 `HTTPClient` 构造时把 `[1s, 2s]` 固化入 `backoff []time.Duration` 字段，后续测试或自定义 provider 可通过构造 options 覆盖。
+
+### 9.7 `IsCode(err, code)` 与 `NewProviderError(...)` 辅助
+
+§FR-3 只列 `ProviderError` + `Error/Unwrap`。落地加：
+
+- `IsCode(err error, code string) bool`：用 `errors.As` 取出 `*ProviderError` 后比 `Code`。调用方无须手动类型断言。
+- `NewProviderError(provider, code, message, status, cause)` 工厂：避免 provider 包各自拼装 struct。
+
+### 9.8 `Tool` 字段命名 / `Message.ToolCallID`
+
+§FR-2 写 `Message` 含 `ToolCalls []*ToolCall`（spec 用了指针 `*ToolCall`，但代码用值类型 `[]ToolCall`）。`ToolCallID string` 与 spec 一致。Agent 循环消费侧统一按值类型处理（无 pointer aliasing 顾虑）。
+
+### 9.9 `cmd/llm-smoke` 已被删除
+
+§6 §7 §8 多处提到 `cmd/llm-smoke/main.go` 作为 M1 烟测入口，已被用户在 v0 重构期删除（理由：与 `cmd/app/main.go` 功能重叠且单独入口增加发布复杂度）。spec 文档保留历史描述以便审计，v0 落地后无对应可执行入口。M2 spec（agent-loop）已不引用此烟测。
