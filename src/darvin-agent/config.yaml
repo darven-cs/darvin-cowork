@@ -1,0 +1,15 @@
+app:
+  name: darvin-cowork
+  env: development
+
+database:
+  dsn: ./data.db
+
+log:
+  level: info
+  encoding: console
+  output: stdout
+  filename: ./logs/app.log
+  max_size: 100
+  max_backups: 7
+  max_age: 30
