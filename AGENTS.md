@@ -10,10 +10,11 @@
 
 ## 项目概览
 
-`darvin-cowork` 是一款个人桌面智能助手，原型阶段。架构与近期演进方向如下（见 `docs/系统架构,md`）：
+`darvin-cowork` 是一款个人桌面智能助手，原型阶段。架构与近期演进方向如下（见 `docs/系统架构.md`）：
 
 - **桌面壳**：Electron（`@electron-forge` + `@electron-forge/plugin-vite`）。
-- **渲染层**：当前仍是 `src/renderer` 下的 vanilla TS + HTML 占位（`Hello World!`），后续计划迁移到 Vue3（详见 `docs/系统架构,md` 的“前/后端”段）。
+- **渲染层**：目标栈 Vue3 + Tailwind CSS v4（`@tailwindcss/vite` 插件接入 Vite）；样式统一走 utility class，组件里不写裸 CSS。**当前仍是 vanilla TS + HTML 占位（`Hello World!`）**，按上述栈迁移中（详见 `docs/系统架构.md` 的“前/后端”段）。
+- **AI 产物预览沙箱 (Artifact 渲染器)**：`src/renderer/services/artifact-renderer/`，自建一个 sandboxed iframe 渲染器（参考 Claude.ai Artifacts 形态），用于隔离渲染 AI 生成的 HTML / SVG / Mermaid / React 组件 / 代码块等产物，支持交互；不要把 AI 原始产物直接塞进主页面 DOM。
 - **Agent runtime**：Go 编写的 `darvin-agent`，作为 Electron 主进程的子进程运行（`src/main/runtime/manager.ts` → spawn `bin/darvin-agent-<platform>-<arch>`）。
 - **主进程**：仅负责 Electron 生命周期 + 启动 Go 子进程；业务逻辑（agent 循环、工具调用、记忆、skills、MCP、上下文压缩、模型切换等）全部下放到 Go 运行时。
 - **构建产物打包**：通过 `extraResources` 把 `bin/` 下当前平台的 Go 二进制随 `out/` 资源一起分发，置于 `Resources/bin/`（不进 asar，因为 spawn 需要可执行权限），由 `forge.config.ts` 的 filter 只打当前平台。
@@ -35,7 +36,10 @@ Electron 主进程 (src/main/index.ts)
 
 preload (src/preload/index.ts)   ← 当前为空占位；后续经 contextBridge 暴露给 renderer
 
-renderer (src/renderer/{index.html,index.ts,index.css})   ← 当前 Hello World，后续接入 Vue3
+renderer (src/renderer/)
+    ├─ Vue3 应用 (createApp().mount('#app'))   ← 当前 Hello World 占位，按目标栈迁移
+    ├─ Tailwind CSS v4 (@tailwindcss/vite)     ← 样式统一走 utility class
+    └─ Artifact 渲染器 (services/artifact-renderer/)  ← sandboxed iframe, 隔离 AI 产物
 ```
 
 ## 命令
@@ -126,13 +130,17 @@ npx eslint --ext .ts,.tsx <files>
 
 ### renderer
 
-`src/renderer/` 是 Vite root（`root: 'src/renderer'`，`base: './'` 用于生产相对路径）。当前是 Hello World：
+`src/renderer/` 是 Vite root（`root: 'src/renderer'`，`base: './'` 用于生产相对路径）。目标栈：
+
+- **Vue3**：把 `index.ts` 改为 `createApp(...).mount('#app')` 并在 `index.html` 加挂载点。
+- **Tailwind CSS v4**：通过 `@tailwindcss/vite` 插件接入 `vite.renderer.config.ts`；在 `index.css` 顶部 `@import "tailwindcss";` 即可，不要再单独建 `tailwind.config.js`（v4 走 CSS-based config，需要时再补 `@theme` 块）。样式优先用 utility class；仅在跨组件复用的设计 token（颜色 / 间距 / 字号）才用 `@theme` 抽象。
+- **Artifact 渲染器**：见下文"编码风格"小节关于 `services/artifact-renderer/` 的约束。
+
+当前仍是 Hello World 占位：
 
 - `index.html` 内 `<script type="module" src="./index.ts">` —— 已被 vite 接管。
 - `index.ts` 顶部仍残留 webpack 模板的注释（`loaded by webpack`），属于 `electron-forge-webpack` 模板遗迹，建议清理但与功能无关，**不是阻塞项**。
-- `index.css` 占位。
-
-后续 Vue3 集成：把 `index.ts` 改为 `createApp(...).mount('#app')` 并在 `index.html` 加挂载点。
+- `index.css` 占位（后续 Tailwind 接入后这里就只放 `@import` + 少量全局样式）。
 
 ### Go agent
 
@@ -180,6 +188,8 @@ export type AgentChannel = typeof AgentChannel[keyof typeof AgentChannel];
 - 文件命名沿用 Vite 默认（保留现有 `index.ts`），新模块按职责拆 `PascalCase` 组件 / `camelCase` 工具函数。
 - 业务逻辑保持在 `src/main/libs/`、`src/main/runtime/`、`src/darvin-agent/` 等模块中，不要塞进 UI 组件。
 - 优先使用现有模式与本地 helper，不要为了新加一个功能造新抽象。
+- **样式 (Tailwind CSS v4)**：组件内优先用 utility class，**不要写裸 `<style>` 或组件级 CSS 文件**（除 `index.css` 的 `@import "tailwindcss"` + 极少量全局 reset / 字体外）。跨组件复用的设计 token 走 `@theme` 块，不要散落成 magic value。新增交互态/动效用 Tailwind 自带的 `hover:` / `focus:` / `dark:` 等变体，不要为单个 hover 写新 CSS。
+- **Artifact 渲染器 (`src/renderer/services/artifact-renderer/`)**：AI 生成的产物（HTML / SVG / Mermaid / React / 代码块）**一律走 sandboxed iframe**，iframe 必须 `sandbox="allow-scripts"` 起跳、按需 `allow-same-origin`（仅在需要 DOM API 时打开），不与主页面共享 DOM。渲染器对外只暴露受控 API（`mount(artifact, container)` / `update(payload)` / `destroy()`），不把 iframe `contentWindow` 直接透出。产物源（来自 Go agent 的 IPC payload）须按类型分派（html / react / mermaid / svg / code），不要 `innerHTML` 注入主页面。
 
 ## 遗留问题与小文件
 
@@ -208,7 +218,7 @@ chore: drop stale webpack templates from .bak
 ## 实践指导
 
 - 优先用 `rg` 搜索；`Glob` / `Grep` 工具已就绪。
-- 在动手前对照 `package.json` / `docs/系统架构,md` / 迁移 spec 验证历史叙述；老 spec 中的数字 / 路径可能在迁移后已变化。
+- 在动手前对照 `package.json` / `docs/系统架构.md` / 迁移 spec 验证历史叙述；老 spec 中的数字 / 路径可能在迁移后已变化。
 - 忽略与 `package.json`、`forge.config.ts`、`vite.*.config.ts`、`src/main` 冲突的过时文档。
 - **不要编辑打包产物**（`.vite/build/`、`out/`、`node_modules/`）和生成的 `bin/darvin-agent-*` 二进制，除非任务就是打包 / 运行时生成。
 - 保持改动聚焦；修 bug 时不要做机会性重构。
