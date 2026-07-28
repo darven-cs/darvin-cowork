@@ -92,3 +92,8 @@ typings/
 out/
 
 .claude
+
+# Go
+*.db
+go.work
+go.work.sum
