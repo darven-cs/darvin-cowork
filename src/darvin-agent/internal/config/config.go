@@ -8,6 +8,7 @@ type Config struct {
 	App      AppConfig      `mapstructure:"app"`
 	Database DatabaseConfig `mapstructure:"database"`
 	Log      LogConfig      `mapstructure:"log"`
+	LLM      LLMConfig      `mapstructure:"llm"`
 }
 
 type AppConfig struct {
@@ -27,6 +28,15 @@ type LogConfig struct {
 	MaxSize    int    `mapstructure:"max_size"`
 	MaxBackups int    `mapstructure:"max_backups"`
 	MaxAge     int    `mapstructure:"max_age"`
+}
+
+// LLMConfig is the model-provider configuration block consumed by
+// internal/agent/llm.ProviderConfig. The provider name is matched against
+// the registered factories in the llm package.
+type LLMConfig struct {
+	Provider string `mapstructure:"provider"`
+	APIKey   string `mapstructure:"api_key"`
+	BaseURL  string `mapstructure:"base_url"`
 }
 
 var globalConfig *Config

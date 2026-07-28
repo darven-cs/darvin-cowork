@@ -13,3 +13,8 @@ log:
   max_size: 100
   max_backups: 7
   max_age: 30
+
+llm:
+  provider: anthropic
+  api_key: ""
+  base_url: ""
