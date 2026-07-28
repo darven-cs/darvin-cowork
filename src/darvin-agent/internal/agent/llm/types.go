@@ -53,10 +53,10 @@ type ParameterSchema struct {
 
 // ParameterProperty describes a single property inside ParameterSchema.
 type ParameterProperty struct {
-	Type        string      `json:"type"`
-	Description string      `json:"description,omitempty"`
-	Enum        []any       `json:"enum,omitempty"`
-	Default     any         `json:"default,omitempty"`
+	Type        string `json:"type"`
+	Description string `json:"description,omitempty"`
+	Enum        []any  `json:"enum,omitempty"`
+	Default     any    `json:"default,omitempty"`
 }
 
 // ToolChoice instructs the model on how (or whether) to use tools.
@@ -101,11 +101,11 @@ type CompletionRequest struct {
 // carries one entry per invocation. FinishReason signals the terminating
 // condition (normal / length / tool_use / content_filter / error).
 type CompletionResponse struct {
-	Model       string
-	Content     string
-	ToolCalls   []ToolCall
+	Model        string
+	Content      string
+	ToolCalls    []ToolCall
 	FinishReason FinishReason
-	Usage       Usage
+	Usage        Usage
 }
 
 // ToolCall is a single model-emitted function invocation.
@@ -124,6 +124,10 @@ const (
 	FinishReasonToolCalls     FinishReason = "tool_calls"
 	FinishReasonContentFilter FinishReason = "content_filter"
 	FinishReasonError         FinishReason = "error"
+	// FinishReasonAborted signals a turn cut short by ctx cancellation
+	// (e.g. Agent.Abort or queue.Steer). Synthesised by the executor layer,
+	// never returned by providers directly.
+	FinishReasonAborted FinishReason = "aborted"
 )
 
 // Usage is the minimal token accounting shared by every provider.

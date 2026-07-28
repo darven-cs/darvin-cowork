@@ -71,13 +71,13 @@ func TestMapAnthropicCode(t *testing.T) {
 
 func TestMapHTTPStatus(t *testing.T) {
 	cases := map[int]string{
-		http.StatusUnauthorized:    ErrCodeAuth,
-		http.StatusForbidden:       ErrCodeAuth,
-		http.StatusTooManyRequests: ErrCodeRateLimit,
-		http.StatusBadRequest:      ErrCodeInvalidRequest,
+		http.StatusUnauthorized:        ErrCodeAuth,
+		http.StatusForbidden:           ErrCodeAuth,
+		http.StatusTooManyRequests:     ErrCodeRateLimit,
+		http.StatusBadRequest:          ErrCodeInvalidRequest,
 		http.StatusUnprocessableEntity: ErrCodeInvalidRequest,
 		http.StatusInternalServerError: ErrCodeInternal,
-		http.StatusBadGateway:         ErrCodeInternal,
+		http.StatusBadGateway:          ErrCodeInternal,
 	}
 	for status, want := range cases {
 		if got := mapHTTPStatus(status); got != want {
@@ -117,9 +117,9 @@ func TestTruncate(t *testing.T) {
 
 func TestRedactSecrets(t *testing.T) {
 	in := map[string]string{
-		"x-api-key":      "sk-ant-secret",
-		"Authorization":  "Bearer xyz",
-		"content-type":   "application/json",
+		"x-api-key":         "sk-ant-secret",
+		"Authorization":     "Bearer xyz",
+		"content-type":      "application/json",
 		"anthropic-version": "2023-06-01",
 	}
 	out := redactSecrets(in)

@@ -9,6 +9,7 @@ type Config struct {
 	Database DatabaseConfig `mapstructure:"database"`
 	Log      LogConfig      `mapstructure:"log"`
 	LLM      LLMConfig      `mapstructure:"llm"`
+	Agent    AgentConfig    `mapstructure:"agent"`
 }
 
 type AppConfig struct {
@@ -37,6 +38,23 @@ type LLMConfig struct {
 	Provider string `mapstructure:"provider"`
 	APIKey   string `mapstructure:"api_key"`
 	BaseURL  string `mapstructure:"base_url"`
+}
+
+// AgentConfig is the runtime configuration for the agent.Agent itself.
+// MaxTurns caps how many LLM/tool iterations one user prompt may produce
+// before the executor gives up. ToolTimeout bounds each tool invocation;
+// Workdir anchors the file/shell tool sandbox; ShellAllowlist restricts
+// shell commands; EventBuffer is the per-subscriber channel size on the
+// event bus.
+type AgentConfig struct {
+	MaxTurns       int      `mapstructure:"max_turns"`
+	ToolTimeoutMS  int      `mapstructure:"tool_timeout_ms"`
+	Workdir        string   `mapstructure:"workdir"`
+	ShellAllowlist []string `mapstructure:"shell_allowlist"`
+	EventBuffer    int      `mapstructure:"event_buffer"`
+	ProviderName   string   `mapstructure:"provider_name"`
+	Model          string   `mapstructure:"model"`
+	Instructions   string   `mapstructure:"instructions"`
 }
 
 var globalConfig *Config

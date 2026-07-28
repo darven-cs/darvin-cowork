@@ -18,3 +18,43 @@ llm:
   provider: anthropic
   api_key: ""
   base_url: ""
+
+agent:
+  max_turns: 25
+  tool_timeout_ms: 30000
+  workdir: "."
+  shell_allowlist:
+    - ls
+    - cat
+    - pwd
+    - echo
+    - grep
+    - head
+    - tail
+    - wc
+    - find
+    - tree
+    - git
+    - go
+    - npm
+    - node
+    - python
+    - python3
+    - mkdir
+    - cp
+    - mv
+    - touch
+    - rm
+    - rmdir
+    - chmod
+    - curl
+    - jq
+    - sed
+    - awk
+    - tar
+    - unzip
+    - date
+  event_buffer: 64
+  provider_name: anthropic
+  model: claude-sonnet-4-5
+  instructions: ""

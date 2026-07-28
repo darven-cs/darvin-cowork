@@ -1,0 +1,222 @@
+// Package executor owns the single-turn LLM call + tool dispatch logic.
+// The agent root package feeds it via the Deps interface; this package does
+// not import the agent root (avoiding a cycle: agent -> executor -> agent).
+package executor
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"darvin-cowork/backend/internal/agent/event"
+	"darvin-cowork/backend/internal/agent/llm"
+	"darvin-cowork/backend/internal/agent/session"
+	"darvin-cowork/backend/internal/agent/tool"
+)
+
+// ErrMaxTurns is returned by RunConversation when the loop reaches the
+// configured MaxTurns cap without reaching a natural stop reason. Callers
+// should treat this as a normal termination path (no AgentErrorEvent), not
+// a crash. Lives in the executor package (rather than the agent root) to
+// avoid an agent <-> executor import cycle — dispatcher's Run forwards
+// this error upward unchanged via errors.Is.
+var ErrMaxTurns = errors.New("executor: max turns exceeded")
+
+// Config is the subset of agent configuration the executor needs.
+type Config struct {
+	MaxTurns    int
+	ToolTimeout time.Duration
+}
+
+// Deps is the surface of agent.Agent the executor consumes. The agent root
+// package satisfies this implicitly.
+type Deps interface {
+	Session() *session.Session
+	Tools() *tool.Registry
+	Provider() llm.ModelProvider
+	ModelName() string
+	Instructions() string
+	Emit(event.Event)
+	Config() Config
+}
+
+// Executor runs one "user message -> possibly many turns -> natural stop"
+// sequence. Implementations must respect ctx cancellation.
+type Executor interface {
+	RunConversation(ctx context.Context, d Deps) error
+}
+
+// New constructs the default in-process executor.
+func New() Executor { return &defaultExecutor{} }
+
+type defaultExecutor struct{}
+
+func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	cfg := d.Config()
+	var totalUsage llm.Usage
+	for turnIndex := 1; turnIndex <= cfg.MaxTurns; turnIndex++ {
+		turnID := newTurnID()
+		d.Emit(event.TurnStartEvent{TurnID: turnID, TurnIndex: turnIndex})
+
+		// 1. assemble messages (TODO(spec: future-context-engine): replace
+		//    with ContextEngine.Assemble once internal/agent/ctxengine/ lands).
+		messages := d.Session().Messages()
+
+		// 2. LLM call
+		d.Emit(event.LLMStartEvent{Model: d.ModelName()})
+		req := &llm.CompletionRequest{
+			Model:      d.ModelName(),
+			Messages:   messages,
+			Tools:      d.Tools().Specs(),
+			ToolChoice: llm.ToolChoice{Type: "auto"},
+			System:     d.Instructions(),
+			Stream:     true,
+			MaxTokens:  4096,
+		}
+		stream, err := d.Provider().Stream(ctx, req)
+		if err != nil {
+			return fmt.Errorf("executor: stream: %w", err)
+		}
+
+		// 3. accumulate assistant message
+		var text string
+		var toolCalls []llm.ToolCall
+		streamErr := drainStream(ctx, d, stream, &text, &toolCalls)
+		if streamErr != nil {
+			if streamErr == context.Canceled || ctx.Err() != nil {
+				assistant := llm.Message{Role: llm.RoleAssistant, Content: text, ToolCalls: toolCalls}
+				d.Session().Append(assistant)
+				d.Emit(event.TurnEndEvent{TurnIndex: turnIndex, StopReason: llm.FinishReasonAborted})
+				return context.Canceled
+			}
+			return streamErr
+		}
+		assistant := llm.Message{Role: llm.RoleAssistant, Content: text, ToolCalls: toolCalls}
+		d.Session().Append(assistant)
+		d.Emit(event.LLMEndEvent{Assistant: assistant, Usage: totalUsage})
+
+		// 4. decide next step
+		if len(toolCalls) == 0 {
+			d.Emit(event.TurnEndEvent{TurnIndex: turnIndex, StopReason: llm.FinishReasonStop})
+			return nil
+		}
+
+		// 5. run tools in parallel
+		results := e.runToolsParallel(ctx, d, turnID, toolCalls)
+
+		// 6. append tool result messages in original order
+		for i, tc := range toolCalls {
+			d.Session().Append(llm.Message{
+				Role:       llm.RoleTool,
+				Content:    results[i].Content,
+				ToolCallID: tc.ID,
+			})
+		}
+		d.Emit(event.TurnEndEvent{TurnIndex: turnIndex, StopReason: llm.FinishReasonToolCalls})
+	}
+	return fmt.Errorf("%w (limit: %d)", ErrMaxTurns, cfg.MaxTurns)
+}
+
+// drainStream consumes ev from stream.Events, accumulating text / tool
+// calls and emitting passthrough events. Returns the stream's terminal
+// error (nil on clean DoneEvent) or context.Canceled if ctx fires.
+func drainStream(ctx context.Context, d Deps, stream *llm.StreamingResponse, textOut *string, callsOut *[]llm.ToolCall) error {
+	for ev := range stream.Events {
+		switch e := ev.(type) {
+		case llm.StartEvent:
+			// nothing to do — already emitted LLMStartEvent
+		case llm.TextDeltaEvent:
+			*textOut += e.Delta
+			d.Emit(event.TextDeltaEvent{Delta: e.Delta})
+		case llm.ToolCallStartEvent:
+			// we accumulate via End event; nothing here
+		case llm.ToolCallDeltaEvent:
+			// no-op: provider delivers parsed Arguments in End
+		case llm.ToolCallEndEvent:
+			*callsOut = append(*callsOut, llm.ToolCall{
+				ID:        e.ID,
+				Name:      e.Name,
+				Arguments: e.Arguments,
+			})
+		case llm.DoneEvent:
+			return nil
+		case llm.ErrorEvent:
+			if ctx.Err() != nil {
+				return context.Canceled
+			}
+			if err := stream.Err(); err != nil {
+				return err
+			}
+			return fmt.Errorf("executor: stream error event")
+		}
+	}
+	// channel closed without DoneEvent — likely ctx cancel
+	if ctx.Err() != nil {
+		return context.Canceled
+	}
+	if err := stream.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, turnID string, calls []llm.ToolCall) []tool.Result {
+	results := make([]tool.Result, len(calls))
+	var wg sync.WaitGroup
+	for i, c := range calls {
+		wg.Add(1)
+		go func(i int, c llm.ToolCall) {
+			defer wg.Done()
+			d.Emit(event.ToolStartEvent{
+				TurnID:    turnID,
+				CallID:    c.ID,
+				Name:      c.Name,
+				Arguments: c.Arguments,
+			})
+			tctx, cancel := context.WithTimeout(ctx, d.Config().ToolTimeout)
+			defer cancel()
+			start := time.Now()
+			results[i] = executeOneTool(tctx, d, c)
+			d.Emit(event.ToolEndEvent{
+				CallID: c.ID,
+				Result: event.ToolResult{
+					Content:  results[i].Content,
+					IsError:  results[i].IsError,
+					Metadata: results[i].Metadata,
+				},
+				DurationMS: time.Since(start).Milliseconds(),
+			})
+		}(i, c)
+	}
+	wg.Wait()
+	return results
+}
+
+func executeOneTool(ctx context.Context, d Deps, c llm.ToolCall) (res tool.Result) {
+	t := d.Tools().Get(c.Name)
+	if t == nil {
+		return tool.Result{IsError: true, Content: fmt.Sprintf("tool not found: %s", c.Name)}
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			res = tool.Result{IsError: true, Content: fmt.Sprintf("tool %q panicked: %v", c.Name, r)}
+		}
+	}()
+	// per-tool timeout lives in the goroutine; here we just respect ctx.
+	return t.Execute(ctx, c.Arguments)
+}
+
+func newTurnID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("turn-%d", time.Now().UnixNano())
+	}
+	return "turn-" + hex.EncodeToString(b[:])
+}

@@ -34,9 +34,9 @@ func buildRequest(req *llm.CompletionRequest, stream bool) (map[string]any, erro
 	}
 
 	out := map[string]any{
-		"model":      req.Model,
-		"messages":   convertMessages(req.Messages),
-		"stream":     stream,
+		"model":    req.Model,
+		"messages": convertMessages(req.Messages),
+		"stream":   stream,
 	}
 
 	if req.MaxTokens > 0 {
@@ -203,7 +203,7 @@ func parseResponse(body []byte) (*llm.CompletionResponse, error) {
 	}
 
 	resp := &llm.CompletionResponse{
-		Model:       raw.Model,
+		Model:        raw.Model,
 		FinishReason: mapStopReason(raw.StopReason),
 		Usage: llm.Usage{
 			PromptTokens:     raw.Usage.InputTokens,

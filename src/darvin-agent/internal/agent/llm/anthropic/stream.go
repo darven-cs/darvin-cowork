@@ -19,14 +19,14 @@ import (
 type streamEventName string
 
 const (
-	evMessageStart       streamEventName = "message_start"
-	evContentBlockStart  streamEventName = "content_block_start"
-	evContentBlockDelta  streamEventName = "content_block_delta"
-	evContentBlockStop   streamEventName = "content_block_stop"
-	evMessageDelta       streamEventName = "message_delta"
-	evMessageStop        streamEventName = "message_stop"
-	evPing               streamEventName = "ping"
-	evError              streamEventName = "error"
+	evMessageStart      streamEventName = "message_start"
+	evContentBlockStart streamEventName = "content_block_start"
+	evContentBlockDelta streamEventName = "content_block_delta"
+	evContentBlockStop  streamEventName = "content_block_stop"
+	evMessageDelta      streamEventName = "message_delta"
+	evMessageStop       streamEventName = "message_stop"
+	evPing              streamEventName = "ping"
+	evError             streamEventName = "error"
 )
 
 // toolAccum tracks the per-index tool_use state during streaming so we can
@@ -86,26 +86,26 @@ func openStream(
 //
 // State machine (per Anthropic SSE spec):
 //
-//   message_start       → StartEvent + initial model / usage snapshot
-//   content_block_start → ToolCallStartEvent (tool_use) | noop (text)
-//   content_block_delta → TextDeltaEvent | ToolCallDeltaEvent
-//   content_block_stop  → ToolCallEndEvent (final JSON parsed)
-//   message_delta       → captures final stop_reason / usage
-//   message_stop        → DoneEvent (final)
-//   error               → ErrorEvent
-//   ping                → ignored
+//	message_start       → StartEvent + initial model / usage snapshot
+//	content_block_start → ToolCallStartEvent (tool_use) | noop (text)
+//	content_block_delta → TextDeltaEvent | ToolCallDeltaEvent
+//	content_block_stop  → ToolCallEndEvent (final JSON parsed)
+//	message_delta       → captures final stop_reason / usage
+//	message_stop        → DoneEvent (final)
+//	error               → ErrorEvent
+//	ping                → ignored
 func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, model string) error {
 	// Pre-allocate the index → tool buffer.
 	var (
-		mu              sync.Mutex
-		toolBuf         = map[int]*toolAccum{}
-		textIndex       = -1
-		stopReason      string
-		usage           llm.Usage
-		respModel       = model
-		startEmitted    bool
-		partialContent  strings.Builder
-		collectedCalls  []llm.ToolCall
+		mu             sync.Mutex
+		toolBuf        = map[int]*toolAccum{}
+		textIndex      = -1
+		stopReason     string
+		usage          llm.Usage
+		respModel      = model
+		startEmitted   bool
+		partialContent strings.Builder
+		collectedCalls []llm.ToolCall
 	)
 
 	scanner := bufio.NewScanner(r)
@@ -129,16 +129,16 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 		}()
 		raw := dataBuf.String()
 		err := dispatch(eventName, raw, &dispatchState{
-			model:         model,
-			respModel:     &respModel,
-			usage:         &usage,
-			stopReason:    &stopReason,
-			toolBuf:       toolBuf,
-			textIndex:     &textIndex,
-			startEmitted:  &startEmitted,
-			partial:       &partialContent,
-			collected:     &collectedCalls,
-			out:           out,
+			model:        model,
+			respModel:    &respModel,
+			usage:        &usage,
+			stopReason:   &stopReason,
+			toolBuf:      toolBuf,
+			textIndex:    &textIndex,
+			startEmitted: &startEmitted,
+			partial:      &partialContent,
+			collected:    &collectedCalls,
+			out:          out,
 		})
 		return err
 	}
@@ -277,8 +277,8 @@ func dispatch(name streamEventName, raw string, st *dispatchState) error {
 		return nil
 	case evContentBlockStart:
 		var blk struct {
-			Index    int `json:"index"`
-			BlockType string `json:"type"`
+			Index        int    `json:"index"`
+			BlockType    string `json:"type"`
 			ContentBlock struct {
 				Type string `json:"type"`
 				ID   string `json:"id"`
