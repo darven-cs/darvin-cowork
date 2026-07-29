@@ -36,7 +36,7 @@
     <div class="mx-1 h-3.5 w-px bg-border" />
 
     <!-- Mic -->
-    <MicButton :aria-label="ariaMic" @click="$emit('mic')" />
+    <MicButton :ariaLabel="ariaMic" @click="$emit('mic')" />
   </div>
 </template>
 
