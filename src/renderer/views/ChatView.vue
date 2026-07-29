@@ -7,6 +7,15 @@
     />
     <MessageList />
     <Composer ref="composerRef" :busy="busy" @send="handleSend" />
+    <!-- 输入框下方的工具条：plus / grid / model / mic -->
+    <div class="px-6 pb-4">
+      <PromptToolbar
+        @plus="onPlus"
+        @grid="onGrid"
+        @model="onModel"
+        @mic="onMic"
+      />
+    </div>
   </div>
 </template>
 
@@ -15,6 +24,7 @@ import { ref } from 'vue';
 import ChatHeader from '../components/chat/ChatHeader.vue';
 import MessageList from '../components/chat/MessageList.vue';
 import Composer from '../components/chat/Composer.vue';
+import PromptToolbar from '../components/home/PromptToolbar.vue';
 import { useChatActions } from '../composables/useChatActions';
 
 defineProps<{ sidePanelOpen: boolean }>();
@@ -28,4 +38,10 @@ async function handleSend(content: string) {
   await chatActions.send(content, busy);
   composerRef.value?.focus();
 }
+
+// PR-3 stubs
+function onPlus()  { /* TODO: open PlusMenu */ }
+function onGrid()  { /* TODO: open ExpertSuite */ }
+function onModel() { /* TODO: open ModelPicker dropdown */ }
+function onMic()   { /* TODO: start voice input */ }
 </script>

@@ -1,35 +1,30 @@
 <template>
   <div class="px-6 pb-6 pt-2">
     <div
-      class="mx-auto flex w-full max-w-[720px] flex-col gap-2 rounded-xl border border-border bg-surface-2 px-4 py-3 transition-colors focus-within:border-border-strong"
+      class="mx-auto flex w-full max-w-[720px] flex-col gap-3 rounded-xl border border-border bg-surface-2 px-4 py-3 transition-colors focus-within:border-border-strong"
     >
-      <!-- 工具条（顶部） -->
+      <!-- textarea + send -->
+      <div class="flex items-end gap-2">
+        <textarea
+          ref="textareaRef"
+          v-model="text"
+          :placeholder="t('home.prompt.placeholder')"
+          :disabled="busy"
+          rows="1"
+          class="flex-1 resize-none bg-transparent font-sans text-[14.5px] leading-relaxed text-text outline-none placeholder:text-text-subtle disabled:opacity-50"
+          @input="autoGrow"
+          @keydown="onKeydown"
+        />
+        <SendButton :can-send="canSend" @click="emitSend" />
+      </div>
+
+      <!-- 工具条（输入框下方） -->
       <PromptToolbar
         @plus="onPlus"
         @grid="onGrid"
         @model="onModel"
         @mic="onMic"
       />
-
-      <!-- 分隔 -->
-      <div class="h-px w-full bg-border" />
-
-      <!-- textarea -->
-      <textarea
-        ref="textareaRef"
-        v-model="text"
-        :placeholder="t('home.prompt.placeholder')"
-        :disabled="busy"
-        rows="1"
-        class="w-full resize-none bg-transparent font-sans text-[14.5px] leading-relaxed text-text outline-none placeholder:text-text-subtle disabled:opacity-50"
-        @input="autoGrow"
-        @keydown="onKeydown"
-      />
-
-      <!-- 底栏：字符计数 + send -->
-      <div class="flex items-center justify-end">
-        <SendButton :can-send="canSend" @click="emitSend" />
-      </div>
     </div>
     <p class="mx-auto mt-1.5 w-full max-w-[720px] text-center font-sans text-[11px] text-text-subtle">
       {{ t('home.disclaimer') }}
