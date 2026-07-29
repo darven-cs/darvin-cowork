@@ -12,6 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"darvin-cowork/backend/internal/agent/ctxengine"
 	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/executor"
 	"darvin-cowork/backend/internal/agent/llm"
@@ -29,12 +30,36 @@ type ModelRef struct {
 }
 
 // Config is the runtime configuration for an Agent.
+//
+// The fields below MaxTurns/EventBuffer are agent-runtime knobs; the
+// ContextEngine block (TokenBudget … SystemPromptAddition) is forwarded
+// to the auto-constructed DefaultAssembler at New() time. AssemblerEnabled
+// is the post-construction flag: zero means disabled (executor takes the
+// legacy d.Session().Messages() fallback); true means the executor
+// dispatches prompt construction through the assembler.
+//
+// Note on the cfg.yaml front-end: that layer maps the YAML key
+// `assembler_enabled: true` to AssemblerEnabled: true in the Go struct,
+// and `assembler_enabled: false` (or omitted) to false. In Go code,
+// callers who want the assembler must set AssemblerEnabled: true
+// explicitly — Go's bool zero value maps to "disabled", not "default".
 type Config struct {
 	MaxTurns       int
 	ToolTimeout    time.Duration
 	Workdir        string
 	ShellAllowlist []string
 	EventBuffer    int
+
+	// ContextEngine knobs (mirrors ctxengine.Config subset — spec §FR-12).
+	// Populated from the YAML front-end (cfg.yaml `agent:` section) and
+	// forwarded to ctxengine.NewDefaultAssembler at construction.
+	TokenBudget          int
+	CompactTailKeep      int
+	ToolResultMaxBytes   int
+	CompactMaxRetries    int
+	SummarizeMaxTokens   int
+	SystemPromptAddition string
+	AssemblerEnabled     bool
 }
 
 // NewAgentConfig is the constructor input.
@@ -52,6 +77,17 @@ type NewAgentConfig struct {
 	// Tools is optional. If nil, the 5 built-in tools are auto-registered
 	// (read_file / write_file / edit_file / list_dir / shell).
 	Tools *tool.Registry
+
+	// Assembler is an optional pre-built ContextEngine. When nil, New
+	// constructs a DefaultAssembler from the Config.* fields. Callers who
+	// want a custom engine (e.g. for testing or alternative backends) plug
+	// it in here.
+	Assembler ctxengine.ContextEngine
+	// AssemblerEnabled is the explicit on/off switch for the assembler
+	// pipeline. When false (the zero value), the executor takes the legacy
+	// fallback path even if an assembler was wired. cfg.yaml users get
+	// true by default via the YAML front-end's default.
+	AssemblerEnabled bool
 }
 
 // Agent is the runtime. It is goroutine-safe.
@@ -72,6 +108,22 @@ type Agent struct {
 	runMu    sync.Mutex
 	state    agentState
 	cancelFn context.CancelFunc
+
+	// Assembler field + Deps satisfaction (spec §4.10 — agent-context-engine).
+	// M4: stubs only, returning nil / false so the executor's fallback path is
+	// exercised unchanged. M5 will populate these from NewAgentConfig and the
+	// cfg.yaml front-end.
+	assembler        ctxengine.ContextEngine
+	assemblerEnabled bool
+
+	// lastUsage holds the most recent API-reported llm.Usage. Updated after
+	// every successful LLM turn via RecordUsage (called by the executor);
+	// read by the executor during the next turn's Assemble call so the
+	// ContextEngine can prefer the provider's reported token count over the
+	// local rune/4 estimator. Mutex protects concurrent reads from the
+	// executor loop and writes from drainStream's tail.
+	lastUsageMu sync.RWMutex
+	lastUsage   llm.Usage
 }
 
 // agentState is the lifecycle phase the Agent is in.
@@ -122,7 +174,7 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 	if cfg.Config.EventBuffer <= 0 {
 		cfg.Config.EventBuffer = 64
 	}
-	return &Agent{
+	a := &Agent{
 		name:         cfg.Name,
 		instructions: cfg.Instructions,
 		model:        cfg.Model,
@@ -135,7 +187,29 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		exec:         cfg.Executor,
 		bus:          event.NewBus(),
 		queue:        queue.New(),
-	}, nil
+	}
+
+	// Auto-wire the ContextEngine (spec §4.10 / §6.2). Two paths:
+	//   1. caller-supplied Assembler → use as-is
+	//   2. nil → construct a DefaultAssembler from the Config.* fields
+	// Either way the assembler is always wired so callers can flip
+	// AssemblerEnabled at runtime without rebuilding the engine.
+	if cfg.Assembler != nil {
+		a.assembler = cfg.Assembler
+	} else {
+		a.assembler = ctxengine.NewDefaultAssembler(ctxengine.Config{
+			TokenBudget:          cfg.Config.TokenBudget,
+			CompactTailKeep:      cfg.Config.CompactTailKeep,
+			ToolResultMaxBytes:   cfg.Config.ToolResultMaxBytes,
+			CompactMaxRetries:    cfg.Config.CompactMaxRetries,
+			SummarizeMaxTokens:   cfg.Config.SummarizeMaxTokens,
+			SystemPromptAddition: cfg.Config.SystemPromptAddition,
+			AssemblerEnabled:     cfg.Config.AssemblerEnabled,
+		}, a)
+	}
+	a.assemblerEnabled = cfg.AssemblerEnabled
+
+	return a, nil
 }
 
 // --- executor.Deps implementation ---
@@ -149,9 +223,47 @@ func (a *Agent) Config() executor.Config {
 	return executor.Config{
 		MaxTurns:    a.cfg.MaxTurns,
 		ToolTimeout: a.cfg.ToolTimeout,
+		TokenBudget: a.cfg.TokenBudget,
 	}
 }
+func (a *Agent) Logger() *zap.Logger { return a.logger }
 func (a *Agent) Emit(ev event.Event) { a.bus.Emit(ev) }
+
+// --- M4: ContextEngine seam (executor.Deps) — stubs only; M5 wires them. ---
+
+// Assembler returns the ContextEngine wired into the Agent, or nil if none
+// has been configured. Combined with AssemblerEnabled, this lets the
+// executor opt in / out of assembler-driven prompt construction.
+func (a *Agent) Assembler() ctxengine.ContextEngine { return a.assembler }
+
+// SystemSections returns caller-supplied system prompt sections merged
+// into the assembler's output. v0 returns nil (FR-12 SystemPromptAddition
+// is already covered via cfg → default assembler).
+func (a *Agent) SystemSections() []ctxengine.SystemSection { return nil }
+
+// AssemblerEnabled reports whether the host opted into the assembler
+// pipeline. Returning false forces the executor to take the legacy
+// d.Session().Messages() path; see cfg.AssemblerEnabled in
+// specs/features/agent-context-engine §FR-12.
+func (a *Agent) AssemblerEnabled() bool { return a.assemblerEnabled }
+
+// RecordUsage stores the API-reported Usage from the just-finished turn.
+// Safe to call from the executor goroutine; readers (next turn's Assemble)
+// use LastUsage under the same mutex.
+func (a *Agent) RecordUsage(u llm.Usage) {
+	a.lastUsageMu.Lock()
+	a.lastUsage = u
+	a.lastUsageMu.Unlock()
+}
+
+// LastUsage returns the most recently stored API-reported Usage. Zero value
+// when no turn has completed yet (e.g. before the first LLM call), which
+// the ContextEngine interprets as "fall back to the local estimator".
+func (a *Agent) LastUsage() llm.Usage {
+	a.lastUsageMu.RLock()
+	defer a.lastUsageMu.RUnlock()
+	return a.lastUsage
+}
 
 // --- public API delegates to dispatcher.go ---
 

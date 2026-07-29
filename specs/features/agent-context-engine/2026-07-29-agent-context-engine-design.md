@@ -402,7 +402,7 @@ type AgentConfig struct {
     // ... 已有字段
     TokenBudget          int    `mapstructure:"token_budget"`           // 默认 16000
     CompactTailKeep      int    `mapstructure:"compact_tail_keep"`      // 默认 6
-    ToolResultMaxBytes   int    `mapstructure:"tool_result_max_bytes"`  // 默认 50 KiB = 51200
+    ToolResultMaxBytes   int    `mapstructure:"tool_result_max_bytes"`  // 默认 51200 bytes (≈ 50 KiB)
     CompactMaxRetries    int    `mapstructure:"compact_max_retries"`    // 默认 2
     SummarizeMaxTokens   int    `mapstructure:"summarize_max_tokens"`   // 默认 800
     SystemPromptAddition string `mapstructure:"system_prompt_addition"` // 拼到 system 末尾的固定段
@@ -601,7 +601,7 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
     // step 1: tool result 截断 (FR-7)
     for i, m := range msgs {
         if m.Role != llm.RoleTool { continue }
-        if a.cfg.ToolResultMaxBytes > 0 && len(m.Content) > a.cfg.ToolStatsMaxBytes {
+        if a.cfg.ToolResultMaxBytes > 0 && len(m.Content) > a.cfg.ToolResultMaxBytes {
             // 截断
             originalLen := len(m.Content)
             m.Content = m.Content[:a.cfg.ToolResultMaxBytes] +
@@ -880,7 +880,7 @@ func (a *Agent) SystemSections() []ctxengine.SystemSection {
 // 旧:
 //   messages := d.Session().Messages()
 // 新:
-if d.Assembler() == nil || (d.Config().TokenBudget <= 0 && !a.assemblerEnabled()) {
+if d.Assembler() == nil || (d.Config().TokenBudget <= 0 && !a.cfg.AssemblerEnabled) {
     // 回退路径
     messages = d.Session().Messages()
 } else {

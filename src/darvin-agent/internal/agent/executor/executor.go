@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"darvin-cowork/backend/internal/agent/ctxengine"
 	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/llm"
 	"darvin-cowork/backend/internal/agent/session"
@@ -30,6 +31,10 @@ var ErrMaxTurns = errors.New("executor: max turns exceeded")
 type Config struct {
 	MaxTurns    int
 	ToolTimeout time.Duration
+	// TokenBudget is forwarded to ContextEngine.Assemble as the per-turn
+	// tool-budget cap. When <= 0, Assemble uses the assembler's configured
+	// fallback (or disables Compact if that is also <= 0).
+	TokenBudget int
 }
 
 // Deps is the surface of agent.Agent the executor consumes. The agent root
@@ -42,6 +47,17 @@ type Deps interface {
 	Instructions() string
 	Emit(event.Event)
 	Config() Config
+	// ContextEngine seam (spec §4.10 — agent-context-engine). May return
+	// nil / false to opt out of assembler-driven prompt construction and
+	// fall back to the legacy d.Session().Messages() path.
+	Assembler() ctxengine.ContextEngine
+	SystemSections() []ctxengine.SystemSection
+	AssemblerEnabled() bool
+	// Usage accounting: RecordUsage stores the API-reported Usage for the
+	// just-finished turn; LastUsage returns the most recent Usage so the
+	// ContextEngine can prefer API token counts over the local estimator.
+	RecordUsage(u llm.Usage)
+	LastUsage() llm.Usage
 }
 
 // Executor runs one "user message -> possibly many turns -> natural stop"
@@ -65,9 +81,23 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		turnID := newTurnID()
 		d.Emit(event.TurnStartEvent{TurnID: turnID, TurnIndex: turnIndex})
 
-		// 1. assemble messages (TODO(spec: future-context-engine): replace
-		//    with ContextEngine.Assemble once internal/agent/ctxengine/ lands).
-		messages := d.Session().Messages()
+		// 1. assemble messages via the ContextEngine (fallback to the legacy
+		//    d.Session().Messages() path when the assembler is not wired or
+		//    explicitly disabled — see spec §4.11).
+		var messages []llm.Message
+		assemblerEnabled := d.Assembler() != nil && d.AssemblerEnabled()
+		if !assemblerEnabled {
+			messages = d.Session().Messages()
+		} else {
+			assembled := d.Assembler().Assemble(ctx, ctxengine.AssembleParams{
+				SessionID:      d.Session().ID,
+				Messages:       d.Session().Messages(),
+				ToolBudget:     d.Config().TokenBudget,
+				LastUsage:      d.LastUsage(),
+				SystemSections: d.SystemSections(),
+			})
+			messages = assembled.Messages
+		}
 
 		// 2. LLM call
 		d.Emit(event.LLMStartEvent{Model: d.ModelName()})
@@ -88,7 +118,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		// 3. accumulate assistant message
 		var text string
 		var toolCalls []llm.ToolCall
-		streamErr := drainStream(ctx, d, stream, &text, &toolCalls)
+		turnUsage, streamErr := drainStream(ctx, d, stream, &text, &toolCalls)
 		if streamErr != nil {
 			if streamErr == context.Canceled || ctx.Err() != nil {
 				assistant := llm.Message{Role: llm.RoleAssistant, Content: text, ToolCalls: toolCalls}
@@ -98,6 +128,13 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 			}
 			return streamErr
 		}
+		// publish the API-reported usage so subsequent assembles can prefer
+		// it over the rune/4 estimator, and so the LLMEndEvent payload carries
+		// the real cumulative cost (prior version always emitted zero).
+		d.RecordUsage(turnUsage)
+		totalUsage.PromptTokens += turnUsage.PromptTokens
+		totalUsage.CompletionTokens += turnUsage.CompletionTokens
+		totalUsage.TotalTokens += turnUsage.TotalTokens
 		assistant := llm.Message{Role: llm.RoleAssistant, Content: text, ToolCalls: toolCalls}
 		d.Session().Append(assistant)
 		d.Emit(event.LLMEndEvent{Assistant: assistant, Usage: totalUsage})
@@ -125,9 +162,11 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 }
 
 // drainStream consumes ev from stream.Events, accumulating text / tool
-// calls and emitting passthrough events. Returns the stream's terminal
-// error (nil on clean DoneEvent) or context.Canceled if ctx fires.
-func drainStream(ctx context.Context, d Deps, stream *llm.StreamingResponse, textOut *string, callsOut *[]llm.ToolCall) error {
+// calls and emitting passthrough events. Returns the API-reported Usage
+// from the terminal DoneEvent (zero value if the stream ended without a
+// DoneEvent — e.g. context cancellation) and the stream's terminal error
+// (nil on clean DoneEvent or context.Canceled if ctx fires).
+func drainStream(ctx context.Context, d Deps, stream *llm.StreamingResponse, textOut *string, callsOut *[]llm.ToolCall) (llm.Usage, error) {
 	for ev := range stream.Events {
 		switch e := ev.(type) {
 		case llm.StartEvent:
@@ -146,25 +185,25 @@ func drainStream(ctx context.Context, d Deps, stream *llm.StreamingResponse, tex
 				Arguments: e.Arguments,
 			})
 		case llm.DoneEvent:
-			return nil
+			return e.Response.Usage, nil
 		case llm.ErrorEvent:
 			if ctx.Err() != nil {
-				return context.Canceled
+				return llm.Usage{}, context.Canceled
 			}
 			if err := stream.Err(); err != nil {
-				return err
+				return llm.Usage{}, err
 			}
-			return fmt.Errorf("executor: stream error event")
+			return llm.Usage{}, fmt.Errorf("executor: stream error event")
 		}
 	}
 	// channel closed without DoneEvent — likely ctx cancel
 	if ctx.Err() != nil {
-		return context.Canceled
+		return llm.Usage{}, context.Canceled
 	}
 	if err := stream.Err(); err != nil {
-		return err
+		return llm.Usage{}, err
 	}
-	return nil
+	return llm.Usage{}, nil
 }
 
 func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, turnID string, calls []llm.ToolCall) []tool.Result {
