@@ -6,9 +6,9 @@ import (
 )
 
 // ErrNotImplementedInV0 is returned by ContextEngine methods that are
-// reserved for future milestones but exposed as interface seams (so the
+// exposed as interface seams but have no implementation yet (so the
 // interface signature stays stable across spec iterations).
-var ErrNotImplementedInV0 = errors.New("ctxengine: not implemented in v0 (TODO seam)")
+var ErrNotImplementedInV0 = errors.New("ctxengine: not implemented (TODO seam)")
 
 // ErrSubAgentUnsupported wraps ErrNotImplementedInV0 with a sub-agent tag
 // so callers can disambiguate via errors.Is.

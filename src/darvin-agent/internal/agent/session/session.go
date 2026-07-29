@@ -1,7 +1,6 @@
 // Package session holds the in-memory conversation history for one Agent
-// run. The current milestone keeps everything in RAM; the SessionStore
-// interface in the store package defines how this gets persisted (memory
-// now, SQLite in a future spec).
+// run. The SessionStore interface in the store package defines how this
+// gets persisted (in-memory today; SQLite-backed implementation is in store/).
 package session
 
 import (

@@ -1,9 +1,9 @@
 // Package llm defines the unified LLM client contract for darvin-agent.
 //
 // It exposes a single ModelProvider interface that abstracts the differences
-// between Anthropic, OpenAI, Gemini and future providers. Higher layers
-// (Agent loop, Context engine, Skills, MCP) consume this contract only and
-// never touch provider-specific HTTP / SSE shapes.
+// between Anthropic, OpenAI and Gemini. Higher layers (Agent loop, Context
+// engine, Skills, MCP) consume this contract only and never touch
+// provider-specific HTTP / SSE shapes.
 package llm
 
 // Role identifies the author of a Message in a conversation.
@@ -135,4 +135,76 @@ type Usage struct {
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
+
+	CacheReadTokens    int
+	CacheWriteTokens   int
+	CacheWrite1hTokens int
+}
+
+// APIKind names the wire protocol a ModelDescriptor is bound to. Used to
+// pick buildRequest / parseResponse / stream parsing at provider boundary.
+type APIKind string
+
+const (
+	APIAnthropicMessages  APIKind = "anthropic-messages"
+	APIOpenAICompletions  APIKind = "openai-completions"
+	APIGeminiGenerativeAI APIKind = "google-generative-ai"
+)
+
+// InputModality enumerates the input shapes a model can ingest.
+type InputModality string
+
+const (
+	InputText  InputModality = "text"
+	InputImage InputModality = "image"
+)
+
+// ThinkingLevel is the unified reasoning-effort level accepted by every
+// provider. Providers map it to their native field (budget_tokens,
+// reasoning_effort, thinkingBudget) under the hood.
+type ThinkingLevel string
+
+const (
+	ThinkingOff    ThinkingLevel = "off"
+	ThinkingLow    ThinkingLevel = "low"
+	ThinkingMedium ThinkingLevel = "medium"
+	ThinkingHigh   ThinkingLevel = "high"
+	ThinkingMax    ThinkingLevel = "max"
+)
+
+// ModelCost holds per-million-token pricing components in USD. CacheRead
+// is typically the Input rate discounted; CacheWrite is typically 1.25x
+// Input for short-TTL caches.
+type ModelCost struct {
+	Input      float64
+	Output     float64
+	CacheRead  float64
+	CacheWrite float64
+}
+
+// Compat flags provider-specific capabilities consumed by the higher
+// layers (ContextEngine, executor) when deciding what to send.
+type Compat struct {
+	SupportsToolCalls      bool
+	SupportsImageInput     bool
+	SupportsUsageInStream  bool
+	SupportsStrictToolMode bool
+}
+
+// ModelDescriptor is the static metadata for a specific model instance.
+// It is registered at provider init() and consumed by the ContextEngine
+// (contextWindow / MaxTokens), the budget tracker (Cost) and the executor
+// (Compat) without any network call.
+type ModelDescriptor struct {
+	ID            string
+	Name          string
+	Provider      string
+	APIVersion    APIKind
+	ContextWindow int
+	MaxTokens     int
+	Reasoning     bool
+	ThinkingMap   map[ThinkingLevel]string
+	Input         []InputModality
+	Cost          ModelCost
+	Compat        Compat
 }

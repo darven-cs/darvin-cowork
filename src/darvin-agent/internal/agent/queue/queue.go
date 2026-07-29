@@ -39,7 +39,7 @@ type Queue struct {
 }
 
 // New constructs a Queue with the standard buffer sizes (prompt 1, steer 1,
-// followup 16). FollowUp may grow with future spec.
+// followup 16). FollowUp buffer is sized to absorb a normal user burst.
 func New() *Queue {
 	return &Queue{
 		promptCh:   make(chan Message, 1),

@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// Ingest records the wall-clock time of the call (v0 = no-op fact
-// extraction). Real fact extraction is wired in the Memory spec.
+// Ingest records the wall-clock time of the call (no-op fact extraction).
+// Real fact extraction is wired in separately.
 func (a *DefaultAssembler) Ingest(ctx context.Context, p IngestParams) IngestResult {
 	if err := ctx.Err(); err != nil {
 		return IngestResult{Success: false, Warnings: []string{err.Error()}}
@@ -20,8 +20,8 @@ func (a *DefaultAssembler) Ingest(ctx context.Context, p IngestParams) IngestRes
 	return IngestResult{Success: true, TokensProcessed: 0}
 }
 
-// IngestBatch records the wall-clock time of the last call (v0 = no-op
-// fact extraction). Real batch extraction is wired in the Memory spec.
+// IngestBatch records the wall-clock time of the last call (no-op fact
+// extraction). Real batch extraction is wired in separately.
 func (a *DefaultAssembler) IngestBatch(ctx context.Context, p IngestBatchParams) IngestResult {
 	if err := ctx.Err(); err != nil {
 		return IngestResult{Success: false, Warnings: []string{err.Error()}}

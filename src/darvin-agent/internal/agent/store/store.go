@@ -1,6 +1,6 @@
 // Package store defines the SessionStore interface and ships an in-memory
-// implementation. A SQLite-backed implementation is planned for a future
-// spec (see MemoryStore's TODO and the agent-loop spec §4.5).
+// implementation. Additional backends (e.g. SQLite) plug in by satisfying
+// the same interface; see MemoryStore for the in-memory reference.
 package store
 
 import (

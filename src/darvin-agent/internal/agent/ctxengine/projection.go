@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// ContextProjection is a persisted backend-side view of the context. v0
-// stores projections only in an in-memory map on *DefaultAssembler; future
-// specs (SQLite store, dreaming) will replace the map with a real backend.
+// ContextProjection is a persisted backend-side view of the context.
+// Stored in an in-memory map on *DefaultAssembler; a real backend
+// (SQLite store, dreaming) is a follow-up concern.
 type ContextProjection struct {
 	ID        string
 	Type      string // "agent" | "tool" | "memory"
@@ -33,8 +33,8 @@ var ErrProjectionIDEmpty = errors.New("ctxengine: projection ID is empty")
 // (CreatedAt is overwritten with time.Now() if zero).
 //
 // Method on *DefaultAssembler (not on the 10-method ContextEngine
-// interface) per spec §4.9 — projections are a future SubAgent surface and
-// will be promoted to a separate interface when that spec lands.
+// interface) — projections are a SubAgent surface that may be promoted
+// to a separate interface later.
 func (a *DefaultAssembler) ProjectionCreate(ctx context.Context, p ContextProjection) error {
 	if err := ctx.Err(); err != nil {
 		return err

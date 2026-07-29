@@ -9,8 +9,8 @@ import (
 
 // TokenEstimator returns the approximate token count for a piece of text.
 // The default estimator is EstimateCharsOver4 (rune count / 4, rounded up).
-// Custom estimators are injected via (*DefaultAssembler).SetEstimator, used
-// by tests and by future specs that wire a real tokenizer.
+// Custom estimators are injected via (*DefaultAssembler).SetEstimator
+// (used by tests and by callers that have a real tokenizer).
 type TokenEstimator func(text string) int
 
 // EstimateCharsOver4 is the default TokenEstimator: utf8 rune count / 4

@@ -118,8 +118,8 @@ func (a *Agent) Run(ctx context.Context) error {
 
 // approxTurns returns the number of new assistant messages appended since
 // the given baseline. This is a coarse proxy for the turn count (each turn
-// produces exactly one assistant message); if a future spec introduces
-// multi-assistant turns we will thread a counter through executor instead.
+// produces exactly one assistant message). Multi-assistant turns would
+// need a dedicated counter threaded through the executor.
 func (a *Agent) approxTurns(beforeLen int) int {
 	msgs := a.session.Messages()
 	count := 0

@@ -153,8 +153,8 @@ type AgentEndEvent struct {
 func (AgentEndEvent) isAgentEvent()     {}
 func (AgentEndEvent) EventName() string { return "agent_end" }
 
-// CompactionEvent is reserved for the future ContextEngine spec. The agent
-// loop never emits it in the current milestone.
+// CompactionEvent signals a context compaction. The agent loop does not
+// emit it directly; the ContextEngine produces it when Compact() runs.
 type CompactionEvent struct {
 	Before int
 	After  int
@@ -164,8 +164,8 @@ type CompactionEvent struct {
 func (CompactionEvent) isAgentEvent()     {}
 func (CompactionEvent) EventName() string { return "compaction" }
 
-// CustomEvent is an out-of-band channel for future specs (e.g. Skills / MCP)
-// to publish domain-specific events without expanding the agent core.
+// CustomEvent is an out-of-band channel for domain-specific events
+// (Skills / MCP / etc.) to publish without expanding the agent core.
 type CustomEvent struct {
 	Name    string
 	Payload any

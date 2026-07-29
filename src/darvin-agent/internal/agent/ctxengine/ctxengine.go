@@ -6,14 +6,14 @@
 // Method coverage on *DefaultAssembler (10-method ContextEngine interface):
 //
 //	Info                       ✅ identity
-//	Bootstrap / Maintain       🟡 stub (no-op + nil; seam for future specs)
+//	Bootstrap / Maintain       🟡 stub (no-op + nil)
 //	Dispose                    ✅ (releases internal locks / maps)
 //	Ingest / IngestBatch       🟡 stub (records lastIngestAt only)
 //	AfterTurn                  🟡 stub
-//	Assemble                   ✅ full 7-step pipeline (M2)
-//	Compact                    ✅ full LLM-based pipeline (M3)
-//	PrepareSubagentSpawn       ❌ ErrNotImplementedInV0
-//	OnSubagentEnded            ❌ ErrNotImplementedInV0
+//	Assemble                   ✅ full 7-step pipeline
+//	Compact                    ✅ full LLM-based pipeline
+//	PrepareSubagentSpawn       ❌ ErrSubAgentUnsupported
+//	OnSubagentEnded            ❌ ErrSubAgentUnsupported
 //
 // The package avoids importing internal/agent (the root) by accepting a
 // Deps interface; agent.Agent satisfies it implicitly.
@@ -50,7 +50,7 @@ type ContextEngine interface {
 	Assemble(ctx context.Context, p AssembleParams) AssembleResult
 	Compact(ctx context.Context, p CompactParams) CompactResult
 
-	// SubAgent (v0 TODO seam; real impl in future spec)
+	// SubAgent (not implemented; returns ErrSubAgentUnsupported)
 	PrepareSubagentSpawn(ctx context.Context, p SubagentSpawnParams) (*SubagentSpawnPreparation, error)
 	OnSubagentEnded(ctx context.Context, p SubagentEndedParams) error
 }

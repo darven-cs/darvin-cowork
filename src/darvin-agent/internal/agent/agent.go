@@ -237,8 +237,8 @@ func (a *Agent) Emit(ev event.Event) { a.bus.Emit(ev) }
 func (a *Agent) Assembler() ctxengine.ContextEngine { return a.assembler }
 
 // SystemSections returns caller-supplied system prompt sections merged
-// into the assembler's output. v0 returns nil (FR-12 SystemPromptAddition
-// is already covered via cfg → default assembler).
+// into the assembler's output. Returns nil today (no caller-supplied
+// sections; SystemPromptAddition is covered via cfg → default assembler).
 func (a *Agent) SystemSections() []ctxengine.SystemSection { return nil }
 
 // AssemblerEnabled reports whether the host opted into the assembler
