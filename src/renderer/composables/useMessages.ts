@@ -8,6 +8,7 @@ export interface Message {
   content: string;
   done: boolean;
   error?: string;
+  toolLabel?: string;
   createdAt: number;
 }
 

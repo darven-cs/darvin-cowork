@@ -1,34 +1,38 @@
 <template>
-  <div class="px-6 pb-5 pt-2">
+  <div class="px-6 pb-6 pt-2">
     <div
-      class="mx-auto flex max-w-[760px] items-end gap-2 rounded-xl border border-border bg-surface-2 px-4 py-3 transition-colors focus-within:border-border-strong"
+      class="mx-auto flex w-full max-w-[720px] flex-col gap-2 rounded-xl border border-border bg-surface-2 px-4 py-3 transition-colors focus-within:border-border-strong"
     >
+      <!-- 工具条（顶部） -->
+      <PromptToolbar
+        @plus="onPlus"
+        @grid="onGrid"
+        @model="onModel"
+        @mic="onMic"
+      />
+
+      <!-- 分隔 -->
+      <div class="h-px w-full bg-border" />
+
+      <!-- textarea -->
       <textarea
         ref="textareaRef"
         v-model="text"
-        :placeholder="busy ? 'Darvin 正在思考…' : '给 Darvin 发送消息…'"
+        :placeholder="t('home.prompt.placeholder')"
         :disabled="busy"
         rows="1"
-        class="flex-1 resize-none bg-transparent font-sans text-[14.5px] leading-relaxed text-text outline-none placeholder:text-text-subtle disabled:opacity-50"
+        class="w-full resize-none bg-transparent font-sans text-[14.5px] leading-relaxed text-text outline-none placeholder:text-text-subtle disabled:opacity-50"
         @input="autoGrow"
         @keydown="onKeydown"
       />
-      <button
-        type="button"
-        :disabled="!canSend"
-        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all"
-        :class="canSend ? 'bg-accent text-white hover:bg-accent-hover hover:scale-[1.04]' : 'bg-border cursor-not-allowed'"
-        :aria-label="t('chat.send')"
-        @click="emitSend"
-      >
-        <Icon name="arrow-up" :size="16" />
-      </button>
+
+      <!-- 底栏：字符计数 + send -->
+      <div class="flex items-center justify-end">
+        <SendButton :can-send="canSend" @click="emitSend" />
+      </div>
     </div>
-    <p
-      v-if="text.length > 50"
-      class="mx-auto mt-1.5 max-w-[760px] text-right font-mono text-[11px] text-text-subtle"
-    >
-      {{ text.length }}
+    <p class="mx-auto mt-1.5 w-full max-w-[720px] text-center font-sans text-[11px] text-text-subtle">
+      {{ t('home.disclaimer') }}
     </p>
   </div>
 </template>
@@ -36,7 +40,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
 import { t } from '../../services/i18n';
-import Icon from '../common/Icon.vue';
+import PromptToolbar from './PromptToolbar.vue';
+import SendButton from './SendButton.vue';
 
 const props = defineProps<{ busy: boolean }>();
 const emit = defineEmits<{ send: [content: string] }>();
@@ -84,4 +89,10 @@ function focus() {
 }
 
 defineExpose({ focus });
+
+// PR-3 stubs（占位事件，不报错）
+function onPlus() { /* TODO: open PlusMenu */ }
+function onGrid() { /* TODO: open ExpertSuite */ }
+function onModel() { /* TODO: open ModelPicker dropdown */ }
+function onMic() { /* TODO: start voice input */ }
 </script>

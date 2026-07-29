@@ -7,7 +7,7 @@
       <p class="font-display text-2xl italic">{{ t('chat.empty.title') }}</p>
       <p class="text-xs text-text-subtle">{{ t('chat.empty') }}</p>
     </div>
-    <div v-else class="mx-auto flex max-w-[720px] flex-col gap-6">
+    <div v-else class="mx-auto flex max-w-[760px] flex-col gap-6">
       <MessageItem
         v-for="msg in messageList"
         :key="msg.id"

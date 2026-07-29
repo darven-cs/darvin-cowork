@@ -44,6 +44,14 @@ const dict: Record<string, string> = {
   'model.sonnet': 'claude-sonnet-4-5',
   'model.opus': 'claude-opus-4-5',
   'model.gpt4o': 'gpt-4o',
+  'home.greeting.morning': '早上好',
+  'home.greeting.noon': '中午好',
+  'home.greeting.afternoon': '下午好',
+  'home.greeting.evening': '晚上好',
+  'home.subtitle': '今天有什么我可以帮你的？',
+  'home.disclaimer': 'AI 生成内容仅供参考，请核实重要信息',
+  'model.label': '当前模型',
+  'home.prompt.placeholder': '给 Darvin 发送消息…',
 };
 
 let currentLang: Lang = 'zh';
