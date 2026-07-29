@@ -1,25 +1,31 @@
 # Agent 包实施路线图
 
 > **范围**：本仓库的 Go 部分，含两个核心包：
-> - `internal/agent/` — Agent 运行时（P0-P7），最终作为 Electron spawn 的子进程二进制运行
-> - `internal/gateway/` — 网关服务（P8），独立 HTTP/WS 服务，多用户 / 鉴权 / 限流都在这里
+> - `internal/agent/` — Agent 运行时（P1-P7），最终作为网关 spawn 的子进程二进制运行
+> - `internal/gateway/` — 网关服务（P8 + P0 IPC），HTTP/WS 对外，多用户 / 鉴权 / 限流 / 主进程通信都在这里
 >
-> Electron 主进程 / 渲染层（仓库其他部分）负责 UI 和窗口；Go 部分负责运行时 + 网关。
+> Electron 主进程 / 渲染层（仓库其他部分）负责 UI 和窗口，经网关访问 agent；Go 部分负责运行时 + 网关。
 >
-> **执行顺序**：P0 → P1 → … → P7 把 agent 运行时打通；**P8 网关最后做**，等 agent 能力稳定。
+> **执行顺序**：**P1 → P2 → … → P7** 先把 agent 运行时能力做厚；**P0 + P8 合并放最后一起做**。
+>
+> P0（子进程 IPC）原本排第一，现已延后：主进程的通信面由网关统一承接，
+> IPC 协议是网关与 agent 之间的契约，脱离网关单独定 schema 大概率白做。
 
 ---
 
-## P0 — Electron 子进程接入（无 IPC = 不能用）
+## P0 — Electron 子进程接入（延后，与 P8 网关合并设计）
 
-这是把当前二进制变成"Electron 能 spawn 并驱动的运行时"的最少集合。其他 P1-P4 再重要，Electron 也调不动。
+> **状态：延后**。主进程不直接和 agent 子进程对话，通信统一走网关，
+> 因此本桶的协议 schema 必须和 P8 一起定。等 P1-P7 能力稳定、P8 网关落地时再回来做。
 
-- [ ] **IPC 协议选型** — stdio JSON-RPC / ndjson / 自定义帧；定 request/response/event 三通道的 schema
+把二进制变成"能被 spawn 并驱动的运行时"的最少集合：
+
+- [ ] **IPC 协议选型** — stdio JSON-RPC / ndjson / 自定义帧；定 request/response/event 三通道的 schema（**与网关协商**）
 - [ ] **IPC server 在 cmd/app 启动** — listen stdin，把请求 dispatch 到 Agent.Prompt/Steer/FollowUp/Abort/Run
 - [ ] **Event → stdout push** — agent.EventBus 流式输出（TextDelta/ToolStart/End/TurnStart/End/AgentEnd/AgentError）
 - [ ] **优雅关闭** — SIGTERM/SIGINT 触发 Agent.Abort → flush pending events → close stdio
 - [ ] **错误传递** — ProviderError + AgentErrorEvent 序列化成 IPC error 响应
-- [ ] **最小 Electron 接入验证** — 一个 ts/electron 脚本 spawn 二进制、发送 prompt、收到流式事件、能 abort
+- [ ] **接入验证** — 网关 spawn 二进制、发送 prompt、收到流式事件、能 abort
 
 ## P1 — 会话持久化（重启不丢上下文）
 
@@ -28,8 +34,8 @@
 - [ ] **SQLite SessionStore** — gorm 落 messages 表（schema 按 agent-loop spec §4.5）
 - [ ] **Agent.Run 启动 Load** — `store.Load(sessionID)` 恢复 Session
 - [ ] **Run 结束 Save** — dispatcher defer save
-- [ ] **Session 列表 IPC** — Electron 能拉历史会话列表 + 切换
-- [ ] **cmd/app 暴露 `--session-id`** — Electron 启动时传入持久化 id
+- [ ] **Session 列表查询** — `store.List()` 返回历史会话元信息（对外暴露留到 P0/P8）
+- [ ] **cmd/app 暴露 `--session-id`** — 启动时传入持久化 id
 
 ## P2 — Memory 跨会话记忆（agent 真正"记得"用户）
 
@@ -96,19 +102,22 @@ Ingest 现在是空壳。Fact 数据模型都还不全。
 - [ ] **Rate limit / Retry-After** — HTTPClient 读 header
 - [ ] **stderr 日志** — 子进程日志走 stderr 不污染 stdout IPC 通道
 
-## P8 — 网关 `internal/gateway/`（最后做，先完成 agent 运行时）
+## P8 — 网关 `internal/gateway/`（与 P0 合并，最后做）
 
 **位置**：`internal/gateway/`。与 agent 运行时**同 Go module、不同 package**，结构按原 `开发计划.md` M3 那一套。
 
-**为什么放最后**：P0-P7 全在做 **agent 运行时本身**（Electron spawn 出来的那个 Go 子进程该有什么能力）。网关是**外面一层**的事 — 鉴权、会话管理、限流、代理、多用户隔离都属于"谁来调 agent 进程、怎么调、按什么策略调"。agent 能力没稳定之前，网关做的任何决策都可能在改。
+**与 P0 的关系**：主进程**不直连** agent 子进程 — 所有通信经网关。所以 P0 的 IPC 协议实际是"网关 ↔ agent 子进程"的私有契约，
+两桶合并设计：先定网关对外的 HTTP/WS 接口，再倒推 IPC 需要承载什么，避免定完 IPC 又被网关需求推翻。
+
+**为什么放最后**：P1-P7 全在做 **agent 运行时本身**（spawn 出来的那个 Go 子进程该有什么能力）。网关是**外面一层**的事 — 鉴权、会话管理、限流、代理、多用户隔离都属于"谁来调 agent 进程、怎么调、按什么策略调"。agent 能力没稳定之前，网关做的任何决策都可能在改。
 
 **调用关系**：
 ```
-客户端 (Electron / 浏览器 / CLI)
+Electron 主进程 / 浏览器 / CLI
     ↓ HTTP / WS
 internal/gateway/  ← P8（本桶）
-    ↓ 进程内调用 or stdio IPC
-internal/agent/    ← P0-P7（已稳定）
+    ↓ stdio IPC     ← P0（合并到本桶设计）
+internal/agent/    ← P1-P7（已稳定）
     ↓ HTTPS
 Anthropic API
 ```
@@ -121,7 +130,7 @@ Anthropic API
 - [ ] **middleware.go** — 日志 / 追踪 / CORS / 压缩中间件
 - [ ] **会话注册表** — 网关侧的 `user → session_id → agent_pid` 映射（区别于 agent 内部的 `*session.Session`）
 - [ ] **跨进程事件聚合** — 多个 agent 子进程的 event 流按 session 路由回客户端
-- [ ] **桌面版简化路径** — 单用户本地场景下，Electron 主进程直接 spawn agent 子进程绕过网关（决定要不要双模式）
+- [ ] **桌面版简化路径** — 单用户本地场景下，网关是否内嵌进 Electron 主进程（决定要不要双模式）
 
 ---
 
@@ -132,7 +141,8 @@ Anthropic API
 - `go test -race ./...` 全绿
 - `gofmt -l .` 干净
 - `go vet ./...` 干净
-- **子进程 smoke test**：一个独立 ts/electron 脚本 spawn 二进制 → 发 prompt → 收流式 events → abort → 重启后 Load 同一个 session 验证持久化
+- **进程内 smoke test**：P1-P7 阶段用 Go 测试直接驱动 `Agent.Prompt → Run → Subscribe`，
+  验证流式事件 + abort + 重启后 Load 同一 session；子进程级 smoke test 等 P0/P8 合并落地再补
 
 ## 不在本包范围
 
@@ -140,4 +150,5 @@ Anthropic API
 - 云端同步 / 多端协同
 - 插件市场 / skill 共享生态
 
-> 网关（鉴权 / 多用户 / 配额 / 计费 / 跨进程路由）**已纳入本路线图 P8**，但属于 `internal/gateway/` 独立 package，最后做。
+> 网关（鉴权 / 多用户 / 配额 / 计费 / 跨进程路由 / 主进程通信）**已纳入本路线图 P8**，
+> 属于 `internal/gateway/` 独立 package，与 P0 的 IPC 协议合并设计，最后做。

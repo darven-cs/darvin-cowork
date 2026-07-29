@@ -394,24 +394,31 @@ sequenceDiagram
 
 ---
 
-## 四、IPC 边界（Electron 接入点）
+## 四、IPC 边界（网关接入点）
 
-当前 `cmd/app/main.go` 在 init 完 logger/db/agent 后直接 `log.Info("application started successfully")` 然后退出。**Electron 接入需要的 IPC 层还不在 P0 路线图已完成部分**，是下一步要做的（见 `agent-package-roadmap.md` P0）。
+当前 `cmd/app/main.go` 在 init 完 logger/db/agent 后直接 `log.Info("application started successfully")` 然后退出。
+
+**接入路径已调整**：Electron 主进程**不直连** agent 子进程，通信统一经 `internal/gateway/` 承接。
+因此 IPC 协议是"网关 ↔ agent 子进程"的私有契约，与网关合并设计（见 `agent-package-roadmap.md` P0 + P8，已延后）。
 
 ```mermaid
 graph LR
     subgraph Electron主进程
         UI[Vue UI]
-        IPC_TS[IPC 桥接层]
+        Bridge[HTTP/WS 客户端]
     end
-    subgraph Go子进程
+    subgraph Go网关[internal/gateway 待实现]
+        GW[HTTP/WS server<br/>鉴权 / 会话注册表]
+    end
+    subgraph Go子进程[internal/agent]
         Stdio[stdin/stdout]
         IPC_GO[IPC server<br/>待实现]
         A[Agent]
     end
 
-    UI <-->|invoke/on| IPC_TS
-    IPC_TS <-->|stdio JSON| Stdio
+    UI <-->|invoke/on| Bridge
+    Bridge <-->|HTTP / WS| GW
+    GW <-->|spawn + stdio JSON| Stdio
     Stdio --> IPC_GO
     IPC_GO --> A
     A -.event.EventBus.-> IPC_GO
@@ -431,7 +438,7 @@ graph LR
 | Skills | 0 | 完整系统 | 全缺（P3） |
 | MCP | 0 | 完整 | 全缺（P4） |
 | SubAgent | ErrSubAgentUnsupported | 完整 | 全缺（P5） |
-| IPC | 无 | stdio JSON-RPC | 缺（P0） |
+| IPC | 无 | stdio JSON-RPC | 缺（P0，与 P8 网关合并，已延后） |
 | 会话持久化 | 内存 | SQLite | 缺（P1） |
 | 工具 | 5 个内置 | 内置 + MCP + skill | 部分 |
 | Usage | 基础 3 字段 | 含 cache + cost | 缺（P7） |

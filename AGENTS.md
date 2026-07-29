@@ -188,8 +188,78 @@ export type AgentChannel = typeof AgentChannel[keyof typeof AgentChannel];
 - 文件命名沿用 Vite 默认（保留现有 `index.ts`），新模块按职责拆 `PascalCase` 组件 / `camelCase` 工具函数。
 - 业务逻辑保持在 `src/main/libs/`、`src/main/runtime/`、`src/darvin-agent/` 等模块中，不要塞进 UI 组件。
 - 优先使用现有模式与本地 helper，不要为了新加一个功能造新抽象。
-- **样式 (Tailwind CSS v4)**：组件内优先用 utility class，**不要写裸 `<style>` 或组件级 CSS 文件**（除 `index.css` 的 `@import "tailwindcss"` + 极少量全局 reset / 字体外）。跨组件复用的设计 token 走 `@theme` 块，不要散落成 magic value。新增交互态/动效用 Tailwind 自带的 `hover:` / `focus:` / `dark:` 等变体，不要为单个 hover 写新 CSS。
+- **样式 (Tailwind CSS v4)**：组件内优先用 utility class，**不要写裸 `<style>` 或组件级 CSS 文件**（除 `index.css` 的 `@import "tailwindcss"` + 极少量全局 reset / 字体外）。跨组件复用的设计 token 走 `@theme` 块，不要散落成 magic value（`#1a1a1a` / `text-gray-300` 等禁止）。新增交互态/动效用 Tailwind 自带的 `hover:` / `focus:` / `dark:` 等变体，不要为单个 hover 写新 CSS。组件**不用** `style="..."` 内联属性；颜色 / 间距 / 字号一律走 `bg-bg` / `text-text-muted` / `rounded-md` / `text-sm` 等 utility（值来源 `@theme`）。
 - **Artifact 渲染器 (`src/renderer/services/artifact-renderer/`)**：AI 生成的产物（HTML / SVG / Mermaid / React / 代码块）**一律走 sandboxed iframe**，iframe 必须 `sandbox="allow-scripts"` 起跳、按需 `allow-same-origin`（仅在需要 DOM API 时打开），不与主页面共享 DOM。渲染器对外只暴露受控 API（`mount(artifact, container)` / `update(payload)` / `destroy()`），不把 iframe `contentWindow` 直接透出。产物源（来自 Go agent 的 IPC payload）须按类型分派（html / react / mermaid / svg / code），不要 `innerHTML` 注入主页面。
+
+### Vue 3 组件化规范（renderer 锁定）
+
+所有 Vue 组件 **必须** 遵守以下 10 条（违反任意一条 PR review 拒绝）：
+
+1. **SFC + `<script setup lang="ts">`**；不允许 Options API。`<script setup>` 顶层只放 props / emits / 组合逻辑，不放业务。
+2. **Composition API**：`ref` / `reactive` / `computed` / `watch` 自由组合；不引入 mixins / class-based 组件。
+3. **props 强类型**：`defineProps<T>()`；emits 用 `defineEmits<T>()`；不写 `defineProps(['xxx'])` 字符串数组。
+4. **跨组件状态走 composables**（`src/renderer/composables/useXxx.ts`），不直接共享 `ref` / 不用 EventBus。
+5. **单向数据流**：父 → 子 props；子 → 父 emits；不双向 `v-model` 除非表单组件（textarea / input / select）。
+6. **命名**：
+   - 组件文件 `PascalCase`：`SidebarHeader.vue` / `MessageItem.vue`
+   - composable `camelCase` + `use` 前缀：`useTheme.ts` / `useMessages.ts`
+   - 模块级 `ref` 用 `xxxRef` 后缀（避免与局部变量混淆）：`const listRef = ref<HTMLDivElement | null>(null);`
+   - 业务 `ref` 不加后缀：`const busy = ref(false);`
+   - **目录约定**（`src/renderer/` 下）：
+     - `layout/` — 页面级布局壳（与 `components/` 平级），如 `AppShell.vue` / `SettingsLayout.vue`
+     - `components/` — 可复用功能组件，按 feature 子目录拆分（`sidebar/` / `chat/` / `side-panel/`）
+     - `components/common/` — 跨 feature 通用组件（`Icon` / `IconButton` / `Dropdown`）
+     - `composables/` — 所有 `useXxx.ts` 单例状态
+     - `services/` — 纯函数 / IPC 客户端 / mock 数据
+     - `styles/` — 全局 CSS（`theme.css` + `reset.css`）
+     - `assets/icons/` — SVG 图标源（自动 glob 加载）
+7. **样式约束**：组件 `<template>` 内只用 utility class（`bg-bg` / `text-text-muted` 等），颜色全走 `@theme` token；不写 `<style>` 块。
+8. **事件**：原生事件（click / input）走 emits 包装后冒泡；不让子组件直接调父方法或共享可变 ref。
+9. **类型导入**：所有 IPC 数据 / DarvinEvent / Message 从 `src/shared/darvin-api.ts` 导入；禁止在组件内 `any`（除非 dom 事件回调）。
+10. **严禁**：
+    - 组件内 `<style>` 块
+    - 全局 CSS 文件（除 `src/renderer/styles/{theme,reset}.css`）
+    - Tailwind 默认调色板（`bg-gray-800` / `text-red-500`），改用 `@theme` token
+    - 内联 `style="..."` 颜色 / 间距
+    - 第三方组件库（Naive UI / Element Plus / PrimeVue 等），除非业务 spec 显式引入
+    - `import { ref, ... } from 'vue'` 之外的第三方状态库
+
+### 设计 token（Tailwind v4 `@theme`）
+
+颜色 / 间距 / 圆角 / 字号 / 动画 token 唯一来源：`src/renderer/styles/theme.css` 的 `@theme` 块。
+
+- **颜色 token**（dark default）：
+  - 基础：`bg` / `surface` / `surface-2` / `border` / `text` / `text-muted` / `text-subtle` / `accent` / `accent-hover`
+  - 语义：`user-msg` / `assistant-msg` / `danger` / `success` / `warning`
+- **浅色覆盖**：HTML 根 `<html class="light">` 触发；token 值在 `@layer base` 下被覆盖。**禁用** Tailwind `dark:` 变体（用 class 切换 + token 覆盖）。
+- **圆角 token**：`sm` (4px) / `md` (6px) / `lg` (8px) / `xl` (12px)
+- **间距 token**：`app-padding` (12px) / `section-gap` (16px)
+- **字号 token**：`xs` (11px) / `sm` (13px) / `base` (14px) / `md` (15px) / `lg` (17px) / `xl` (20px)
+- **字体**：`--font-sans` / `--font-mono`
+- **动画**：`cursor-blink` 1s step-end infinite
+
+**消费规则**：
+- ✅ `bg-bg` / `text-text-muted` / `border-border` / `rounded-md` / `text-sm`
+- ❌ `bg-[#1a1a1a]` / `text-gray-300` / `bg-red-500` / `style={{ color: 'red' }}` / padding: `12px` 等 magic value
+
+新加 token：先在 `theme.css` 的 `@theme` 块加 `--color-foo` / `--spacing-bar` / `--text-foo` 等；然后 `@layer base` 下加浅色覆盖；**然后** `bg-foo` / `text-foo` utility 自动可用。
+
+### 图标系统
+
+**只用 SVG**，不引入 `lucide-vue-next` / `@heroicons/vue` / `naive-ui` 等图标库。
+
+- 源文件：`src/renderer/assets/icons/*.svg`，分两组：
+  - **A 组（Chat UI）**：11 个，本仓库已生成（`plus` / `sun` / `moon` / `menu` / `panel-right-close` / `panel-right-open` / `send` / `chevron-down` / `cog` / `alert-circle` / `check`）；统一 `viewBox="0 0 34 34"` + `stroke="currentColor"` + `stroke-width="2.4"` + round caps
+  - **B 组（用户中心预留）**：5 个（`invite-credits` / `logout` / `promo-subscription` / `recharge` / `usage-overview`），由用户导入，含 `stroke="black"` 硬编码；`Icon` 组件加载时一次 `replace("stroke=\"black\"", "stroke=\"currentColor\"")` 转为 currentColor
+- 加载：`src/renderer/assets/icons/index.ts` 用 `import.meta.glob('./*.svg', { eager: true, query: '?raw', import: 'default' })` 全部 inline 加载
+- 消费：`<Icon name="send" />` 全局组件（`<script setup>` 注册到 `app.component('Icon', Icon)`）
+- 命名：`kebab-case`：`<Icon name="chevron-down" />` / `<Icon name="panel-right-close" />`
+- 缺失 icon：组件警告 + 渲染空 16×16 占位（不抛错）
+
+**新增 icon 规则**：
+- 丢到 `src/renderer/assets/icons/<name>.svg` 即可，无需 import（自动 glob）
+- **必须**用 `stroke="currentColor"`；不要写死颜色 / 用 `fill="black"` 等
+- 尺寸走 `viewBox` 不写死 `width` / `height`（除非用户明确指定）；`Icon` 组件通过 `:size` prop 注入实际渲染尺寸
 
 ## 遗留问题与小文件
 
