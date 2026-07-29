@@ -1,0 +1,177 @@
+@import "tailwindcss";
+
+@theme {
+  /* 字体：系统优先（PingFang SC / Inter），不下载 woff2 */
+  --font-sans:    "PingFang SC", "Inter", -apple-system, BlinkMacSystemFont, "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display: "PingFang SC", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* 颜色：light default */
+  --color-bg:              #FAFBFC;
+  --color-surface:         #FFFFFF;
+  --color-surface-2:       #F4F5F7;
+  --color-surface-raised:  #F4F5F7;
+  --color-surface-hover:   #EBEDF0;
+  --color-border:          rgba(0, 0, 0, 0.06);
+  --color-border-strong:   rgba(0, 0, 0, 0.12);
+  --color-text:            #1A1A1C;
+  --color-text-muted:      #6B7280;
+  --color-text-subtle:     #9CA3AF;
+
+  /* primary：lobster red（品牌色） */
+  --color-primary:         #FF5722;
+  --color-primary-hover:   #E64A19;
+  --color-primary-muted:   rgba(255, 87, 34, 0.10);
+  --color-primary-soft:    rgba(255, 87, 34, 0.06);
+
+  /* accent：旧 token 别名指向 primary，向后兼容现有 IconButton / SessionItem */
+  --color-accent:          var(--color-primary);
+  --color-accent-hover:    var(--color-primary-hover);
+  --color-accent-soft:     var(--color-primary-muted);
+
+  /* 语义状态 */
+  --color-success:         #10B981;
+  --color-danger:          #EF4444;
+  --color-warning:         #F59E0B;
+
+  /* 消息气泡 */
+  --color-user-msg:        #1A1A1C;
+  --color-user-msg-bg:     #FFFFFF;
+  --color-assistant-msg:   #1A1A1C;
+  --color-assistant-msg-bg:#F4F5F7;
+
+  /* quick-action tile 配色 */
+  --color-qa-slide:        #F59E0B;
+  --color-qa-data:         #8B5CF6;
+  --color-qa-doc:          #3B82F6;
+  --color-qa-web:          #10B981;
+
+  /* agent avatar 渐变（与 mascot 同色系） */
+  --color-avatar-main:     linear-gradient(135deg, #FF5722 0%, #E63946 100%);
+
+  /* 圆角 */
+  --radius-sm:  4px;
+  --radius-md:  6px;
+  --radius-lg:  8px;
+  --radius-xl:  12px;
+  --radius-2xl: 16px;
+
+  /* 间距 */
+  --spacing-app-padding:  16px;
+  --spacing-section-gap:  24px;
+
+  /* 字号 */
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 14px;
+  --text-md:   15px;
+  --text-lg:   18px;
+  --text-xl:   24px;
+  --text-2xl:  32px;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
+  --shadow-primary: 0 4px 12px rgba(255, 87, 34, 0.32);
+
+  /* 动效 */
+  --animate-cursor-blink: cursor-blink 1s step-end infinite;
+  @keyframes cursor-blink {
+    0%, 50%   { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+  --animate-fade-in: fade-in 0.5s ease-out both;
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  --animate-mascot-breathe: mascot-breathe 3.5s ease-in-out infinite;
+  @keyframes mascot-breathe {
+    0%, 100% { transform: scaleY(1); }
+    50%      { transform: scaleY(1.04); }
+  }
+  --animate-mascot-blink: mascot-blink 4.5s step-end infinite;
+  @keyframes mascot-blink {
+    0%, 92%, 100% { opacity: 1; }
+    94%, 98%      { opacity: 0; }
+  }
+  --animate-mascot-wave: mascot-wave 2.5s ease-in-out infinite;
+  @keyframes mascot-wave {
+    0%, 100% { transform: rotate(-10deg); }
+    50%      { transform: rotate(10deg); }
+  }
+  --animate-plus-menu-in: plus-menu-in 0.15s ease-out both;
+  @keyframes plus-menu-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@layer base {
+  /* dark theme override：根 :root 默认 light，html.dark 触发 dark 覆盖 */
+  html.dark {
+    --color-bg:              #0F1117;
+    --color-surface:         #181A23;
+    --color-surface-2:       #1E212B;
+    --color-surface-raised:  #1E212B;
+    --color-surface-hover:   #252830;
+    --color-border:          rgba(255, 255, 255, 0.06);
+    --color-border-strong:   rgba(255, 255, 255, 0.12);
+    --color-text:            #EDEDEE;
+    --color-text-muted:      #9CA3AF;
+    --color-text-subtle:     #5C6370;
+
+    --color-primary:         #FF7043;
+    --color-primary-hover:   #FF8A65;
+    --color-primary-muted:   rgba(255, 112, 67, 0.14);
+    --color-primary-soft:    rgba(255, 112, 67, 0.08);
+
+    --color-success:         #34D399;
+    --color-user-msg:        #EDEDEE;
+    --color-user-msg-bg:     #252830;
+    --color-assistant-msg:   #EDEDEE;
+    --color-assistant-msg-bg:#1E212B;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+
+  * {
+    transition: background-color 200ms ease, border-color 200ms ease;
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 4px;
+  }
+}
+
+/* ── 全局 utility：qa-tile 颜色映射 + avatar 渐变 ──────────────────── */
+/* 非 component-level CSS；放在 theme.css 末尾，避免 AGENTS.md 禁止的 <style> 块 */
+
+.qa-tile { transition: all 200ms ease; }
+.qa-tile--qa-slide .icon-wrap { background: color-mix(in srgb, var(--color-qa-slide) 14%, transparent); color: var(--color-qa-slide); }
+.qa-tile--qa-slide:hover     { box-shadow: 0 8px 20px -10px var(--color-qa-slide); }
+.qa-tile--qa-data  .icon-wrap { background: color-mix(in srgb, var(--color-qa-data)  14%, transparent); color: var(--color-qa-data);  }
+.qa-tile--qa-data:hover      { box-shadow: 0 8px 20px -10px var(--color-qa-data);  }
+.qa-tile--qa-doc   .icon-wrap { background: color-mix(in srgb, var(--color-qa-doc)   14%, transparent); color: var(--color-qa-doc);   }
+.qa-tile--qa-doc:hover        { box-shadow: 0 8px 20px -10px var(--color-qa-doc);   }
+.qa-tile--qa-web   .icon-wrap { background: color-mix(in srgb, var(--color-qa-web)   14%, transparent); color: var(--color-qa-web);   }
+.qa-tile--qa-web:hover        { box-shadow: 0 8px 20px -10px var(--color-qa-web);   }
+
+.bg-avatar-main { background-image: var(--color-avatar-main); }

@@ -1,0 +1,19 @@
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  * { margin: 0; padding: 0; }
+  html, body, #app { height: 100%; }
+  ul { list-style: none; }
+  button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+  }
+  input, textarea {
+    background: none;
+    border: none;
+    font: inherit;
+    color: inherit;
+  }
+}

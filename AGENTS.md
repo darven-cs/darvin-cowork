@@ -10,10 +10,10 @@
 
 ## 项目概览
 
-`darvin-cowork` 是一款个人桌面智能助手，原型阶段。架构与近期演进方向如下（见 `docs/系统架构.md`）：
+`darvin-cowork` 是一款个人桌面智能助手。架构与近期演进方向如下（见 `docs/系统架构.md`）：
 
 - **桌面壳**：Electron（`@electron-forge` + `@electron-forge/plugin-vite`）。
-- **渲染层**：目标栈 Vue3 + Tailwind CSS v4（`@tailwindcss/vite` 插件接入 Vite）；样式统一走 utility class，组件里不写裸 CSS。**当前仍是 vanilla TS + HTML 占位（`Hello World!`）**，按上述栈迁移中（详见 `docs/系统架构.md` 的“前/后端”段）。
+- **渲染层**：Vue3 + Tailwind CSS v4（`@tailwindcss/vite` 插件接入 Vite）；样式统一走 utility class，组件里不写裸 CSS。
 - **AI 产物预览沙箱 (Artifact 渲染器)**：`src/renderer/services/artifact-renderer/`，自建一个 sandboxed iframe 渲染器（参考 Claude.ai Artifacts 形态），用于隔离渲染 AI 生成的 HTML / SVG / Mermaid / React 组件 / 代码块等产物，支持交互；不要把 AI 原始产物直接塞进主页面 DOM。
 - **Agent runtime**：Go 编写的 `darvin-agent`，作为 Electron 主进程的子进程运行（`src/main/runtime/manager.ts` → spawn `bin/darvin-agent-<platform>-<arch>`）。
 - **主进程**：仅负责 Electron 生命周期 + 启动 Go 子进程；业务逻辑（agent 循环、工具调用、记忆、skills、MCP、上下文压缩、模型切换等）全部下放到 Go 运行时。
@@ -26,18 +26,18 @@ Electron 主进程 (src/main/index.ts)
     ├─ Electron 生命周期、BrowserWindow
     └─ RuntimeManager (src/main/runtime/manager.ts)
          ├─ resolveAgentBinaryPath()   解析 darvin-agent 二进制位置
-         └─ startAgentRuntime()        spawn 子进程（占位：当前仅 console.log）
+         └─ startAgentRuntime()        spawn 子进程
               │
               ▼
-         darvin-agent (Go, src/darvin-agent/)   ← 子进程，IPC 协议待定
+         darvin-agent (Go, src/darvin-agent/)   ← 子进程，IPC 协议见 src/shared/darvin-api.ts
               │
               ▼
-         AgentClient (src/main/runtime/client.ts)  ← 占位接口，待协议确定后实现
+         AgentClient (src/main/runtime/client.ts)  ← IPC 客户端（S5 阶段实现）
 
-preload (src/preload/index.ts)   ← 当前为空占位；后续经 contextBridge 暴露给 renderer
+preload (src/preload/index.ts)   ← contextBridge 暴露 window.darvin
 
 renderer (src/renderer/)
-    ├─ Vue3 应用 (createApp().mount('#app'))   ← 当前 Hello World 占位，按目标栈迁移
+    ├─ Vue3 应用 (createApp().mount('#app'))
     ├─ Tailwind CSS v4 (@tailwindcss/vite)     ← 样式统一走 utility class
     └─ Artifact 渲染器 (services/artifact-renderer/)  ← sandboxed iframe, 隔离 AI 产物
 ```
@@ -70,9 +70,9 @@ npm run lint
 - Windows 下若安装时涉及 shortcuts 由 `electron-squirrel-startup` 处理；当前主进程已包含该 guard。
 
 Go agent 相关：
-- `src/darvin-agent/` 目前只有 `README.md`（尚无 `go.mod` / `main.go`，属于骨架占位）。`scripts/build-go.js` 在该目录不存在时会打印警告并 `exit 0`，不会阻塞 Electron 启动。
-- Go 模块名见 `src/darvin-agent/README.md`，指向 `specs/refactors/electron-webpack-to-electron-forge-vite/2026-07-27-webpack-to-electron-forge-vite-design.md` 4.7 节（待定）。
-- 主进程侧的 IPC 客户端占位 (`src/main/runtime/client.ts`)：`AgentClient` 接口 + `createAgentClient()` 抛 `Not Implemented`；后续要补充 JSON-RPC / protobuf / 自定义协议三者之一。
+- `src/darvin-agent/` 下放置 Go agent 源码（含 `go.mod` / `main.go`）。`scripts/build-go.js` 在该目录不存在时会打印警告并 `exit 0`，不会阻塞 Electron 启动。
+- Go 模块名见 `src/darvin-agent/go.mod`。
+- 主进程侧的 IPC 客户端 (`src/main/runtime/client.ts`)：`AgentClient` 接口 + `createAgentClient()` 抛 `Not Implemented`；具体协议见 `src/shared/darvin-api.ts` 的 `DarvinApi` / `DarvinEvent` 定义。
 
 ## 测试
 
@@ -126,21 +126,15 @@ npx eslint --ext .ts,.tsx <files>
 
 ### preload
 
-`src/preload/index.ts` 当前仅一行注释占位。未来要走 `contextBridge.exposeInMainWorld(...)`，把 Go agent 客户端的方法（request / send / on）以受限 API 暴露给 renderer。
+`src/preload/index.ts` 通过 `contextBridge.exposeInMainWorld('darvin', api)` 把 Go agent 客户端的方法以受限 API 暴露给 renderer；API 形状见 `src/shared/darvin-api.ts`。
 
 ### renderer
 
-`src/renderer/` 是 Vite root（`root: 'src/renderer'`，`base: './'` 用于生产相对路径）。目标栈：
+`src/renderer/` 是 Vite root（`root: 'src/renderer'`，`base: './'` 用于生产相对路径）。当前栈：
 
-- **Vue3**：把 `index.ts` 改为 `createApp(...).mount('#app')` 并在 `index.html` 加挂载点。
-- **Tailwind CSS v4**：通过 `@tailwindcss/vite` 插件接入 `vite.renderer.config.ts`；在 `index.css` 顶部 `@import "tailwindcss";` 即可，不要再单独建 `tailwind.config.js`（v4 走 CSS-based config，需要时再补 `@theme` 块）。样式优先用 utility class；仅在跨组件复用的设计 token（颜色 / 间距 / 字号）才用 `@theme` 抽象。
+- **Vue3**：`index.ts` 已 `createApp(App).mount('#app')`，挂载点 `<div id="app">` 在 `index.html`。
+- **Tailwind CSS v4**：通过 `@tailwindcss/vite` 插件接入 `vite.renderer.config.mts`；`index.css` 顶部 `@import "./styles/theme.css"; @import "./styles/reset.css";`，设计 token 统一走 `styles/theme.css` 的 `@theme` 块。样式优先用 utility class；仅在跨组件复用的设计 token（颜色 / 间距 / 字号）才用 `@theme` 抽象。
 - **Artifact 渲染器**：见下文"编码风格"小节关于 `services/artifact-renderer/` 的约束。
-
-当前仍是 Hello World 占位：
-
-- `index.html` 内 `<script type="module" src="./index.ts">` —— 已被 vite 接管。
-- `index.ts` 顶部仍残留 webpack 模板的注释（`loaded by webpack`），属于 `electron-forge-webpack` 模板遗迹，建议清理但与功能无关，**不是阻塞项**。
-- `index.css` 占位（后续 Tailwind 接入后这里就只放 `@import` + 少量全局样式）。
 
 ### Go agent
 
@@ -183,7 +177,7 @@ export type AgentChannel = typeof AgentChannel[keyof typeof AgentChannel];
 ## 编码风格
 
 - TypeScript 是默认语言。`tsconfig.json` 已 `strict + noImplicitAny`。
-- React / Vue 组件（未来）：函数组件 + Composition API，优先使用 `<script setup>`。
+- React / Vue 组件：函数组件 + Composition API，优先使用 `<script setup>`。
 - 2 空格缩进、单引号、分号；ESLint 规则按现有 `.eslintrc.json` 为准。
 - 文件命名沿用 Vite 默认（保留现有 `index.ts`），新模块按职责拆 `PascalCase` 组件 / `camelCase` 工具函数。
 - 业务逻辑保持在 `src/main/libs/`、`src/main/runtime/`、`src/darvin-agent/` 等模块中，不要塞进 UI 组件。
@@ -260,6 +254,26 @@ export type AgentChannel = typeof AgentChannel[keyof typeof AgentChannel];
 - 丢到 `src/renderer/assets/icons/<name>.svg` 即可，无需 import（自动 glob）
 - **必须**用 `stroke="currentColor"`；不要写死颜色 / 用 `fill="black"` 等
 - 尺寸走 `viewBox` 不写死 `width` / `height`（除非用户明确指定）；`Icon` 组件通过 `:size` prop 注入实际渲染尺寸
+
+### 字体
+
+renderer 允许从 `fonts.googleapis.com` 加载 3 套字体（Fraunces / Inter Tight / JetBrains Mono），由 `src/renderer/index.html` 的 `<link>` 引入；token 名称 `--font-display` / `--font-sans` / `--font-mono` 与 fallback 链（`ui-serif` / `-apple-system` / `ui-monospace`）写在 `src/renderer/styles/theme.css`。**禁止**引入其他 CDN 资源（图标库 / 分析脚本 / 字体 CDN 都不行）。如需离线/合规场景，应改成自托管 woff2 而不是新加 CDN。
+
+### 注释规范
+
+注释描述代码做什么 / 怎么用，**不写阶段、版本、后续路线**。前后端一致。
+
+- ❌ 禁用的注释形态
+  - 阶段 / 版本号：`// S1 阶段` `// S5 替换为` `// v0 returns nil` `// v0 TODO seam` `// 后续 S 阶段按需`
+  - 占位 / 待定 / 未来：`// 占位：后续接入子进程 spawn` `// 未来要走 contextBridge` `// IPC 协议待定` `// 当前仍是占位`
+  - Roadmap 暗示：`// 真实 S5 阶段替换为 AgentClient.request()` `// 真实实现留 future spec` `// the Skills spec will populate it`
+- ✅ 允许的注释形态
+  - 导出 API / 公共函数的 JSDoc（描述输入、输出、约束、不变量）
+  - 单行说明代码意图（避免读者必须理解上下文才能知道为什么这么写）
+  - 设计约束（`event 形状必须与 DarvinEvent union 一致` `CreatedAt is overwritten with time.Now() if zero`）
+- 标识符命名同样适用：避免 `ErrNotImplementedInV0` / `FixForV2` / `MockS5` 这类把版本号塞进 API 名字的做法
+
+注释之外，**文档**（`docs/`、`specs/`、`AGENTS.md` 本体）允许讨论阶段、版本、roadmap——本规则只针对源码注释。
 
 ## 遗留问题与小文件
 

@@ -97,3 +97,6 @@ out/
 *.db
 go.work
 go.work.sum
+
+# Playwright CLI debug artifacts
+.playwright-cli/

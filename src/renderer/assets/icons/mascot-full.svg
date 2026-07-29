@@ -1,0 +1,20 @@
+<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="dcBody" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FF5722"/>
+      <stop offset="100%" stop-color="#E63946"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角红色背景 -->
+  <rect x="6" y="6" width="108" height="108" rx="26" fill="url(#dcBody)"/>
+
+  <!-- 高光（顶部一道） -->
+  <rect x="14" y="14" width="92" height="22" rx="11" fill="#fff" opacity="0.08"/>
+
+  <!-- D 字母 -->
+  <path d="M 30 36 L 30 84 L 47 84 Q 59 84 63 73 Q 66 67 66 60 Q 66 53 63 47 Q 59 36 47 36 Z M 40 45 L 46.5 45 Q 53 45 55 51 Q 56.5 55 56.5 60 Q 56.5 65 55 69 Q 53 75 46.5 75 L 40 75 Z" fill="#fff"/>
+
+  <!-- C 字母 -->
+  <path d="M 84 41.4 Q 79 45 79 60 Q 79 75 84 78.6 Q 87.4 81.6 92.6 81.6 Q 99.4 81.6 103 77.4 L 103 69.4 Q 100.4 72.6 95.6 72.6 Q 91.8 72.6 89.8 68.4 Q 88.4 65.6 88.4 60 Q 88.4 54.4 89.8 51.6 Q 91.8 47.4 95.6 47.4 Q 100.4 47.4 103 50.6 L 103 42.6 Q 99.4 38.4 92.6 38.4 Q 87.4 38.4 84 41.4 Z" fill="#fff"/>
+</svg>

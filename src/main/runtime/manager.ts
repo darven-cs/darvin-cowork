@@ -27,7 +27,10 @@ export function resolveAgentBinaryPath(): string | undefined {
 }
 
 /**
- * 占位：后续接入子进程 spawn / IPC / 进程退出钩子。
+ * 启动 darvin-agent 子进程。
+ *
+ * 二进制不存在时打印 warning 并跳过（不抛错）。`AgentClient` 负责
+ * 把 stdio 桥接到 preload 的 `window.darvin` IPC。
  */
 export async function startAgentRuntime(): Promise<void> {
   const bin = resolveAgentBinaryPath();
