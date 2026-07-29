@@ -7,14 +7,14 @@
     />
     <MessageList />
     <Composer ref="composerRef" :busy="busy" @send="handleSend" />
-    <!-- 输入框下方的工具条：plus / grid / model / mic -->
+    <!-- 输入框下方的工具条：plus / grid / model / mic，与 Composer 同宽度居中、左缩进一致 -->
     <div class="px-6 pb-4">
-      <PromptToolbar
-        @plus="onPlus"
-        @grid="onGrid"
-        @model="onModel"
-        @mic="onMic"
-      />
+      <div class="mx-auto flex max-w-[760px] items-center pl-4">
+        <PromptToolbar
+          @grid="onGrid"
+          @mic="onMic"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -39,9 +39,7 @@ async function handleSend(content: string) {
   composerRef.value?.focus();
 }
 
-// PR-3 stubs
-function onPlus()  { /* TODO: open PlusMenu */ }
+// PR-3 / PR-4 stubs
 function onGrid()  { /* TODO: open ExpertSuite */ }
-function onModel() { /* TODO: open ModelPicker dropdown */ }
 function onMic()   { /* TODO: start voice input */ }
 </script>

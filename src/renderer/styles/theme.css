@@ -46,6 +46,10 @@
   --color-qa-doc:          #3B82F6;
   --color-qa-web:          #10B981;
 
+  /* vendor 品牌色（ModelPicker 头像徽标） */
+  --color-vendor-anthropic: #CC785C;
+  --color-vendor-openai:    #10A37F;
+
   /* agent avatar 渐变（与 mascot 同色系） */
   --color-avatar-main:     linear-gradient(135deg, #FF5722 0%, #E63946 100%);
 

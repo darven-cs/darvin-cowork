@@ -59,6 +59,8 @@ function onNavigate(id: NavId) {
 
 function onSelect(id: string) {
   session.switchSession(id);
+  // 切 session 同步切到 chat 视图（home 的 send 已自动 goChat；sidebar 路径补齐）
+  emit('navigate', 'chat');
 }
 
 function onLogin() {

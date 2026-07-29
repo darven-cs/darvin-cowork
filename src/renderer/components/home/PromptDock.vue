@@ -20,9 +20,7 @@
 
       <!-- 工具条（输入框下方） -->
       <PromptToolbar
-        @plus="onPlus"
         @grid="onGrid"
-        @model="onModel"
         @mic="onMic"
       />
     </div>
@@ -85,9 +83,7 @@ function focus() {
 
 defineExpose({ focus });
 
-// PR-3 stubs（占位事件，不报错）
-function onPlus() { /* TODO: open PlusMenu */ }
+// PR-3 / PR-4 stubs
 function onGrid() { /* TODO: open ExpertSuite */ }
-function onModel() { /* TODO: open ModelPicker dropdown */ }
 function onMic() { /* TODO: start voice input */ }
 </script>

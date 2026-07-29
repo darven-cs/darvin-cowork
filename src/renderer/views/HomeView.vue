@@ -6,11 +6,14 @@
       @toggle-side-panel="emit('toggle-side-panel')"
     />
 
-    <!-- hero 区：mascot + greeting 居中 -->
+    <!-- hero 区：mascot + greeting + quick actions 居中 -->
     <div class="flex-1 overflow-y-auto px-6 animate-fade-in">
-      <div class="mx-auto flex h-full w-full max-w-[760px] flex-col items-center justify-center gap-6 py-8">
+      <div class="mx-auto flex h-full w-full max-w-[760px] flex-col items-center justify-center gap-6 py-10">
         <Mascot :size="96" />
         <HeroGreeting />
+        <div class="w-full pt-2">
+          <QuickActions @select="onTileSelect" />
+        </div>
       </div>
     </div>
 
@@ -24,6 +27,7 @@ import { ref } from 'vue';
 import ChatHeader from '../components/chat/ChatHeader.vue';
 import Mascot from '../components/home/Mascot.vue';
 import HeroGreeting from '../components/home/HeroGreeting.vue';
+import QuickActions from '../components/home/QuickActions.vue';
 import PromptDock from '../components/home/PromptDock.vue';
 import { useChatActions } from '../composables/useChatActions';
 import { useViewMode } from '../composables/useViewMode';
@@ -41,9 +45,19 @@ const viewMode = useViewMode();
 const chatActions = useChatActions();
 
 async function onSend(content: string) {
-  // 1) 落地 user/assistant 流
   await chatActions.send(content, busy);
-  // 2) 切到 chat 视图
   viewMode.goChat();
+}
+
+function onTileSelect(id: 'qa-slide' | 'qa-data' | 'qa-doc' | 'qa-web') {
+  // PR-3 stub：把 tile 选择的 prompt template 注入到 dock 然后发送
+  const TEMPLATES: Record<typeof id, string> = {
+    'qa-slide': '帮我做一个 5 页的产品介绍 PPT，主题是 AI Agent',
+    'qa-data':  '分析我上传的 CSV 文件并给出关键洞察',
+    'qa-doc':   '帮我起草一份项目周报',
+    'qa-web':   '搜索关于 "Claude 4.5" 的最新发布信息',
+  };
+  const content = TEMPLATES[id];
+  onSend(content);
 }
 </script>
