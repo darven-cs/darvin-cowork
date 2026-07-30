@@ -19,7 +19,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-const props = withDefaults(defineProps<{
+withDefaults(defineProps<{
   size?: number;
 }>(), {
   size: 96,

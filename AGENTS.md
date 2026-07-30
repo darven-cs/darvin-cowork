@@ -60,7 +60,7 @@ npm run package
 # 发布（electron-forge publish；通常 CI 才会用，本地需配置 GH_TOKEN 等）
 npm run publish
 
-# ESLint：src 全部 .ts/.tsx（注意：与 LobsterAI 不同，本仓库目前还没有 Vitest 跑通）
+# ESLint：src 全部 .ts/.tsx/.vue（注意：与 LobsterAI 不同，本仓库目前还没有 Vitest 跑通）
 npm run lint
 ```
 
@@ -88,12 +88,16 @@ Go agent 相关：
 
 ESLint 配置在 `.eslintrc.json`：基于 `eslint:recommended` + `@typescript-eslint/recommended` + `import/recommended` + `import/electron` + `import/typescript`。
 
+`.vue` 走 `overrides`：`vue-eslint-parser` 拆包（`<template>` 出 Vue AST，`<script>` 转交 `@typescript-eslint/parser`）+ `plugin:vue/vue3-recommended`。
+其中纯排版类规则（`max-attributes-per-line` / `singleline-html-element-content-newline` / `html-self-closing` / `attributes-order`）与本仓库紧凑写法冲突，已关闭；
+`multi-word-component-names` 因组件全部显式 import、不存在全局注册冲突，也已关闭。保留的是错误预防类规则。
+
 ```bash
-# 全量 lint（src 内全部 .ts/.tsx）
+# 全量 lint（src 内全部 .ts/.tsx/.vue）
 npm run lint
 
 # 仅 lint 受影响的文件（与 CI 一致）
-npx eslint --ext .ts,.tsx <files>
+npx eslint --ext .ts,.tsx,.vue <files>
 ```
 
 验证期望：

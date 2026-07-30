@@ -13,6 +13,25 @@
     "plugin:import/typescript"
   ],
   "parser": "@typescript-eslint/parser",
+  "overrides": [
+    {
+      "files": ["*.vue"],
+      "extends": ["plugin:vue/vue3-recommended"],
+      "parser": "vue-eslint-parser",
+      "parserOptions": {
+        "parser": "@typescript-eslint/parser",
+        "ecmaVersion": "latest",
+        "sourceType": "module"
+      },
+      "rules": {
+        "vue/multi-word-component-names": "off",
+        "vue/max-attributes-per-line": "off",
+        "vue/singleline-html-element-content-newline": "off",
+        "vue/html-self-closing": "off",
+        "vue/attributes-order": "off"
+      }
+    }
+  ],
   "settings": {
     "import/resolver": {
       "typescript": {
