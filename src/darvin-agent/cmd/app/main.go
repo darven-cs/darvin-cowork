@@ -11,6 +11,7 @@ import (
 	"darvin-cowork/backend/internal/agent"
 	"darvin-cowork/backend/internal/agent/llm"
 	"darvin-cowork/backend/internal/agent/session"
+	"darvin-cowork/backend/internal/agent/store"
 	"darvin-cowork/backend/internal/config"
 	"darvin-cowork/backend/internal/database"
 	"darvin-cowork/backend/internal/logger"
@@ -54,6 +55,19 @@ func main() {
 	}
 	log.Info("database initialized", zap.String("sessions_dsn", cfg.Database.SessionsDSN))
 
+	if err := database.AutoMigrate(
+		&store.Session{},
+		&store.Message{},
+		&store.CompactionCheckpoint{},
+		&store.SkillSnapshot{},
+	); err != nil {
+		log.Error("auto migrate failed", zap.Error(err))
+		os.Exit(1)
+	}
+	log.Info("database migrated")
+
+	sqliteStore := store.NewSQLiteStore(database.Get())
+
 	// --- Agent wiring (M7: config + cmd sync) -------------------------
 	// Build the LLM provider from cfg.LLM. The provider name must match
 	// a registered factory (currently only "anthropic"); an unknown name
@@ -93,6 +107,7 @@ func main() {
 		Model:            agent.ModelRef{Provider: cfg.Agent.ProviderName, Model: cfg.Agent.Model},
 		Provider:         provider,
 		Session:          session.NewSession("default"),
+		Store:            sqliteStore,
 		Logger:           log.Logger, // *logger.Logger embeds *zap.Logger; dereference for agent.NewAgentConfig.Logger (*zap.Logger).
 		Config:           agentCfg,
 		AssemblerEnabled: cfg.Agent.AssemblerEnabled,
