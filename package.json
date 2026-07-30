@@ -6,6 +6,7 @@
   "main": ".vite/build/main/index.js",
   "private": true,
   "scripts": {
+    "prestart": "npm run build:agent",
     "start": "electron-forge start",
     "build:agent": "node scripts/build-go.js",
     "premake": "npm run build:agent",
@@ -31,6 +32,7 @@
     "@electron/fuses": "^1.8.0",
     "@tailwindcss/vite": "^4.0.0",
     "@types/node": "^20.11.0",
+    "@types/ws": "^8.5.13",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "@vitejs/plugin-vue": "^5.0.0",
@@ -45,6 +47,7 @@
     "vue-eslint-parser": "^9.4.3"
   },
   "dependencies": {
-    "electron-squirrel-startup": "^1.0.1"
+    "electron-squirrel-startup": "^1.0.1",
+    "ws": "^8.18.0"
   }
 }

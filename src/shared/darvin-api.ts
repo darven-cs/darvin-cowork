@@ -75,5 +75,6 @@ export interface DarvinApi {
   listSessions(): Promise<DarvinListSessionsResponse>;
   getMessages(sessionId: string): Promise<DarvinGetMessagesResponse>;
   onEvent(handler: (e: DarvinEvent) => void): () => void;
-  status(): DarvinRuntimeStatus;
+  /** 走 IPC 异步查询：sendSync 会阻塞 renderer 线程，不用。 */
+  status(): Promise<DarvinRuntimeStatus>;
 }

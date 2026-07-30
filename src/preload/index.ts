@@ -1,11 +1,12 @@
 /**
- * preload：contextBridge 暴露 mock 版的 DarvinApi。
+ * preload：contextBridge 把 DarvinApi 桥到 renderer。
  *
- * 真实 IPC 客户端仅替换 prompt / onEvent / status 三个方法的实现，
- * 签名保持不变（renderer 侧契约 0 改动）。
+ * 实现全部走 ipcRenderer —— 主进程持有 WS 客户端，preload 只负责转发，
+ * 不碰协议细节。renderer 侧签名与 S1 契约一致，唯一变化是 `status()`
+ * 改成异步（sendSync 会阻塞 renderer 线程）。
  */
 
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 import type {
   DarvinAbortResponse,
   DarvinApi,
@@ -16,55 +17,32 @@ import type {
   DarvinPromptResponse,
   DarvinRuntimeStatus,
 } from '../shared/darvin-api';
-import { mockMessages, mockSessions } from '../renderer/services/mock-data';
-import { mockPrompt } from '../renderer/services/mock-agent';
-
-const eventTarget = new EventTarget();
-const SUBS = new Set<(e: DarvinEvent) => void>();
-
-async function pump(content: string, sessionId?: string): Promise<{ sessionId: string; messageId: string }> {
-  const r = await mockPrompt(content, sessionId);
-  // 异步把 events 推到 EventTarget（renderer 侧 onEvent handler 消费）
-  (async () => {
-    try {
-      for await (const ev of r.events) {
-        eventTarget.dispatchEvent(new CustomEvent('darvin', { detail: ev }));
-      }
-    } catch (err) {
-      // 静默：mock 流抛错时不再上抛，错误事件由上游 agent_end 携带
-      void err;
-    }
-  })();
-  return { sessionId: r.sessionId, messageId: r.messageId };
-}
 
 const api: DarvinApi = {
   async prompt(req: DarvinPromptRequest): Promise<DarvinPromptResponse> {
-    return pump(req.content, req.sessionId);
+    return ipcRenderer.invoke('darvin:prompt', req);
   },
   async abort(sessionId: string): Promise<DarvinAbortResponse> {
-    return { aborted: true, sessionId };
+    return ipcRenderer.invoke('darvin:abort', { sessionId });
   },
+  // listSessions / getMessages 的真 RPC 在 S6（agent.list_sessions /
+  // agent.get_messages）落地。这里返空而不是返 mock 数据：假的会话列表
+  // 会让人误判持久化已经通了。
   async listSessions(): Promise<DarvinListSessionsResponse> {
-    return { sessions: mockSessions };
+    return { sessions: [] };
   },
-  async getMessages(sessionId: string): Promise<DarvinGetMessagesResponse> {
-    return { messages: mockMessages[sessionId] ?? [] };
+  async getMessages(): Promise<DarvinGetMessagesResponse> {
+    return { messages: [] };
   },
   onEvent(handler: (e: DarvinEvent) => void): () => void {
-    const wrap = (e: Event) => {
-      const detail = (e as CustomEvent<DarvinEvent>).detail;
-      handler(detail);
-    };
-    eventTarget.addEventListener('darvin', wrap);
-    SUBS.add(handler);
+    const wrap = (_e: unknown, ev: DarvinEvent) => handler(ev);
+    ipcRenderer.on('darvin:event', wrap);
     return () => {
-      eventTarget.removeEventListener('darvin', wrap);
-      SUBS.delete(handler);
+      ipcRenderer.off('darvin:event', wrap);
     };
   },
-  status(): DarvinRuntimeStatus {
-    return 'online';
+  async status(): Promise<DarvinRuntimeStatus> {
+    return ipcRenderer.invoke('darvin:status');
   },
 };
 

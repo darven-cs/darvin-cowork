@@ -12,6 +12,7 @@
       <h1 class="truncate text-[15px] font-medium text-text">{{ title }}</h1>
     </div>
     <div class="flex items-center gap-2">
+      <RuntimeStatusBadge />
       <IconButton
         variant="ghost"
         :name="isDark ? 'sun' : 'moon'"
@@ -34,6 +35,7 @@ import { t } from '../../services/i18n';
 import { useSession } from '../../composables/useSession';
 import { useTheme } from '../../composables/useTheme';
 import IconButton from '../common/IconButton.vue';
+import RuntimeStatusBadge from '../runtime/RuntimeStatusBadge.vue';
 
 const props = defineProps<{ sidePanelOpen: boolean }>();
 const emit = defineEmits<{ 'toggle-sidebar': []; 'toggle-side-panel': [] }>();

@@ -1,21 +1,246 @@
 /**
- * 与 darvin-agent 子进程的 IPC 客户端。
+ * 与 darvin-agent 子进程的 WebSocket JSON-RPC 2.0 客户端。
  *
- * 待实现：
- * - 协议：JSON-RPC / protobuf / 自定义（选其一）
- * - 连接生命周期：connect / reconnect / disconnect
- * - request / send / on 三类方法
- * - 把方法桥接到 preload 的 `window.darvin`
+ * 协议（S3 gateway）：
+ * - request：`{jsonrpc:"2.0", id, method:"agent.prompt"|..., params}`
+ * - response：`{jsonrpc:"2.0", id, result}` 或 `{jsonrpc:"2.0", id, error:{code,message}}`
+ * - notification：`{jsonrpc:"2.0", method:"agent.event", params:{type,...}}`
+ *
+ * 事件推送需要先 `agent.subscribe_events`：Go 侧 EventLedger 按 sessionId
+ * 维护订阅集合，没订阅的连接一条 notification 都收不到。
  */
 
-export interface AgentClient {
-  connect(): Promise<void>;
-  disconnect(): Promise<void>;
-  // TODO: request<T>(method, params): Promise<T>
-  // TODO: send<T>(event, payload): void
-  // TODO: on<T>(event, handler): Unsubscribe
+import { WebSocket } from 'ws';
+import { EventEmitter } from 'node:events';
+import type {
+  DarvinAbortResponse,
+  DarvinEvent,
+  DarvinPromptRequest,
+  DarvinPromptResponse,
+} from '../../shared/darvin-api';
+
+/**
+ * Agent v0 只有一个活跃 session。gateway 的 handlePrompt 会拒掉
+ * 既非空、又不等于此值的 sessionId（-32602 "session not active"），
+ * 且 EventLedger 只把事件路由给订阅了这个 id 的连接。
+ */
+export const DEFAULT_SESSION_ID = 'default';
+
+interface Pending {
+  resolve: (v: unknown) => void;
+  reject: (e: Error) => void;
 }
 
-export function createAgentClient(/* bin: string */): AgentClient {
-  throw new Error('createAgentClient 未实现');
+interface Logger {
+  warn(msg: string, ...args: unknown[]): void;
+}
+
+export class AgentClient extends EventEmitter {
+  private ws: WebSocket | undefined;
+  private nextId = 1;
+  private pending = new Map<string, Pending>();
+  private eventListeners = new Set<(e: DarvinEvent) => void>();
+  private logger: Logger;
+
+  constructor(opts: { logger?: Logger } = {}) {
+    super();
+    this.logger = opts.logger ?? console;
+  }
+
+  /**
+   * 建连并订阅默认 session 的事件流。open 之后 subscribe 失败也算连接
+   * 失败——没有事件流的连接对 renderer 毫无用处。
+   */
+  async connect(port: number): Promise<void> {
+    if (this.ws) return;
+    await this.openSocket(port);
+    await this.request<{ subscribed: boolean }>('agent.subscribe_events', {
+      sessionId: DEFAULT_SESSION_ID,
+    });
+  }
+
+  private openSocket(port: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(`ws://localhost:${port}/ws`);
+      let opened = false;
+
+      ws.once('open', () => {
+        opened = true;
+        this.ws = ws;
+        resolve();
+      });
+
+      ws.on('error', (err: Error) => {
+        if (!opened) {
+          reject(err);
+          return;
+        }
+        this.logger.warn(`[agentclient] ws error: ${err.message}`);
+      });
+
+      ws.on('close', () => {
+        if (this.ws !== ws) return;
+        this.ws = undefined;
+        // 连接断了 in-flight 请求永远不会有回包，全部 reject 防泄漏
+        for (const p of this.pending.values()) {
+          p.reject(new Error('agent offline'));
+        }
+        this.pending.clear();
+        this.emit('offline');
+      });
+
+      ws.on('message', (data: Buffer) => {
+        let msg: unknown;
+        try {
+          msg = JSON.parse(data.toString('utf8'));
+        } catch (e) {
+          this.logger.warn(`[agentclient] 非法 JSON 帧: ${(e as Error).message}`);
+          return;
+        }
+        this.handleIncoming(msg);
+      });
+    });
+  }
+
+  private handleIncoming(msg: unknown): void {
+    if (typeof msg !== 'object' || msg === null) return;
+    const frame = msg as {
+      id?: unknown;
+      error?: { code?: number; message?: string };
+      result?: unknown;
+      method?: unknown;
+      params?: unknown;
+    };
+
+    if (frame.id !== undefined && frame.id !== null) {
+      const p = this.pending.get(String(frame.id));
+      if (!p) return;
+      this.pending.delete(String(frame.id));
+      if (frame.error) {
+        p.reject(
+          new Error(`rpc ${frame.error.code}: ${frame.error.message ?? ''}`),
+        );
+      } else {
+        p.resolve(frame.result);
+      }
+      return;
+    }
+
+    if (frame.method !== 'agent.event') return;
+    if (typeof frame.params !== 'object' || frame.params === null) {
+      this.logger.warn('[agentclient] agent.event 缺少 params');
+      return;
+    }
+    const raw = frame.params as Record<string, unknown>;
+    const ev = parseDarvinEvent(raw);
+    if (!ev) {
+      // 生命周期事件 renderer 不渲染，但 Go 每轮 prompt 都发，不能当异常刷日志
+      if (!LIFECYCLE_EVENT_TYPES.has(String(raw.type))) {
+        this.logger.warn(`[agentclient] 未知 event type: ${String(raw.type)}`);
+      }
+      return;
+    }
+    for (const cb of this.eventListeners) {
+      try {
+        cb(ev);
+      } catch (e) {
+        // 单个 listener 抛错不能带崩整条 fanout
+        this.logger.warn(`[agentclient] listener 抛错: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  async request<T>(method: string, params?: unknown): Promise<T> {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      throw new Error('agent offline');
+    }
+    const id = String(this.nextId++);
+    return new Promise<T>((resolve, reject) => {
+      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      try {
+        ws.send(
+          JSON.stringify({ jsonrpc: '2.0', id, method, params: params ?? {} }),
+        );
+      } catch (e) {
+        this.pending.delete(id);
+        reject(e as Error);
+      }
+    });
+  }
+
+  prompt(req: DarvinPromptRequest): Promise<DarvinPromptResponse> {
+    return this.request<DarvinPromptResponse>('agent.prompt', req);
+  }
+
+  abort(req: { sessionId: string }): Promise<DarvinAbortResponse> {
+    return this.request<DarvinAbortResponse>('agent.abort', req);
+  }
+
+  onEvent(cb: (e: DarvinEvent) => void): () => void {
+    this.eventListeners.add(cb);
+    return () => {
+      this.eventListeners.delete(cb);
+    };
+  }
+
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  disconnect(): Promise<void> {
+    const ws = this.ws;
+    if (!ws) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      if (ws.readyState === WebSocket.CLOSED) {
+        resolve();
+        return;
+      }
+      ws.once('close', () => resolve());
+      try {
+        ws.close();
+      } catch {
+        resolve();
+      }
+    });
+  }
+}
+
+/**
+ * Go 侧 mapEventToTS 只把 7 类事件映射成 DarvinEvent，其余按
+ * `{type}` 裸壳发出（internal/gateway/eventledger.go）。这些是运行
+ * 生命周期事件，renderer 无需渲染，静默丢弃即可 —— 否则每轮 prompt
+ * 都会在主进程 stderr 刷四五条 warn。
+ */
+const LIFECYCLE_EVENT_TYPES = new Set([
+  'prompt_received',
+  'run_start',
+  'run_end',
+  'turn_start',
+  'turn_end',
+  'llm_start',
+  'compaction',
+]);
+
+/**
+ * 把 notification 的 params 收口成 DarvinEvent union。
+ *
+ * 未知 type 返回 null（caller 打 warn 后丢弃），不抛错 —— Go 侧新增事件
+ * 类型时旧版 Electron 不应该崩，后续合法事件仍要能继续消费。
+ */
+export function parseDarvinEvent(
+  raw: Record<string, unknown>,
+): DarvinEvent | null {
+  switch (raw.type) {
+    case 'text_delta':
+    case 'thinking_delta':
+    case 'tool_start':
+    case 'tool_end':
+    case 'done':
+    case 'error':
+    case 'agent_end':
+      return raw as unknown as DarvinEvent;
+    default:
+      return null;
+  }
 }

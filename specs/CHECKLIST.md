@@ -215,39 +215,59 @@
 
 ## S5 · electron-runtime-client（Phase 3 Electron）
 
-- [ ] `package.json` 加 `ws ^8.18`
-- [ ] `src/main/runtime/manager.ts` RuntimeMgr class：spawn + stdout port 解析（5s 超时）+ stop（SIGTERM 4s 兜底 SIGKILL）
-- [ ] `src/main/runtime/client.ts` AgentClient class：WS + JSON-RPC promise-id-mux + onEvent fanout
-- [ ] `src/preload/index.ts` contextBridge 真接 `ipcRenderer.invoke / on`（签名同 S1）
-- [ ] `src/main/index.ts` bootstrap 时序：whenReady → mgr.start → client.connect → createWindow
-- [ ] `src/main/index.ts` ipcMain.handle 转发 prompt / abort / status
-- [ ] `src/main/index.ts` 客户端 onEvent → webContents.send('darvin:event', ev) 全 window 推
-- [ ] `src/main/index.ts` `before-quit` graceful shutdown（disconnect + mgr.stop）
-- [ ] `src/renderer/components/ChatHeader.vue` runtime status badge（online / offline / no-binary）
-- [ ] 删除 `src/renderer/services/mock-agent.ts`
-- [ ] 验收：`npm start` 启动后 DevTools `window.darvin.prompt('ping')` 真接 Anthropic 流；UI 流式显示；关 Electron 主进程 3s 内子进程 graceful shutdown
+- [x] `package.json` 加 `ws ^8.18`
+- [x] `src/main/runtime/manager.ts` RuntimeMgr class：spawn + stdout port 解析（5s 超时）+ stop（SIGTERM 4s 兜底 SIGKILL）
+- [x] `src/main/runtime/client.ts` AgentClient class：WS + JSON-RPC promise-id-mux + onEvent fanout
+- [x] `src/preload/index.ts` contextBridge 真接 `ipcRenderer.invoke / on`（签名同 S1，`status()` 改 async）
+- [x] `src/main/index.ts` bootstrap 时序：whenReady → mgr.start → client.connect → createWindow
+- [x] `src/main/index.ts` ipcMain.handle 转发 prompt / abort / status
+- [x] `src/main/index.ts` 客户端 onEvent → webContents.send('darvin:event', ev) 全 window 推
+- [x] `src/main/index.ts` `before-quit` graceful shutdown（disconnect + mgr.stop）
+- [x] runtime status badge（online / offline / no-binary）→ 实际落在 `components/runtime/RuntimeStatusBadge.vue`，由 `components/chat/ChatHeader.vue` 内嵌（v2 spec §9.1）
+- [x] 删除 `src/renderer/services/mock-agent.ts`
+- [x] 验收（部分）：`npm start` 端到端起链路通（prestart build → port 解析 → WS connect → subscribe_events）；SIGTERM 后子进程 `graceful shutdown complete` + exit 0（smoke 实测 4ms）
+- [ ] 验收（未完成）：真接 Anthropic 流 + UI 流式显示 —— 本机无 LLM 凭据，prompt 走到 `error` 事件即终止；`text_delta` / `done` happy path 待有 key 环境复测（详见 v2 spec §9.9）
+
+**S5 落地新增偏差**（详见 v2 spec §9.5–§9.10）：
+
+1. `vite.main.config.ts` 未 external node 内置模块 —— 潜在 bug，S5 前靠 default import 侥幸没炸，改 named import 后暴露；已用 `builtinModules` 全量 external + `ws` external 修掉。
+2. dev 期必须注入 `DARVIN_CONFIG`，否则子进程 `failed to load config` 退出（bin/ 与 cwd 都没 config.yaml）。
+3. `AgentClient.connect()` 必须补发 `agent.subscribe_events`，spec §FR-1.2 漏了；不发一条 notification 都收不到。
+4. Go 的 7 类生命周期事件（`run_start` / `prompt_received` / ...）走 `parseDarvinEvent` 的 null 分支，需静默丢弃而非 warn，否则每轮 prompt 刷 4+ 条日志。
+
 
 ---
 
 ## S6 · agent-e2e-integration（Phase 4 E2E）
 
-- [ ] `scripts/smoke.sh` headless 端到端脚本
-- [ ] `scripts/ws-smoke-client.js` Node WS 客户端（Node 22+ 用内置 WebSocket）
-- [ ] `package.json` 加 `scripts.smoke`
-- [ ] `src/darvin-agent/configs/config.example.yaml` 加 `llm.anthropic_api_key` 模板
-- [ ] `src/darvin-agent/.gitignore` 加 `configs/config.yaml`
-- [ ] `.gitignore` 加 `bin/` / `sessions.db`
-- [ ] `src/darvin-agent/internal/acp/loop.go` onRunEnd 调 SaveSession + SaveMessage
-- [ ] `src/darvin-agent/internal/gateway/handlers.go` 增 `agent.list_sessions` / `agent.get_messages` dispatch
-- [ ] `src/darvin-agent/internal/agent/store/sqlite.go` 实装 ListSessions / ListMessages
-- [ ] `src/shared/darvin-api.ts` 补 listSessions / getMessages 签名 + DarvinSession / DarvinMessage 类型
-- [ ] `src/preload/index.ts` 增 listSessions / getMessages IPC
-- [ ] `src/main/runtime/client.ts` 增 listSessions / getMessages 方法
-- [ ] `src/main/index.ts` 增 ipcMain.handle('darvin:list_sessions' / 'darvin:get_messages')
-- [ ] `src/renderer/composables/useSessionHistory.ts` onMounted load history
-- [ ] `src/renderer/components/MessageList.vue` 初始化调 loadLatest
-- [ ] `README.md` "First Run" 5 步指南 + Troubleshooting
-- [ ] 验收：`npm run smoke` exit 0 ≤10s；重 UI 端到端（场景 1-3 §2）；session 跨重启可见；graceful shutdown ≤3s + sessions.db integrity ok
+> v2 已写，spec 路径 `specs/features/agent-e2e-integration/2026-07-30-agent-e2e-integration-design-v2.md`。v1 整段作废，仅历史参考。v2 §0 列了 7 个 P0 + 4 个 P1 修订。
+
+### S6 落地后回填（本节待勾）
+
+- [ ] `scripts/smoke.sh` headless 端到端脚本（FR-7）
+- [ ] `scripts/ws-smoke-client.js` Node WS 客户端（FR-7，Node 22+ 用内置 WebSocket）
+- [ ] `package.json` 加 `scripts.smoke` / `scripts.e2e` / `scripts.e2e:headed` / devDeps `@playwright/test`
+- [ ] `src/darvin-agent/config.yaml` api_key 留空（占位）
+- [ ] `src/darvin-agent/internal/config/config.go` Load 加用户级 yaml overlay（FR-5.3）
+- [ ] `src/darvin-agent/internal/agent/store/message_store.go` MessageStore interface + SQLiteMessageStore（FR-2.1）
+- [ ] `src/darvin-agent/internal/agent/agent.go` 加 msgStore 字段
+- [ ] `src/darvin-agent/internal/agent/dispatcher.go` 三处落库 hook（user / assistant / RunEnd；FR-2.2，**不动 acp/loop.go**）
+- [ ] `src/darvin-agent/cmd/app/main.go` 注入 MessageStore
+- [ ] `src/darvin-agent/internal/gateway/handlers.go` Handler 加 Store/MessageStore；switch 加 list_sessions / get_messages
+- [ ] `src/darvin-agent/internal/gateway/eventledger.go` mapEventToTS(LLMEndEvent) 加 usage（FR-4）
+- [ ] `src/shared/darvin-api.ts` `done` 扩 `usage?` + DarvinLLMConfig + listSessions/getMessages/getLLMConfig/setLLMConfig
+- [ ] `src/main/runtime/client.ts` + listSessions / getMessages / getLLMConfig / setLLMConfig
+- [ ] `src/main/index.ts` + ipcMain.handle('darvin:list_sessions' / 'darvin:get_messages' / 'darvin:get_llm_config' / 'darvin:set_llm_config') + writeUserSettingsYAML + restartGoSubprocess
+- [ ] `src/preload/index.ts` 替换空 stub + 加 LLM config 方法
+- [ ] `src/renderer/composables/useSession.ts` 删 mockSessions 种子（FR-2.3）
+- [ ] `src/renderer/services/mock-data.ts` 删 mockSessions / mockMessages；保留 mockModels / expertSuiteAgents
+- [ ] `src/renderer/components/settings/SettingsSubNav.vue` 加 'models' section
+- [ ] `src/renderer/components/settings/SettingsPanelModels.vue` 新建（FR-5.1）
+- [ ] `src/renderer/views/SettingsView.vue` + SettingsPanelModels
+- [ ] `src/renderer/components/chat/MessageItem.vue` / `Composer.vue` 加 data-testid
+- [ ] `playwright.config.ts` + `e2e/{happy-path,session-persistence,graceful-shutdown}.spec.ts`（FR-6）
+- [ ] `README.md` First Run 5 步（含 UI LLM 配置入口）
+- [ ] 验收：`npm run smoke` exit 0 ≤10s；`npm run e2e` happy-path skip-on-no-key，其余全过；UI 配置 LLM → restart Go → 真流式响应；session 跨重启可见；graceful shutdown ≤3s + sessions.db integrity ok
 
 ---
 
