@@ -81,6 +81,7 @@ function reloadMessagesForCurrentSession() {
       done: m.done,
       createdAt: m.createdAt,
       error: m.error,
+      toolLabel: m.toolLabel,
     });
   }
 }

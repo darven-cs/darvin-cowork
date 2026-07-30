@@ -25,6 +25,12 @@ export const mockMessages: Record<string, DarvinMessage[]> = {
       id: 'm-001-1', sessionId: 's-001', role: 'user',
       content: '给我写一个贪吃蛇', done: true, createdAt: now - 60_000,
     },
+    {
+      id: 'm-001-2', sessionId: 's-001', role: 'assistant',
+      content: '好的，下面是一个用 HTML + JavaScript 实现的贪吃蛇小游戏...',
+      done: true, createdAt: now - 59_000,
+      toolLabel: 'frontend-design',
+    },
   ],
   's-002': [],
   's-003': [],
