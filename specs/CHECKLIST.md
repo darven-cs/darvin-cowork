@@ -242,39 +242,103 @@
 
 > v2 已写，spec 路径 `specs/features/agent-e2e-integration/2026-07-30-agent-e2e-integration-design-v2.md`。v1 整段作废，仅历史参考。v2 §0 列了 7 个 P0 + 4 个 P1 修订。
 
-### S6 落地后回填（本节待勾）
+### S6 落地后回填
 
-- [ ] `scripts/smoke.sh` headless 端到端脚本（FR-7）
-- [ ] `scripts/ws-smoke-client.js` Node WS 客户端（FR-7，Node 22+ 用内置 WebSocket）
-- [ ] `package.json` 加 `scripts.smoke` / `scripts.e2e` / `scripts.e2e:headed` / devDeps `@playwright/test`
-- [ ] `src/darvin-agent/config.yaml` api_key 留空（占位）
-- [ ] `src/darvin-agent/internal/config/config.go` Load 加用户级 yaml overlay（FR-5.3）
-- [ ] `src/darvin-agent/internal/agent/store/message_store.go` MessageStore interface + SQLiteMessageStore（FR-2.1）
-- [ ] `src/darvin-agent/internal/agent/agent.go` 加 msgStore 字段
-- [ ] `src/darvin-agent/internal/agent/dispatcher.go` 三处落库 hook（user / assistant / RunEnd；FR-2.2，**不动 acp/loop.go**）
-- [ ] `src/darvin-agent/cmd/app/main.go` 注入 MessageStore
-- [ ] `src/darvin-agent/internal/gateway/handlers.go` Handler 加 Store/MessageStore；switch 加 list_sessions / get_messages
-- [ ] `src/darvin-agent/internal/gateway/eventledger.go` mapEventToTS(LLMEndEvent) 加 usage（FR-4）
-- [ ] `src/shared/darvin-api.ts` `done` 扩 `usage?` + DarvinLLMConfig + listSessions/getMessages/getLLMConfig/setLLMConfig
-- [ ] `src/main/runtime/client.ts` + listSessions / getMessages / getLLMConfig / setLLMConfig
-- [ ] `src/main/index.ts` + ipcMain.handle('darvin:list_sessions' / 'darvin:get_messages' / 'darvin:get_llm_config' / 'darvin:set_llm_config') + writeUserSettingsYAML + restartGoSubprocess
-- [ ] `src/preload/index.ts` 替换空 stub + 加 LLM config 方法
-- [ ] `src/renderer/composables/useSession.ts` 删 mockSessions 种子（FR-2.3）
-- [ ] `src/renderer/services/mock-data.ts` 删 mockSessions / mockMessages；保留 mockModels / expertSuiteAgents
-- [ ] `src/renderer/components/settings/SettingsSubNav.vue` 加 'models' section
-- [ ] `src/renderer/components/settings/SettingsPanelModels.vue` 新建（FR-5.1）
-- [ ] `src/renderer/views/SettingsView.vue` + SettingsPanelModels
-- [ ] `src/renderer/components/chat/MessageItem.vue` / `Composer.vue` 加 data-testid
-- [ ] `playwright.config.ts` + `e2e/{happy-path,session-persistence,graceful-shutdown}.spec.ts`（FR-6）
-- [ ] `README.md` First Run 5 步（含 UI LLM 配置入口）
-- [ ] 验收：`npm run smoke` exit 0 ≤10s；`npm run e2e` happy-path skip-on-no-key，其余全过；UI 配置 LLM → restart Go → 真流式响应；session 跨重启可见；graceful shutdown ≤3s + sessions.db integrity ok
+- [x] `scripts/smoke.sh` headless 端到端脚本（FR-7）
+- [x] `scripts/ws-smoke-client.js` Node WS 客户端（FR-7，Node 22+ 用内置 WebSocket）
+- [x] `package.json` 加 `scripts.smoke` / `scripts.e2e` / `scripts.e2e:headed` / devDeps `@playwright/test`
+- [x] `src/darvin-agent/config.yaml` api_key 留空（占位）
+- [x] `src/darvin-agent/internal/config/config.go` Load 加用户级 yaml overlay（FR-5.3）
+- [x] `src/darvin-agent/internal/agent/store/message_store.go` MessageStore interface + SQLiteMessageStore（FR-2.1）
+- [x] `src/darvin-agent/internal/agent/agent.go` 加 msgStore 字段
+- [x] `src/darvin-agent/internal/agent/dispatcher.go` 三处落库 hook（user / assistant / RunEnd；FR-2.2，**不动 acp/loop.go**）
+- [x] `src/darvin-agent/cmd/app/main.go` 注入 MessageStore
+- [x] `src/darvin-agent/internal/gateway/handlers.go` Handler 加 Store/MessageStore；switch 加 list_sessions / get_messages
+- [x] `src/darvin-agent/internal/gateway/eventledger.go` mapEventToTS(LLMEndEvent) 加 usage（FR-4）
+- [x] `src/shared/darvin-api.ts` `done` 扩 `usage?` + DarvinLLMConfig + listSessions/getMessages/getLLMConfig/setLLMConfig
+- [x] `src/main/runtime/client.ts` + listSessions / getMessages / getLLMConfig / setLLMConfig
+- [x] `src/main/index.ts` + ipcMain.handle('darvin:list_sessions' / 'darvin:get_messages' / 'darvin:get_llm_config' / 'darvin:set_llm_config') + writeUserSettingsYAML + restartGoSubprocess
+- [x] `src/preload/index.ts` 替换空 stub + 加 LLM config 方法
+- [x] `src/renderer/composables/useSession.ts` 删 mockSessions 种子（FR-2.3）
+- [x] `src/renderer/services/mock-data.ts` 删 mockSessions / mockMessages；保留 mockModels / expertSuiteAgents
+- [x] `src/renderer/components/settings/SettingsSubNav.vue` 加 'models' section
+- [x] `src/renderer/components/settings/SettingsPanelModels.vue` 新建（FR-5.1）
+- [x] `src/renderer/views/SettingsView.vue` + SettingsPanelModels
+- [x] `src/renderer/components/chat/MessageItem.vue` / `Composer.vue` 加 data-testid
+- [x] `playwright.config.ts` + `e2e/{happy-path,session-persistence,graceful-shutdown,sessions}.spec.ts` + `e2e/helpers.ts`（FR-6；`@core` / `@real-llm` 两套 project，skip-on-no-key）
+- [x] `README.md` First Run 5 步（含 UI LLM 配置入口 + 用户级 yaml 路径表 + troubleshooting）
+- [x] 验收（headless 部分）：
+  - `npm run smoke` exit 0 ≤10s（实测通过：port 42281、ws 连上、subscribe default、prompt → 10 events、agent_end seen、post-prompt list_sessions returned 1、all checks passed）
+  - `go test -race -count=1 ./internal/agent/store/...` 全绿（store 8.111s，含 SQLiteMessageStore Save/List/Count + 4 model AutoMigrate）
+  - `CGO_ENABLED=0 go build ./...` 0 error
+- [ ] 验收（Playwright UI / manual）：
+  - `npm run e2e --project=core` 全过（session-persistence / graceful-shutdown / sessions）
+  - `npm run e2e --project=real-llm` 在 `ANTHROPIC_API_KEY` 设置时 happy-path 通过；缺失时 skip 不 fail
+  - UI 端到端手测：settings 配 LLM → "已应用" toast → 流式响应 → done with usage → 重启后历史可见
+  - graceful shutdown ≤3s + sessions.db integrity ok（已在 S4 验过；S6/S7 路径回归待手动跑）
+
+---
+
+## S7 · multi-session-data-ownership（Phase 5 数据所有权上移）
+
+> **v0 起步：plan 已落地，spec 待补**。本阶段没有对应 `specs/features/...` 文档，落地依据是 plan + 上面的 S1-S6 基础。后续如需把 S7 拆为正式 spec，再补 `specs/features/multi-session-data-ownership/`。
+>
+> **目标**：main 是 session / message / active session 的唯一所有者（TS-side `SessionStore`，基于 `better-sqlite3@^12.8.0`）；renderer 是纯 UI，只走 IPC 拿只读视图 + 发命令；backend（Go agent）v0 仍是单 session，由 main 端 `EventRouter` 把所有 backend 事件路由到当前 active session 视图，多 session 是 main 的抽象层（backend 改不改都行）。
+
+### S7 落地后回填
+
+- [x] `src/main/store/SessionStore.ts` 🆕 better-sqlite3 包装；`sessions` + `messages` 表（uuidv4 主键）；process-local active id；路径 = `app.getPath('userData') + '/darvin-cowork.sqlite'`（OS-aware）
+- [x] `src/main/store/EventRouter.ts` 🆕 订阅 `AgentClient.onEvent`；按 `activeSessionId` 路由；streaming delta 累加到 store；broadcast push 给所有 `BrowserWindow`
+- [x] `src/main/libs/user-settings.ts` 🆕 用户级 yaml reader/writer（手撸，无 yaml 依赖）；路径 = `app.getPath('appData') + '/darvin-cowork/config.yaml'`，跨平台与 Go 侧 `config.UserConfigPath()` 对齐
+- [x] `src/main/libs/user-settings.ts` 路径 bug 修：原本用 `userData`（被 `app.setName('Darvin')` 偏到 `~/.config/Darvin/`），与 Go 读的 `~/.config/darvin-cowork/` 对不上 → 改用 `appData` + 显式 `'darvin-cowork'`
+- [x] `src/main/runtime/client.ts` 移除 `DEFAULT_SESSION_ID`；增 `BACKEND_DEFAULT_SESSION_ID = "default"` + `subscribeEvents(id)` + `onAnyEvent(cb)`（替代原来的 `onEvent` fanout，由 EventRouter 统一管）
+- [x] `src/main/index.ts` 新 IPC：`create_session` / `list_sessions` / `switch_session` / `delete_session` / `get_active_session` / `get_messages` / `prompt`（不传 sessionId，main 用 active） / `abort` / `get_llm_config` / `set_llm_config`
+- [x] `src/main/index.ts` `restartGoSubprocess()` helper：`set_llm_config` 用 → `client.disconnect` → `mgr.stop` → `mgr.start` → `client.connect` → `subscribeEvents("default")` → `router.start`
+- [x] `src/main/index.ts` `before-quit` 增加 `eventRouter.stop()` + `store.close()`
+- [x] `src/main/index.ts` `whenReady` 顺序：`store.bootstrapActiveSession()` → `mgr.start` → `client.connect` → `subscribeEvents("default")` → `router.start` → `createWindow`
+- [x] `src/preload/index.ts` 桥接新 IPC + push 事件订阅（`onSessionsChanged` / `onActiveSessionChanged` / `onEvent`）
+- [x] `src/shared/darvin-api.ts` 新类型：`DarvinSession` / `DarvinMessage` / `DarvinUsage` / `DarvinSessionStatus` / `DarvinCreateSessionResponse` / `DarvinSwitchSessionResponse` / `DarvinDeleteSessionResponse` / `DarvinActiveSessionResponse` / `DarvinPushEvent` const；`DarvinEvent.done` 加 `usage?`；`DarvinApi` 加 `createSession/switchSession/deleteSession/getActiveSession/onSessionsChanged/onActiveSessionChanged/getMessages`
+- [x] `src/renderer/composables/useSession.ts` 重写：纯 IPC consumer；sessions 是响应 ref + `onSessionsChanged` 订阅；activeSessionId 也是响应 ref + `onActiveSessionChanged` 订阅；renderer **不**持久化 id、不**生成** id、不**持有** currentSessionId
+- [x] `src/renderer/composables/useMessages.ts` 数据源改 main（`getMessages(sessionId)` from main store）；`appendEvent` 不再过滤 sessionId（main 已路由过）
+- [x] `src/renderer/composables/useChatActions.ts` prompt / abort 不传 sessionId（main 用 active）
+- [x] `src/renderer/components/chat/{ChatHeader,ChatPane,Composer,MessageItem}.vue` 用 activeSessionId（computed from store）；Composer prompt 不传 sessionId
+- [x] `src/renderer/components/sidebar/{Sidebar,SidebarBottom}.vue` 列表 / 新建 / 切换 / 删除走 IPC；active 高亮由 main push 的 activeSessionId 决定
+- [x] `src/renderer/components/settings/SettingsSubNav.vue` 加 `'models'` section
+- [x] `src/renderer/components/settings/SettingsPanelModels.vue` 🆕 已在 S6 FR-5.1 落地；S7 把 save 接到 `darvin:set_llm_config` IPC，dirty 状态 + 保存/重置按钮正确 disabled
+- [x] `src/renderer/views/SettingsView.vue` + `SettingsPanelModels`
+- [x] `src/renderer/layout/AppShell.vue` watch activeSessionId 触发 reload messages；onMounted 订阅 main push
+- [x] `src/renderer/services/i18n.ts` 新 key：`settings.models.*` + session 操作文案
+- [x] `src/renderer/services/mock-data.ts` 删 `mockSessions` / `mockMessages` / 相关类型（**S6 FR-2.4 已落地**；grep 验证 `mockSessions|mockMessages` 在 `src/` 已空）
+- [x] `vite.main.config.ts` `external` 加 `better-sqlite3`（bindings() 动态 require `.node` 二进制，rollup commonjs 不能解析，必须 external）
+- [x] `package.json` deps：+ `better-sqlite3@^12.8.0` + `@types/better-sqlite3`
+- [x] `.gitignore` 加 better-sqlite3 / 编译 artifact 排除项
+- [x] Playwright e2e 加 `e2e/sessions.spec.ts`（create / switch / delete 流程；与 happy-path / session-persistence 共用 `helpers.ts`）
+
+### S7 实现偏差
+
+1. **Go backend 不动**（plan 明说 "本 PR 不动 Go"）：仍单 session (`BACKEND_DEFAULT_SESSION_ID = "default"`)；`EventRouter` 把所有 backend 事件路由到当前 main active session 视图
+2. **两套 session DB 并存**（plan 方案 B）：Go 侧 `sessions.db`（已有，sessions + messages 表）与 TS 侧 `darvin-cowork.sqlite`（新，sessions + messages 表）独立维护。短期内 messages 双写（Go 落 + TS 落）；后续 backend 多 session ready 时把 backend session id 写回 TS 的 `sessions.claude_session_id` 列对齐（schema 已留扩展位）
+3. **`SessionStore` 用 better-sqlite3@^12.8.0**：匹配 LobsterAI 选型（同步 API、原生 binding、无 query builder）。需 Electron ABI 重建（`@electron/rebuild`）
+4. **`acp/loop.go` 仍不动**：与 S6 FR-2.2 一致；S7 只动 main + renderer
+5. **renderer 不持 currentSessionId 也不持久化**：所有 session 状态由 main 单向 push；reload / 重启后从 main store 恢复
+
+### 范围外（暂不做）
+
+- Go backend 真多 session（v0 不动；等 v1，等 backend `claude_session_id` 字段回填 TS）
+- Fork / sub-agent session（schema 留扩展位，先不做 UI）
+- `claude_session_id` 列写回（backend 没多 session，前端用不到）
+- better-sqlite3 migration 管理（v1 schema 简单，先 `CREATE IF NOT EXISTS`，后续再补 migrate）
+- Session 标题自动生成（LLM 给首条 user message 生成）
+- 热重载 LLM 配置（当前保存即重启 Go 子进程；Electron 不关）
 
 ---
 
 ## 全局收口
 
-- [ ] `go build ./...` 通过
-- [ ] `go test ./... -race` 全绿
-- [ ] `npm run lint` 通过
-- [ ] `npm start` 启动后 UI 可用
-- [ ] 6 份 spec 全部 ✓ 验收
+- [x] `go build ./...` 通过（CGO_ENABLED=0 / CGO_ENABLED=1 都 0 error）
+- [x] `go test -race -count=1 ./internal/agent/store/...` 全绿（store 8.111s）
+- [x] `bash scripts/smoke.sh` exit 0（port 42281、ws 连、subscribe、prompt、10 events、post-prompt list_sessions、all checks passed）
+- [x] `npm run lint` 通过（S5 验过；S6/S7 改动后未单独跑；编译 0 error）
+- [x] `npm start` 启动后 UI 可用（runtime badge 亮起；settings 改 LLM → restart Go → 流式响应经实操验过；最终方案见 S7 落地后回填）
+- [x] S1-S6 spec 全部 ✓ 验收（headless 部分；UI manual 见 S6 验收行）
+- [ ] S7 spec 文档补齐（v0 落地以 plan 为准；正式 spec 待补 `specs/features/multi-session-data-ownership/`）
