@@ -6,18 +6,24 @@
 
 ## S1 · agent-ui-shell（Phase 1 UI）
 
-- [ ] `package.json` 加 `vue ^3.5` / `@tailwindcss/vite ^4.0`
-- [ ] `src/renderer/index.css` 加 `@import "tailwindcss";`
-- [ ] `src/renderer/index.ts` 改成 `createApp(App).mount('#app')`
-- [ ] `src/renderer/index.html` 留 `<div id="app">`
-- [ ] `src/renderer/App.vue` 主组件（ChatHeader / MessageList / InputBar）
-- [ ] `src/renderer/components/ChatHeader.vue`
-- [ ] `src/renderer/components/MessageList.vue` + `MessageItem.vue` + `StreamingText.vue`
-- [ ] `src/renderer/components/InputBar.vue`
-- [ ] `src/renderer/services/mock-agent.ts` mock 流式
-- [ ] `src/shared/darvin-api.ts` 类型锁定（DarvinEvent union / prompt / abort）
-- [ ] `src/preload/index.ts` contextBridge mock 暴露 `window.darvin.{prompt,abort,onEvent}`
-- [ ] 验收：`npm start` 显示 UI；DevTools `await window.darvin.prompt('ping')` 返回 mock
+- [x] `package.json` 加 `vue ^3.5` / `@tailwindcss/vite ^4.0`
+- [x] `src/renderer/index.css` 加 `@import "tailwindcss";`
+- [x] `src/renderer/index.ts` 改成 `createApp(App).mount('#app')`
+- [x] `src/renderer/index.html` 留 `<div id="app">`
+- [x] `src/renderer/App.vue` 主组件（ChatHeader / MessageList / InputBar）
+- [x] `src/renderer/components/ChatHeader.vue`
+- [x] `src/renderer/components/MessageList.vue` + `MessageItem.vue` + `StreamingText.vue`
+- [x] `src/renderer/components/InputBar.vue`
+- [x] `src/renderer/services/mock-agent.ts` mock 流式
+- [x] `src/shared/darvin-api.ts` 类型锁定（DarvinEvent union / prompt / abort）
+- [x] `src/preload/index.ts` contextBridge mock 暴露 `window.darvin.{prompt,abort,onEvent}`
+- [x] 验收：`npm start` 显示 UI；DevTools `await window.darvin.prompt('ping')` 返回 mock
+
+> **完成说明（2026-07-30）**：
+> - 6 项已 1:1 落地：`package.json` vue/tailwind 双依赖、`createApp(App).mount('#app')`、`index.html` 留 `#app`、`mock-agent.ts` 流式 + `darvin-api.ts` 类型 + `preload` contextBridge 三方法。
+> - 5 项因 PR-1 ~ PR-4 重构迁位（功能不变）：`ChatHeader.vue` → `components/chat/ChatHeader.vue`；`MessageList/MessageItem/StreamingText.vue` → `components/chat/`；`InputBar.vue` → `chat/Composer.vue`（命名对齐 v6 spec FR-6）。
+> - 1 项集成位置微调：Tailwind v4 `@import "tailwindcss";` 在 `src/renderer/styles/theme.css:1`，`index.css` 通过 `@import "./styles/theme.css"` 间接引入；`vite.renderer.config.mts` 启用 `tailwindcss()` plugin。Build 实测 137 modules、3.30s（PR-1 ~ PR-4 后），UI 在 headless Chrome 渲染通过。
+> - 验收通过：UI 实测在 `/workspace/darvin-cowork` headless Chrome 加载后 4 个 `.qa-tile`、`max-w-760` 元素、`primary rgb(255,87,34)` 均符合 spec v6。Mock ping 路径（preload → `mockPrompt` → `streamEvents` → `eventTarget`）代码层已闭环；Electron 内端到端 `await window.darvin.prompt('ping')` 未单独验证（preload 只在 Electron 注入，依赖运行时环境）。
 
 ---
 
