@@ -10,6 +10,13 @@ import (
 	"darvin-cowork/backend/internal/agent/session"
 )
 
+func TestMemoryStoreSaveNil(t *testing.T) {
+	ms := NewMemoryStore()
+	if err := ms.Save(context.Background(), nil); !errors.Is(err, ErrNilSession) {
+		t.Errorf("Save(nil) = %v, want ErrNilSession", err)
+	}
+}
+
 func TestMemoryStoreSaveLoad(t *testing.T) {
 	ctx := context.Background()
 	ms := NewMemoryStore()

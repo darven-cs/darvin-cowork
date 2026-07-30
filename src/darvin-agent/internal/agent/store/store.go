@@ -14,6 +14,12 @@ import (
 // id exists.
 var ErrNotFound = errors.New("store: session not found")
 
+// ErrNilSession is returned by Save when called with a nil *session.Session.
+// All SessionStore implementations must surface this — earlier the
+// MemoryStore silently swallowed nil inputs, which made SQLite and
+// in-memory backends disagree on the same call.
+var ErrNilSession = errors.New("store: nil session")
+
 // SessionStore persists and retrieves Sessions by id.
 type SessionStore interface {
 	// Save persists s. If a session with s.ID already exists it is replaced.

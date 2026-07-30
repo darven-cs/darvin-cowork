@@ -14,6 +14,9 @@ import (
 // for concurrent use.
 type Session struct {
 	ID        string
+	Key       string
+	AgentID   string
+	Status    Status
 	CreatedAt time.Time
 
 	mu        sync.RWMutex
@@ -21,12 +24,28 @@ type Session struct {
 	messages  []llm.Message
 }
 
+// Status describes the lifecycle state of a session.
+type Status string
+
+const (
+	// StatusActive is the default state for a freshly created session.
+	StatusActive Status = "active"
+	// StatusArchived marks a session whose conversation history has been
+	// preserved but is no longer expected to receive new turns.
+	StatusArchived Status = "archived"
+	// StatusSuspended marks a session temporarily parked (e.g. user paused
+	// a long-running conversation and intends to resume later).
+	StatusSuspended Status = "suspended"
+)
+
 // NewSession constructs a fresh session with the given id. CreatedAt /
-// UpdatedAt default to time.Now().
+// UpdatedAt default to time.Now(); Status defaults to StatusActive; Key
+// and AgentID default to empty strings.
 func NewSession(id string) *Session {
 	now := time.Now()
 	return &Session{
 		ID:        id,
+		Status:    StatusActive,
 		CreatedAt: now,
 		updatedAt: now,
 	}
@@ -77,6 +96,9 @@ func (s *Session) Meta() SessionMeta {
 	defer s.mu.RUnlock()
 	return SessionMeta{
 		ID:           s.ID,
+		Key:          s.Key,
+		AgentID:      s.AgentID,
+		Status:       s.Status,
 		CreatedAt:    s.CreatedAt,
 		UpdatedAt:    s.updatedAt,
 		MessageCount: len(s.messages),
@@ -90,11 +112,20 @@ func (s *Session) UpdatedAt() time.Time {
 	return s.updatedAt
 }
 
-// ReplaceAllMeta overwrites the timestamps in one shot. Intended for
-// SessionStore implementations restoring a persisted session.
-func (s *Session) ReplaceAllMeta(createdAt, updatedAt time.Time) {
+// ReplaceAllMeta overwrites the persistable metadata fields in one shot.
+// SessionStore implementations call this from Load to restore a row read
+// from storage. Messages are intentionally not handled here — see
+// SessionStore.ReplaceAll for that path.
+func (s *Session) ReplaceAllMeta(
+	key, agentID string,
+	status Status,
+	createdAt, updatedAt time.Time,
+) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.Key = key
+	s.AgentID = agentID
+	s.Status = status
 	s.CreatedAt = createdAt
 	if updatedAt.After(s.updatedAt) {
 		s.updatedAt = updatedAt
@@ -133,6 +164,9 @@ func cloneToolCall(tc llm.ToolCall) llm.ToolCall {
 // SessionMeta is a serialisable summary of a Session.
 type SessionMeta struct {
 	ID           string
+	Key          string
+	AgentID      string
+	Status       Status
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	MessageCount int

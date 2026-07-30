@@ -2,6 +2,7 @@ package session
 
 import (
 	"testing"
+	"time"
 
 	"darvin-cowork/backend/internal/agent/llm"
 )
@@ -64,10 +65,50 @@ func TestReplaceAll(t *testing.T) {
 
 func TestMeta(t *testing.T) {
 	s := NewSession("s4")
+	s.Key = "user-key"
+	s.AgentID = "agent-1"
 	s.Append(llm.Message{Role: llm.RoleUser, Content: "x"})
 	s.Append(llm.Message{Role: llm.RoleAssistant, Content: "y"})
 	m := s.Meta()
-	if m.ID != "s4" || m.MessageCount != 2 {
-		t.Errorf("Meta = %+v, want id=s4 count=2", m)
+	if m.ID != "s4" {
+		t.Errorf("Meta.ID = %q, want s4", m.ID)
+	}
+	if m.Key != "user-key" {
+		t.Errorf("Meta.Key = %q, want user-key", m.Key)
+	}
+	if m.AgentID != "agent-1" {
+		t.Errorf("Meta.AgentID = %q, want agent-1", m.AgentID)
+	}
+	if m.Status != StatusActive {
+		t.Errorf("Meta.Status = %q, want %q", m.Status, StatusActive)
+	}
+	if m.MessageCount != 2 {
+		t.Errorf("Meta.MessageCount = %d, want 2", m.MessageCount)
+	}
+}
+
+func TestNewSessionDefaults(t *testing.T) {
+	before := time.Now()
+	s := NewSession("x")
+	after := time.Now()
+
+	if s.ID != "x" {
+		t.Errorf("ID = %q, want x", s.ID)
+	}
+	if s.Key != "" {
+		t.Errorf("Key = %q, want empty", s.Key)
+	}
+	if s.AgentID != "" {
+		t.Errorf("AgentID = %q, want empty", s.AgentID)
+	}
+	if s.Status != StatusActive {
+		t.Errorf("Status = %q, want %q", s.Status, StatusActive)
+	}
+	if s.CreatedAt.Before(before) || s.CreatedAt.After(after) {
+		t.Errorf("CreatedAt = %v, want in [%v, %v]", s.CreatedAt, before, after)
+	}
+	updated := s.UpdatedAt()
+	if updated.Before(before) || updated.After(after) {
+		t.Errorf("UpdatedAt = %v, want in [%v, %v]", updated, before, after)
 	}
 }

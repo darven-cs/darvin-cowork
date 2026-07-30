@@ -9,9 +9,6 @@ import (
 )
 
 // MemoryStore is the in-memory SessionStore. Goroutine-safe.
-//
-// TODO(spec: agent-loop): add SQLiteStore backed by gorm (database.Get())
-// using the messages table layout sketched in the agent-loop spec §4.5.
 type MemoryStore struct {
 	mu       sync.RWMutex
 	sessions map[string]*session.Session
@@ -26,11 +23,12 @@ func NewMemoryStore() SessionStore {
 // caller's Session don't leak into storage.
 func (m *MemoryStore) Save(_ context.Context, s *session.Session) error {
 	if s == nil {
-		return nil
+		return ErrNilSession
 	}
 	clone := session.NewSession(s.ID)
+	clone.Status = s.Status
 	clone.ReplaceAll(s.Messages())
-	clone.ReplaceAllMeta(s.CreatedAt, s.UpdatedAt())
+	clone.ReplaceAllMeta(s.Key, s.AgentID, s.Status, s.CreatedAt, s.UpdatedAt())
 
 	m.mu.Lock()
 	m.sessions[s.ID] = clone
@@ -48,7 +46,7 @@ func (m *MemoryStore) Load(_ context.Context, id string) (*session.Session, erro
 	}
 	out := session.NewSession(src.ID)
 	out.ReplaceAll(src.Messages())
-	out.ReplaceAllMeta(src.CreatedAt, src.UpdatedAt())
+	out.ReplaceAllMeta(src.Key, src.AgentID, src.Status, src.CreatedAt, src.UpdatedAt())
 	return out, nil
 }
 
