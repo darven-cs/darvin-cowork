@@ -4,6 +4,7 @@
       v-for="item in items"
       :key="item.id"
       type="button"
+      :data-testid="`settings-nav-${item.id}`"
       :aria-current="item.id === active ? 'page' : undefined"
       class="rounded-md px-3 py-2 text-left font-sans text-[13px] transition-colors"
       :class="item.id === active
@@ -17,12 +18,13 @@
 </template>
 
 <script setup lang="ts">
-export type SettingsSectionId = 'account' | 'appearance' | 'shortcuts' | 'about';
+export type SettingsSectionId = 'account' | 'appearance' | 'shortcuts' | 'models' | 'about';
 
 const items: { id: SettingsSectionId; label: string }[] = [
   { id: 'account',    label: '账户' },
   { id: 'appearance', label: '外观' },
   { id: 'shortcuts',  label: '快捷键' },
+  { id: 'models',     label: '模型' },
   { id: 'about',      label: '关于' },
 ];
 

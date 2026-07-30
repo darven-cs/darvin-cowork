@@ -44,7 +44,8 @@ const session = useSession();
 const theme = useTheme();
 const isDark = computed(() => theme.theme.value === 'dark');
 const title = computed(() => {
-  const s = session.sessions.value.find((x) => x.id === session.currentSessionId.value);
+  const id = session.activeSessionId.value;
+  const s = id ? session.sessions.value.find((x) => x.id === id) : undefined;
   return s?.title ?? 'Darvin';
 });
 

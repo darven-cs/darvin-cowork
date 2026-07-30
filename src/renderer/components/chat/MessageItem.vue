@@ -1,5 +1,10 @@
 <template>
-  <article class="group flex w-full animate-fade-in" :class="isUser ? 'justify-end' : 'justify-start'">
+  <article
+    class="group flex w-full animate-fade-in"
+    :class="isUser ? 'justify-end' : 'justify-start'"
+    :data-testid="isUser ? 'message-user' : 'message-assistant'"
+    :data-message-id="message.id"
+  >
     <div class="max-w-[85%]">
       <!-- 工具调用 chip（仅 assistant 且 done=false 时显示） -->
       <div

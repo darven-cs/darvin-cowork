@@ -21,7 +21,10 @@ export default defineConfig({
     rollupOptions: {
       // ws 也保持 external：它对 bufferutil / utf-8-validate 做可选 require，
       // 打进 bundle 会让 rollup 解析失败。作为 dependencies 随 asar 分发。
-      external: ['electron', 'electron-squirrel-startup', 'ws', ...nodeBuiltins],
+      // better-sqlite3 也 external：它通过 `bindings()` 动态 require 编译产物
+      // `.node` 二进制，rollup commonjs 插件不会分析这种 dynamic require，
+      // 必须 external 让运行时直接走 node_modules 解析。
+      external: ['electron', 'electron-squirrel-startup', 'ws', 'better-sqlite3', ...nodeBuiltins],
     },
   },
 });

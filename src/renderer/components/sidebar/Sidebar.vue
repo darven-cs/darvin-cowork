@@ -40,14 +40,16 @@ const emit = defineEmits<{ navigate: [target: string]; 'new-chat': [] }>();
 
 const session = useSession();
 const sessions = computed(() => session.sessions.value);
-const currentId = computed(() => session.currentSessionId.value);
+const currentId = computed(() => session.activeSessionId.value ?? '');
 
 const activeNavId = ref<NavId>('new_task');
 
 function onNavigate(id: NavId) {
   activeNavId.value = id;
   if (id === 'new_task') {
-    session.createSession();
+    // 不阻塞 UI：createSession 内部更新 ref + main push 也会更新；
+    // 这里 fire-and-forget，error 由 useSession 静默吃掉
+    void session.createSession();
     emit('new-chat');
     emit('navigate', 'home');
   } else if (id === 'suite') {
@@ -58,7 +60,7 @@ function onNavigate(id: NavId) {
 }
 
 function onSelect(id: string) {
-  session.switchSession(id);
+  void session.switchSession(id);
   // 切 session 同步切到 chat 视图（home 的 send 已自动 goChat；sidebar 路径补齐）
   emit('navigate', 'chat');
 }

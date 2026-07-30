@@ -18,7 +18,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue';
-import type { DarvinMessage } from '../../shared/darvin-api';
 import Sidebar from '../components/sidebar/Sidebar.vue';
 import SidePanel from '../components/side-panel/SidePanel.vue';
 import HomeView from '../views/HomeView.vue';
@@ -69,40 +68,21 @@ function onSidebarNavigate(target: string) {
   navigateTo(target);
 }
 
-// 历史消息从 agent 拉，不再读 mock-data。S5 的 getMessages 还返空，
-// 所以切会话等于清空列表；S6 接上 agent.get_messages 后自然有内容。
-async function reloadMessagesForCurrentSession() {
-  messages.reset();
-  const sessionId = session.currentSessionId.value;
-  // agent 离线时静默降级：运行状态由 RuntimeStatusBadge 呈现
-  const r = await window.darvin
-    .getMessages(sessionId)
-    .catch(() => ({ messages: [] as DarvinMessage[] }));
-  // await 期间用户可能已经切走，别把旧会话的消息灌进新会话
-  if (session.currentSessionId.value !== sessionId) return;
-  for (const m of r.messages) {
-    messages.list.value.push({
-      id: m.id,
-      sessionId: m.sessionId,
-      role: m.role,
-      content: m.content,
-      done: m.done,
-      createdAt: m.createdAt,
-      error: m.error,
-      toolLabel: m.toolLabel,
-    });
-  }
-}
+// active session 切换时重载消息；main 是消息数据的唯一所有者。
+watch(
+  () => session.activeSessionId.value,
+  (id) => {
+    if (id === null) {
+      messages.reset();
+      return;
+    }
+    void messages.loadMessages(id);
+  },
+  { immediate: true },
+);
 
-watch(() => session.currentSessionId.value, () => {
-  void reloadMessagesForCurrentSession();
-}, { immediate: true });
-
-onMounted(async () => {
+onMounted(() => {
+  // streaming 事件订阅：main 已经按 activeSessionId 路由过，直接 append。
   window.darvin.onEvent((e) => messages.appendEvent(e));
-  // S5 的 listSessions 返空，等于清掉 useSession 里的 mock 种子；
-  // S6 接上 agent.list_sessions 之后才会有真会话。
-  const r = await window.darvin.listSessions().catch(() => ({ sessions: [] }));
-  session.sessions.value = r.sessions;
 });
 </script>

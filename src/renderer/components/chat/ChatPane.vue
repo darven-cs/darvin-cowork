@@ -28,11 +28,13 @@ const composerRef = ref<InstanceType<typeof Composer> | null>(null);
 
 async function handleSend(content: string) {
   if (!content.trim()) return;
+  const sessId = session.activeSessionId.value;
+  if (sessId === null) return;
   busy.value = true;
-  const sessId = session.currentSessionId.value;
   messages.appendUserMessage(sessId, content);
   try {
-    const r = await window.darvin.prompt({ content, sessionId: sessId });
+    // 不传 sessionId：main 端知道当前 active session
+    const r = await window.darvin.prompt({ content });
     messages.startAssistantMessage(r.sessionId, r.messageId);
   } catch (err) {
     // 网络 / 协议错误时把消息标红并恢复 composer

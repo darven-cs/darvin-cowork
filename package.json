@@ -13,7 +13,10 @@
     "make": "electron-forge make",
     "package": "electron-forge package",
     "publish": "electron-forge publish",
-    "lint": "eslint --ext .ts,.tsx,.vue ."
+    "lint": "eslint --ext .ts,.tsx,.vue .",
+    "smoke": "bash scripts/smoke.sh",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed"
   },
   "keywords": [],
   "author": {
@@ -30,7 +33,9 @@
     "@electron-forge/plugin-fuses": "^7.11.2",
     "@electron-forge/plugin-vite": "^7.4.0",
     "@electron/fuses": "^1.8.0",
+    "@playwright/test": "^1.62.0",
     "@tailwindcss/vite": "^4.0.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.11.0",
     "@types/ws": "^8.5.13",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
@@ -47,6 +52,7 @@
     "vue-eslint-parser": "^9.4.3"
   },
   "dependencies": {
+    "better-sqlite3": "^12.8.0",
     "electron-squirrel-startup": "^1.0.1",
     "ws": "^8.18.0"
   }

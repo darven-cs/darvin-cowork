@@ -17,6 +17,7 @@
           <SettingsPanelAccount v-if="active === 'account'" />
           <SettingsPanelAppearance v-else-if="active === 'appearance'" />
           <SettingsPanelShortcuts v-else-if="active === 'shortcuts'" />
+          <SettingsPanelModels v-else-if="active === 'models'" />
           <SettingsPanelAbout v-else />
         </div>
       </div>
@@ -31,6 +32,7 @@ import SettingsSubNav, { type SettingsSectionId } from '../components/settings/S
 import SettingsPanelAccount from '../components/settings/SettingsPanelAccount.vue';
 import SettingsPanelAppearance from '../components/settings/SettingsPanelAppearance.vue';
 import SettingsPanelShortcuts from '../components/settings/SettingsPanelShortcuts.vue';
+import SettingsPanelModels from '../components/settings/SettingsPanelModels.vue';
 import SettingsPanelAbout from '../components/settings/SettingsPanelAbout.vue';
 import { t } from '../services/i18n';
 

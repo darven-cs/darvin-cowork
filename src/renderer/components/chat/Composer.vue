@@ -10,6 +10,7 @@
         :disabled="busy"
         rows="1"
         class="flex-1 resize-none bg-transparent font-sans text-[14.5px] leading-relaxed text-text outline-none placeholder:text-text-subtle disabled:opacity-50"
+        data-testid="composer-textarea"
         @input="autoGrow"
         @keydown="onKeydown"
       />
@@ -19,6 +20,7 @@
         class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all"
         :class="canSend ? 'bg-accent text-white hover:bg-accent-hover hover:scale-[1.04]' : 'bg-border cursor-not-allowed'"
         :aria-label="t('chat.send')"
+        data-testid="composer-send"
         @click="emitSend"
       >
         <Icon name="arrow-up" :size="16" />

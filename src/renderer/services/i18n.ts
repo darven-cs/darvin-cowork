@@ -91,6 +91,21 @@ const dict: Record<string, string> = {
   'settings.about.electron': 'Electron',
   'settings.about.arch_title': '架构',
   'settings.about.licenses_title': '开源许可',
+  'settings.models.title': '模型',
+  'settings.models.desc': '配置 LLM 提供方；保存后会自动重启 Go 子进程以应用新 Key。',
+  'settings.models.provider': '提供方',
+  'settings.models.api_key': 'API Key',
+  'settings.models.api_key_placeholder': 'sk-ant-...',
+  'settings.models.base_url': 'Base URL（可选）',
+  'settings.models.base_url_placeholder': 'https://api.anthropic.com',
+  'settings.models.save': '保存',
+  'settings.models.saving': '保存中…',
+  'settings.models.reset': '重置',
+  'settings.models.saved_restarted': '已保存并重启 Go 子进程，新 Key 已生效',
+  'settings.models.saved_no_restart': '已保存，但 Go 子进程重启失败，请检查二进制路径',
+  'settings.models.save_failed': '保存失败',
+  'settings.models.load_failed': '加载失败',
+  'settings.models.path_hint': '配置文件路径：',
 };
 
 let currentLang: Lang = 'zh';

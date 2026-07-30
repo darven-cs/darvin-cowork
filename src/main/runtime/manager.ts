@@ -139,7 +139,14 @@ export class RuntimeMgr extends EventEmitter {
       });
 
       proc.stderr?.on('data', (chunk: Buffer) => {
-        process.stderr.write(`[darvin-agent] ${chunk.toString('utf8')}`);
+        // Playwright / 测试 runner 关闭 main 进程时会先把 main 的 stderr
+        // 关掉，这时再 write 会 EPIPE。writable=false 时直接丢弃。
+        if (!process.stderr.writable) return;
+        try {
+          process.stderr.write(`[darvin-agent] ${chunk.toString('utf8')}`);
+        } catch {
+          /* EPIPE — main 的 stderr 已关，忽略 */
+        }
       });
 
       proc.stdout?.on('data', (chunk: Buffer) => {

@@ -8,6 +8,9 @@
  *
  * 事件推送需要先 `agent.subscribe_events`：Go 侧 EventLedger 按 sessionId
  * 维护订阅集合，没订阅的连接一条 notification 都收不到。
+ *
+ * session 数据所有权归 main：本文件不持有 activeSessionId，所有 routing
+ * 由 `EventRouter` 接管，client 只暴露 raw event 给上层订阅者。
  */
 
 import { WebSocket } from 'ws';
@@ -15,16 +18,20 @@ import { EventEmitter } from 'node:events';
 import type {
   DarvinAbortResponse,
   DarvinEvent,
+  DarvinGetMessagesResponse,
+  DarvinListSessionsResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
 } from '../../shared/darvin-api';
 
 /**
- * Agent v0 只有一个活跃 session。gateway 的 handlePrompt 会拒掉
- * 既非空、又不等于此值的 sessionId（-32602 "session not active"），
- * 且 EventLedger 只把事件路由给订阅了这个 id 的连接。
+ * Agent v0 只跑单 backend session。gateway 的 handlePrompt 会拒掉既非
+ * 空、又不等于此值的 sessionId（-32602 "session not active"），且
+ * EventLedger 只把事件路由给订阅了这个 id 的连接。
+ *
+ * 本常量保留给 `EventRouter` 用，main 侧不再裸调 `client.prompt`。
  */
-export const DEFAULT_SESSION_ID = 'default';
+export const BACKEND_DEFAULT_SESSION_ID = 'default';
 
 interface Pending {
   resolve: (v: unknown) => void;
@@ -48,15 +55,13 @@ export class AgentClient extends EventEmitter {
   }
 
   /**
-   * 建连并订阅默认 session 的事件流。open 之后 subscribe 失败也算连接
-   * 失败——没有事件流的连接对 renderer 毫无用处。
+   * 建连。事件订阅由 caller（EventRouter）按需 `onEvent` 接入，不在 connect
+   * 里自动 subscribe —— main 知道自己的 active session 何时 ready，
+   * 不该让 client 把这个隐式假设固定下来。
    */
   async connect(port: number): Promise<void> {
     if (this.ws) return;
     await this.openSocket(port);
-    await this.request<{ subscribed: boolean }>('agent.subscribe_events', {
-      sessionId: DEFAULT_SESSION_ID,
-    });
   }
 
   private openSocket(port: number): Promise<void> {
@@ -169,12 +174,33 @@ export class AgentClient extends EventEmitter {
     });
   }
 
-  prompt(req: DarvinPromptRequest): Promise<DarvinPromptResponse> {
+  prompt(req: DarvinPromptRequest & { sessionId: string }): Promise<DarvinPromptResponse> {
     return this.request<DarvinPromptResponse>('agent.prompt', req);
   }
 
   abort(req: { sessionId: string }): Promise<DarvinAbortResponse> {
     return this.request<DarvinAbortResponse>('agent.abort', req);
+  }
+
+  /**
+   * 订阅 backend 单 session 的事件流（v0 backend 不支持多 session）。
+   * 在 `connect` 成功之后调一次；EventRouter 接入前需要先 subscribe
+   * 才能拿到 notification。
+   */
+  async subscribeEvents(sessionId: string): Promise<void> {
+    await this.request<{ subscribed: boolean }>('agent.subscribe_events', { sessionId });
+  }
+
+  listSessions(): Promise<DarvinListSessionsResponse> {
+    return this.request<DarvinListSessionsResponse>('agent.list_sessions', {});
+  }
+
+  getMessages(sessionId: string, limit = 1000, offset = 0): Promise<DarvinGetMessagesResponse> {
+    return this.request<DarvinGetMessagesResponse>('agent.get_messages', {
+      sessionId,
+      limit,
+      offset,
+    });
   }
 
   onEvent(cb: (e: DarvinEvent) => void): () => void {

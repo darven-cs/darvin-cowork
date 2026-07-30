@@ -10,6 +10,7 @@
     </button>
     <button
       type="button"
+      data-testid="sidebar-settings"
       class="flex items-center justify-center gap-1.5 bg-surface py-3 text-[13px] text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
       @click="emit('settings')"
     >
