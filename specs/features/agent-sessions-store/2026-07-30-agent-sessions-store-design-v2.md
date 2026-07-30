@@ -627,46 +627,48 @@ func (s *Session) ReplaceAllMeta(
 ## 7. 验收标准
 
 > 落 spec 后所有项必须通过。执行命令均在 `src/darvin-agent/` 目录下。
+>
+> ✅ **已落地（2026-07-30）** — 28/28 项全绿。落地 commits：`75092f7`（FR-0+FR-1 字段补全+ErrNilSession）/ `98655cc`（FR-2+FR-6 GORM 模型+SQLiteStore）/ `399b4c2`（FR-3+FR-4 DSN→SessionsDSN）/ `ed208d9`（FR-5+FR-7 AutoMigrate+注入）/ `3abe657`（.gitignore）。Spec 文件本身已在 §7 全部勾上。
 
 ### 7.1 编译 / 静态检查
 
-- [ ] `go build ./...` 编译通过
-- [ ] `CGO_ENABLED=0 go build ./...` 编译通过（与 `scripts/build-go.js` 一致）
-- [ ] `go vet ./...` 无警告
-- [ ] `gofmt -l .` 干净
+- [x] `go build ./...` 编译通过
+- [x] `CGO_ENABLED=0 go build ./...` 编译通过（与 `scripts/build-go.js` 一致）
+- [x] `go vet ./...` 无警告
+- [x] `gofmt -l .` 干净
 
 ### 7.2 单元测试
 
-- [ ] `go test -count=1 ./...` 全绿（含 `internal/agent/store/sqlite_test.go`）
-- [ ] `go test -race ./...` 全绿
-- [ ] 新增 `TestSQLiteStoreSaveLoad`：Save → Load round-trip 后字段值完全一致（CreatedAt/UpdatedAt 时间戳精度容忍 ≤1s，v2 P1-4）
-- [ ] 新增 `TestSQLiteStoreListOrderUpdatedDesc`：3 条 Save 后 List 返回按 updated_at desc 排序
-- [ ] 新增 `TestSQLiteStoreDeleteIdempotent`：`Delete("nonexistent")` 不报错
-- [ ] 新增 `TestSQLiteStoreLoadNotFound`：`Load("nope")` 返回 `ErrNotFound`
-- [ ] 新增 `TestSQLiteStoreSaveNil`：`Save(nil)` 返回 `ErrNilSession`
-- [ ] 新增 `TestSQLiteStoreSaveDoesNotPersistMessages`（v2 P1-1 契约）：Save 一个含 messages 的 Session → Load 后 `Len() == 0`
-- [ ] 新增 `TestMemoryStoreSaveNil`：`MemoryStore.Save(nil)` 返回 `ErrNilSession`（v2 P0-2 防回归）
-- [ ] 改 `TestNewSessionDefaults`：`session.NewSession("x")` 返回的 Session 含 `Status: StatusActive / AgentID: "" / Key: "" / CreatedAt ≈ UpdatedAt ≈ time.Now()`
-- [ ] 改 `TestSessionMetaFields`：`Meta()` 返回值含 `Key` / `AgentID` / `Status` 三个字段
+- [x] `go test -count=1 ./...` 全绿（含 `internal/agent/store/sqlite_test.go`）
+- [x] `go test -race ./...` 全绿
+- [x] 新增 `TestSQLiteStoreSaveLoad`：Save → Load round-trip 后字段值完全一致（CreatedAt/UpdatedAt 时间戳精度容忍 ≤1s，v2 P1-4）
+- [x] 新增 `TestSQLiteStoreListOrderUpdatedDesc`：3 条 Save 后 List 返回按 updated_at desc 排序
+- [x] 新增 `TestSQLiteStoreDeleteIdempotent`：`Delete("nonexistent")` 不报错
+- [x] 新增 `TestSQLiteStoreLoadNotFound`：`Load("nope")` 返回 `ErrNotFound`
+- [x] 新增 `TestSQLiteStoreSaveNil`：`Save(nil)` 返回 `ErrNilSession`
+- [x] 新增 `TestSQLiteStoreSaveDoesNotPersistMessages`（v2 P1-1 契约）：Save 一个含 messages 的 Session → Load 后 `Len() == 0`
+- [x] 新增 `TestMemoryStoreSaveNil`：`MemoryStore.Save(nil)` 返回 `ErrNilSession`（v2 P0-2 防回归）
+- [x] 改 `TestNewSessionDefaults`：`session.NewSession("x")` 返回的 Session 含 `Status: StatusActive / AgentID: "" / Key: "" / CreatedAt ≈ UpdatedAt ≈ time.Now()`
+- [x] 改 `TestSessionMetaFields`：`Meta()` 返回值含 `Key` / `AgentID` / `Status` 三个字段
 
 ### 7.3 集成 / 黑盒
 
-- [ ] `cd src/darvin-agent && go run ./cmd/app` 启动后 cwd 下 `./sessions.db` 文件被创建
-- [ ] `sqlite3 sessions.db ".tables"` 输出 `compaction_checkpoints  messages  sessions  skill_snapshots`
-- [ ] `sqlite3 sessions.db ".schema sessions"` 含 6 列（id/key/agent_id/status/created_at/updated_at）
-- [ ] AutoMigrate 重复调用不报错（GORM 幂等）
-- [ ] 旧 `src/darvin-agent/data.db` **不存在**（`ls src/darvin-agent/data.db` ENOENT）——已删除
-- [ ] `src/darvin-agent/.gitignore` 含 `data.db` 条目——防重新生成后误入版本控制
-- [ ] `src/darvin-agent/.gitignore` 含 `sessions.db` 条目——同上
-- [ ] `cmd/app/main.go` 中 `agent.NewAgentConfig.Store` 字段是 `*store.SQLiteStore`，不是 `*store.MemoryStore`（用类型断言验证）
-- [ ] `agent.New(NewAgentConfig{Store: nil})` 仍走 `MemoryStore`（`store.NewMemoryStore()` 返回值的类型断言验证）
-- [ ] `agent.New(NewAgentConfig{Store: nil})` 在 `database` 未 Init 时**不** panic（v2 P1-3 行为保证：agent 包不依赖 database 包）
+- [x] `cd src/darvin-agent && go run ./cmd/app` 启动后 cwd 下 `./sessions.db` 文件被创建
+- [x] `sqlite3 sessions.db ".tables"` 输出 `compaction_checkpoints  messages  sessions  skill_snapshots`
+- [x] `sqlite3 sessions.db ".schema sessions"` 含 6 列（id/key/agent_id/status/created_at/updated_at）
+- [x] AutoMigrate 重复调用不报错（GORM 幂等）
+- [x] 旧 `src/darvin-agent/data.db` **不存在**（`ls src/darvin-agent/data.db` ENOENT）——已删除
+- [x] `src/darvin-agent/.gitignore` 含 `data.db` 条目——防重新生成后误入版本控制
+- [x] `src/darvin-agent/.gitignore` 含 `sessions.db` 条目——同上
+- [x] `cmd/app/main.go` 中 `agent.NewAgentConfig.Store` 字段是 `*store.SQLiteStore`，不是 `*store.MemoryStore`（用类型断言验证）
+- [x] `agent.New(NewAgentConfig{Store: nil})` 仍走 `MemoryStore`（`store.NewMemoryStore()` 返回值的类型断言验证）
+- [x] `agent.New(NewAgentConfig{Store: nil})` 在 `database` 未 Init 时**不** panic（v2 P1-3 行为保证：agent 包不依赖 database 包）
 
 ### 7.4 向后兼容
 
-- [ ] `config.yaml` 移除 `database.dsn` 字段后 `config.Load` 不报错
-- [ ] `database.Config{DSN: "old"}` 编译期失败（`DSN` 字段已删除）——防回滚
-- [ ] `cmd/app/main.go` 不再引用 `cfg.Database.DSN`——防回滚
+- [x] `config.yaml` 移除 `database.dsn` 字段后 `config.Load` 不报错
+- [x] `database.Config{DSN: "old"}` 编译期失败（`DSN` 字段已删除）——防回滚
+- [x] `cmd/app/main.go` 不再引用 `cfg.Database.DSN`——防回滚
 
 ---
 

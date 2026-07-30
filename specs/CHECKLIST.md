@@ -29,16 +29,32 @@
 
 ## S2 · agent-sessions-store（Phase 2 Go #1）
 
-- [ ] `go.mod` 加 `gorm.io/gorm` / `gorm.io/driver/sqlite` / `github.com/jaevor/go-nanoid`
-- [ ] `internal/agent/store/models.go` 4 模型：Session / Message / CompactionCheckpoint / SkillSnapshot
-- [ ] `internal/agent/store/sqlite.go` SQLiteStore 实现 4 模型 CRUD
-- [ ] `internal/agent/store/store.go` 已有的 SessionStore interface 补齐方法
-- [ ] `internal/agent/store/memory.go` 保留作 fallback / 测试用
-- [ ] `internal/config/config.go` 加 `sessions_dsn` 字段
-- [ ] `configs/config.example.yaml` 加 `database.sessions_dsn`
-- [ ] `cmd/app/main.go` 接 SQLiteStore + AutoMigrate
-- [ ] `internal/agent/store/store_test.go` / `sqlite_test.go` 全绿
-- [ ] 验收：`go test ./internal/agent/store/...` 通过；sessions.db 表结构正确
+- [x] `go.mod` 加 `gorm.io/gorm` / `gorm.io/driver/sqlite` / `github.com/jaevor/go-nanoid`
+- [x] `internal/agent/store/models.go` 4 模型：Session / Message / CompactionCheckpoint / SkillSnapshot
+- [x] `internal/agent/store/sqlite.go` SQLiteStore 实现 4 模型 CRUD
+- [x] `internal/agent/store/store.go` 已有的 SessionStore interface 补齐方法
+- [x] `internal/agent/store/memory.go` 保留作 fallback / 测试用
+- [x] `internal/config/config.go` 加 `sessions_dsn` 字段
+- [x] `configs/config.example.yaml` 加 `database.sessions_dsn`
+- [x] `cmd/app/main.go` 接 SQLiteStore + AutoMigrate
+- [x] `internal/agent/store/store_test.go` / `sqlite_test.go` 全绿
+- [x] 验收：`go test ./internal/agent/store/...` 通过；sessions.db 表结构正确
+
+> **完成说明（2026-07-30）**：
+> - 设计文档：`specs/features/agent-sessions-store/2026-07-30-agent-sessions-store-design-v2.md`（v2，相对 v1 修正 3 处必修 P0 + 5 处强烈建议 P1），§7 验收清单已 28/28 勾上。
+> - 落地 commits：`75092f7`（FR-0+FR-1 Session 字段补全+ErrNilSession）/ `98655cc`（FR-2+FR-6 models+SQLiteStore）/ `399b4c2`（FR-3+FR-4 DSN→SessionsDSN）/ `ed208d9`（FR-5+FR-7 AutoMigrate+注入）/ `3abe657`（.gitignore）。
+> - 相对 CHECKLIST 原版的偏差（v2 spec 调整）：
+>   - **第 3 项文件名**：`sqlite.go` → `sqlite_store.go`（因为 `internal/database/sqlite.go` 已占用 `sqlite.go` 名字）。
+>   - **第 7 项路径**：`configs/config.example.yaml` 不存在；实际是 `src/darvin-agent/config.yaml` 的 `database.sessions_dsn: ./sessions.db`（dev 默认值已含，无需单独 example 模板）。
+>   - **第 1 项 nanoid**：v2 阶段未引入（实际 `go.mod` 只有 gorm + sqlite）。SessionID 在 v2 用 nanoid 还是别的生成器未定，**推迟到 S3**（SessionManager 创建 session id 时再定）。
+>   - **第 4 项**：store.go 接口本来就 4 方法齐，v2 实际新增的是 `ErrNilSession` 常量（P0-2），不是补方法。
+> - `internal/agent/agent.go` 不动（P1-3：默认 `Store == nil` 仍走 `MemoryStore`），保证所有现有 `agent_test.go` 无回归。
+> - 验收实测（cwd = `src/darvin-agent/`）：
+>   - `go build ./...` ✓ / `CGO_ENABLED=0 go build ./...` ✓ / `go vet ./...` 无警告 / `gofmt -l .` 干净。
+>   - `go test -count=1 ./...` 全绿（store 4.4s，含 7 个 SQLite CRUD 测试）。
+>   - `go test -race ./...` 全绿（store 5.2s）。
+>   - `go run ./cmd/app` → `sessions.db` 落地 69632 bytes；`sqlite3 .tables` = `compaction_checkpoints  messages  sessions  skill_snapshots`；`.schema sessions` 含 `id / key / agent_id / status / created_at / updated_at` 6 列 + `agent_id`/`key` 索引；AutoMigrate 幂等。
+>   - 旧 `data.db` 已删，`.gitignore` 已加 `data.db` + `sessions.db`。
 
 ---
 
