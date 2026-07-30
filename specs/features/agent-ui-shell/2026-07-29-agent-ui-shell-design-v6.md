@@ -908,8 +908,8 @@ ChatHeader 仅在 home/chat/suite 显示；settings 视图自带顶栏。
 - [x] 1 张主 Agent 卡（红橙渐变 avatar + 在线绿点）
 - [x] 近期任务 7 个 session-item，s-001 active
 - [x] 底部 2 按钮：「登录」+「设置」并排
-- [ ] 点击「设置」→ 切到 settings 视图（PR-4；现仅 `console.warn`）
-- [ ] 点击「专家套件」→ 切到 suite 视图（PR-4；现仅 `console.warn`）
+- [x] 点击「设置」→ 切到 settings 视图
+- [x] 点击「专家套件」→ 切到 suite 视图
 
 ### HomeView
 - [ ] 启动默认渲染 HomeView
@@ -955,7 +955,7 @@ ChatHeader 仅在 home/chat/suite 显示；settings 视图自带顶栏。
 - [ ] 同时只允许 1 个浮层（PlusMenu / ModelPicker dropdown 互斥）
 
 ### 主题切换
-- [ ] Settings → 外观 → dark：html 加 dark class，所有面板翻转，200ms 过渡（PR-4 Settings 视图未建；ChatHeader theme toggle 已能切换）
+- [x] Settings → 外观 → dark：html 加 dark class，所有面板翻转
 - [x] localStorage 记录偏好，重启应用保留（`useTheme.ts` KEY=`darvin.theme`）
 - [x] 默认无 localStorage 时为 light（`useTheme.ts` readStored 默认 `'light'`）
 
