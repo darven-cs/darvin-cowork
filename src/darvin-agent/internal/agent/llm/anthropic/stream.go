@@ -305,6 +305,7 @@ func dispatch(name streamEventName, raw string, st *dispatchState) error {
 			Delta struct {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
+				Thinking    string `json:"thinking"`
 				PartialJSON string `json:"partial_json"`
 			} `json:"delta"`
 		}
@@ -316,6 +317,13 @@ func dispatch(name streamEventName, raw string, st *dispatchState) error {
 			st.partial.WriteString(d.Delta.Text)
 			select {
 			case st.out <- llm.TextDeltaEvent{Delta: d.Delta.Text}:
+			}
+		case "thinking_delta":
+			// Anthropic extended-thinking emits incremental chunks via the
+			// "thinking" field; surface each as a ThinkingDeltaEvent so the
+			// executor can republish it under EventCommon.MessageID.
+			select {
+			case st.out <- llm.ThinkingDeltaEvent{Delta: d.Delta.Thinking}:
 			}
 		case "input_json_delta":
 			if ta, ok := st.toolBuf[d.Index]; ok {

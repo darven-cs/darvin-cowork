@@ -18,9 +18,21 @@ const sessionIDLen = 21
 // in URLs and JSON where the [A-Za-z0-9_-] canon would still need escaping.
 const sessionAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
+// DefaultSessionID is the single live session id the gateway hands out
+// while Agent multi-session support is deferred. It must equal the id
+// main.go passes to session.NewSession, since events are routed to WS
+// subscribers by the session id stamped on them. The handler layer
+// rejects any prompt whose SessionID is neither this value nor empty.
+const DefaultSessionID = "default"
+
+// DefaultID returns DefaultSessionID. Handler code calls this rather
+// than reading the constant directly so the single-session contract is
+// testable through the SessionManager type.
+func (m *SessionManager) DefaultID() string { return DefaultSessionID }
+
 // SessionManager is the in-memory index from session id to *session.Session.
-// S3 keeps it process-local; EventLedger persistence to sessions.db is
-// deferred to S4 when the handler actually runs Agent.Run.
+// It is process-local; persisting sessions to sessions.db goes through
+// agent/store, not through this type.
 type SessionManager struct {
 	mu       sync.Mutex
 	sessions map[string]*session.Session
@@ -28,31 +40,43 @@ type SessionManager struct {
 }
 
 // NewSessionManager builds a manager with the default 21-char nanoid
-// generator seeded from go-nanoid's CSPRNG.
+// generator seeded from go-nanoid's CSPRNG. The default session is
+// registered up front so a client can subscribe to it before issuing its
+// first prompt — otherwise it would have to race the prompt reply and
+// could miss the run's opening events.
 func NewSessionManager() *SessionManager {
-	return &SessionManager{
+	m := &SessionManager{
 		sessions: make(map[string]*session.Session),
 		idGen:    nanoid.MustCustomASCII(sessionAlphabet, sessionIDLen),
 	}
+	m.sessions[DefaultSessionID] = session.NewSession(DefaultSessionID)
+	return m
 }
 
-// CreateOrGet returns the session identified by id. If id is empty a new
-// session is created with a fresh nanoid. A fresh message id is always
-// generated and returned alongside the session — message ids are *not*
-// tied to the session lifecycle, they're just a handle the caller can use
-// to correlate emitted events.
+// CreateOrGet returns the session identified by id, creating it on first
+// use. An empty id resolves to DefaultSessionID, which is the only live
+// session while multi-session support is deferred — the returned id must
+// match the Agent's own session.ID, because EventLedger routes events by
+// event.EventCommon.SessionID and a subscriber keyed under any other id
+// would never be delivered to.
+//
+// A fresh message id is always generated and returned alongside the
+// session. Message ids are *not* tied to the session lifecycle; acp.Loop
+// is the canonical source of the message id that events carry, so callers
+// driving the Agent discard this one.
 func (m *SessionManager) CreateOrGet(id string) (*session.Session, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	msgID := m.idGen()
-	if id != "" {
-		if s, ok := m.sessions[id]; ok {
-			return s, msgID, nil
-		}
+	if id == "" {
+		id = DefaultSessionID
 	}
-	sess := session.NewSession(m.idGen()) // NewSession already stamps CreatedAt + Status.
-	m.sessions[sess.ID] = sess
+	if s, ok := m.sessions[id]; ok {
+		return s, msgID, nil
+	}
+	sess := session.NewSession(id) // NewSession already stamps CreatedAt + Status.
+	m.sessions[id] = sess
 	return sess, msgID, nil
 }
 
@@ -65,8 +89,8 @@ func (m *SessionManager) Has(id string) bool {
 	return ok
 }
 
-// Get returns the session and a fresh message id. If id is unknown it
-// behaves like CreateOrGet: a new session is created and returned.
+// Get returns the session and a fresh message id, creating the session if
+// id is unknown. It is CreateOrGet without the always-nil error.
 func (m *SessionManager) Get(id string) (*session.Session, string) {
 	sess, msgID, _ := m.CreateOrGet(id)
 	return sess, msgID

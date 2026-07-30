@@ -73,6 +73,10 @@ type fakeDeps struct {
 	assemblerEnabled bool
 	assembler        ctxengine.ContextEngine
 	lastUsage        llm.Usage
+
+	// messageID is read via CurrentMessageID; tests inject one to assert
+	// the executor tags every emitted event with the right MessageID.
+	messageID string
 }
 
 // injectAssembler wires a non-nil ContextEngine into the fakeDeps so the
@@ -98,6 +102,7 @@ func (f *fakeDeps) SystemSections() []ctxengine.SystemSection { return nil }
 func (f *fakeDeps) AssemblerEnabled() bool                    { return f.assemblerEnabled }
 func (f *fakeDeps) RecordUsage(u llm.Usage)                   { f.lastUsage = u }
 func (f *fakeDeps) LastUsage() llm.Usage                      { return f.lastUsage }
+func (f *fakeDeps) CurrentMessageID() string                  { return f.messageID }
 
 func newFakeDeps(t *testing.T, provider llm.ModelProvider, regs []tool.Tool) *fakeDeps {
 	t.Helper()
@@ -524,6 +529,105 @@ func TestAssemblerActive_CalledOncePerTurn(t *testing.T) {
 	// LastUsage should reflect what was captured from turn 1.
 	if rec.lastParams[0].LastUsage.PromptTokens != 0 {
 		t.Errorf("turn 0 LastUsage.PromptTokens = %d, want 0", rec.lastParams[0].LastUsage.PromptTokens)
+	}
+}
+
+// TestEventCommonSnapshot guards spec §7.5: every event the executor emits
+// during a turn must carry the same EventCommon as the in-flight prompt —
+// SessionID from d.Session().ID and MessageID from d.CurrentMessageID().
+// This is the property the EventLedger relies on to route notifications to
+// the correct WS subscriber by SessionID and to populate messageId for
+// the renderer.
+func TestEventCommonSnapshot(t *testing.T) {
+	prov := &scriptedProvider{script: [][]llm.StreamEvent{
+		{
+			llm.StartEvent{Partial: llm.AssistantMessage{Model: "fake-model"}},
+			llm.TextDeltaEvent{Delta: "hi"},
+			llm.DoneEvent{Response: llm.CompletionResponse{FinishReason: llm.FinishReasonStop}},
+		},
+	}}
+	d := newFakeDeps(t, prov, nil)
+	d.messageID = "snap-id-fixed"
+	sub := d.bus.Subscribe(64)
+	defer sub.Unsubscribe()
+
+	ex := New()
+	if err := ex.RunConversation(context.Background(), d); err != nil {
+		t.Fatalf("RunConversation: %v", err)
+	}
+	// 5 events in a stop turn: TurnStart, LLMStart, TextDelta, LLMEnd, TurnEnd
+	seen := drainEvents(t, sub, 5)
+	for i, ev := range seen {
+		ec := ev.Common()
+		if ec.SessionID != d.sess.ID {
+			t.Errorf("event[%d] %T SessionID = %q, want %q", i, ev, ec.SessionID, d.sess.ID)
+		}
+		if ec.MessageID != "snap-id-fixed" {
+			t.Errorf("event[%d] %T MessageID = %q, want %q", i, ev, ec.MessageID, "snap-id-fixed")
+		}
+	}
+}
+
+// TestEventCommonSnapshotAcrossTurns guards that the snapshot holds across
+// every turn in a multi-turn conversation (not just the first). The
+// messageID value is read on every emit; if any turn captured a stale value
+// the second assertion would catch it.
+func TestEventCommonSnapshotAcrossTurns(t *testing.T) {
+	prov := &scriptedProvider{script: [][]llm.StreamEvent{
+		{
+			llm.StartEvent{},
+			llm.ToolCallStartEvent{ID: "c1", Name: "echo"},
+			llm.ToolCallEndEvent{ID: "c1", Name: "echo", Arguments: map[string]any{"text": "x"}},
+			llm.DoneEvent{Response: llm.CompletionResponse{FinishReason: llm.FinishReasonToolCalls}},
+		},
+		{
+			llm.StartEvent{},
+			llm.TextDeltaEvent{Delta: "done"},
+			llm.DoneEvent{Response: llm.CompletionResponse{FinishReason: llm.FinishReasonStop}},
+		},
+	}}
+	d := newFakeDeps(t, prov, []tool.Tool{echoTool{}})
+	d.messageID = "multi-id"
+	sub := d.bus.Subscribe(64)
+	defer sub.Unsubscribe()
+
+	ex := New()
+	if err := ex.RunConversation(context.Background(), d); err != nil {
+		t.Fatalf("RunConversation: %v", err)
+	}
+	// Two turns: turn1 emits TurnStart/LLMStart/ToolStart/ToolEnd/LLMEnd/TurnEnd,
+	// turn2 emits the same minus ToolStart/ToolEnd. Drain until quiet.
+	got := drainUntilQuiet(t, sub, 50*time.Millisecond)
+	if len(got) < 8 {
+		t.Fatalf("expected >= 8 events, got %d", len(got))
+	}
+	for i, ev := range got {
+		ec := ev.Common()
+		if ec.MessageID != "multi-id" {
+			t.Errorf("event[%d] %T MessageID = %q, want %q", i, ev, ec.MessageID, "multi-id")
+		}
+		if ec.SessionID != d.sess.ID {
+			t.Errorf("event[%d] %T SessionID = %q, want %q", i, ev, ec.SessionID, d.sess.ID)
+		}
+	}
+}
+
+// drainUntilQuiet reads events until none arrive within quiet. Used for
+// multi-turn scripts where the exact event count is not asserted (only that
+// every event carries the EventCommon snapshot).
+func drainUntilQuiet(t *testing.T, sub *event.Subscription, quiet time.Duration) []event.Event {
+	t.Helper()
+	var out []event.Event
+	for {
+		select {
+		case ev, ok := <-sub.C():
+			if !ok {
+				return out
+			}
+			out = append(out, ev)
+		case <-time.After(quiet):
+			return out
+		}
 	}
 }
 

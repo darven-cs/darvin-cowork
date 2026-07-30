@@ -24,6 +24,7 @@ type client struct {
 	conn     *websocket.Conn
 	sessions *SessionManager
 	ledger   *EventLedger
+	handler  *Handler
 	log      *zap.Logger
 
 	// writeMu guards ws writes. The gorilla/websocket package forbids
@@ -133,7 +134,7 @@ func (c *client) run(ctx context.Context) {
 		// we reply as a JSON array, else a single object.
 		responses := make([]*Response, 0, len(reqs))
 		for _, req := range reqs {
-			resp := dispatchRequest(ctx, req, c)
+			resp := dispatchRequest(ctx, req, c, c.handler)
 			if resp == nil {
 				continue
 			}

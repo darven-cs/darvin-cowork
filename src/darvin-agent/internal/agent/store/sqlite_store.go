@@ -90,3 +90,18 @@ func (r *Session) toSession() *session.Session {
 	out.ReplaceAllMeta(r.Key, r.AgentID, session.Status(r.Status), r.CreatedAt, r.UpdatedAt)
 	return out
 }
+
+// Close releases the underlying SQLite connection. main.go calls this
+// during graceful shutdown as the final step (after Agent.Abort and the
+// event.Bus subscription has been drained) so that in-flight writes have
+// finished and the fd can be returned to the OS cleanly.
+func (s *SQLiteStore) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}

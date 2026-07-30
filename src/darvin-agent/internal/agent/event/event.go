@@ -4,6 +4,11 @@
 // Events are sealed-sum types (interface + unexported marker). Subscribers
 // register via Bus.Subscribe; events are dropped (oldest first) on a full
 // channel to keep the agent's main loop non-blocking.
+//
+// EventCommon is the correlation payload (sessionID + messageID) embedded
+// in every concrete event; consumers (EventLedger, dispatcher, executor)
+// read it via the Event.Common() method so per-session routing doesn't
+// need a type switch.
 package event
 
 import (
@@ -22,11 +27,29 @@ const (
 	ModeFollowUp Mode = "followup"
 )
 
+// EventCommon is the correlation payload embedded by every concrete Event.
+// Consumers read it through Event.Common() — no type switch needed.
+type EventCommon struct {
+	SessionID string
+	MessageID string
+}
+
+// EventBase provides the Event.Common() method for every concrete Event
+// that embeds it. One-line embed on the event side; consumers see
+// Common() uniformly via the Event interface. The struct is exported so
+// callers can construct events with explicit EventCommon: event.EventBase{
+// EventCommon: ... } literal syntax; the Common() method itself stays
+// the same.
+type EventBase struct{ EventCommon }
+
+func (b EventBase) Common() EventCommon { return b.EventCommon }
+
 // Event is the sealed agent lifecycle event. All concrete event types
 // implement the unexported isAgentEvent marker.
 type Event interface {
 	isAgentEvent()
 	EventName() string
+	Common() EventCommon
 }
 
 // ToolResult is the event-level view of a tool execution outcome. Defined
@@ -41,6 +64,7 @@ type ToolResult struct {
 // PromptReceivedEvent is emitted when Agent.Prompt / Steer / FollowUp accepts
 // a message into its queue.
 type PromptReceivedEvent struct {
+	EventBase
 	Content string
 	Mode    Mode
 }
@@ -51,7 +75,7 @@ func (PromptReceivedEvent) EventName() string { return "prompt_received" }
 // RunStartEvent marks the start of a single Run (one or more turns serving
 // the next dequeued message).
 type RunStartEvent struct {
-	SessionID string
+	EventBase
 }
 
 func (RunStartEvent) isAgentEvent()     {}
@@ -59,6 +83,7 @@ func (RunStartEvent) EventName() string { return "run_start" }
 
 // TurnStartEvent marks the beginning of one LLM round-trip.
 type TurnStartEvent struct {
+	EventBase
 	TurnID    string
 	TurnIndex int
 }
@@ -68,6 +93,7 @@ func (TurnStartEvent) EventName() string { return "turn_start" }
 
 // LLMStartEvent is emitted right before provider.Stream is called.
 type LLMStartEvent struct {
+	EventBase
 	Model string
 }
 
@@ -76,6 +102,7 @@ func (LLMStartEvent) EventName() string { return "llm_start" }
 
 // TextDeltaEvent is a passthrough of provider.TextDeltaEvent.
 type TextDeltaEvent struct {
+	EventBase
 	Delta string
 }
 
@@ -83,10 +110,9 @@ func (TextDeltaEvent) isAgentEvent()     {}
 func (TextDeltaEvent) EventName() string { return "text_delta" }
 
 // ThinkingDeltaEvent is a passthrough of provider.ThinkingDeltaEvent —
-// an incremental chunk of the model's extended-thinking output. No
-// provider emits it yet: the anthropic stream parser gains the
-// content_block_delta thinking branch in S4.
+// an incremental chunk of the model's extended-thinking output.
 type ThinkingDeltaEvent struct {
+	EventBase
 	Delta string
 }
 
@@ -96,6 +122,7 @@ func (ThinkingDeltaEvent) EventName() string { return "thinking_delta" }
 // LLMEndEvent fires after the provider's stream closes (DoneEvent or
 // ErrorEvent), with the accumulated assistant message and usage.
 type LLMEndEvent struct {
+	EventBase
 	Assistant llm.Message
 	Usage     llm.Usage
 }
@@ -106,6 +133,7 @@ func (LLMEndEvent) EventName() string { return "llm_end" }
 // ToolStartEvent is emitted before a tool is invoked. One per call when the
 // assistant issued multiple tool calls in a single turn.
 type ToolStartEvent struct {
+	EventBase
 	TurnID    string
 	CallID    string
 	Name      string
@@ -118,6 +146,7 @@ func (ToolStartEvent) EventName() string { return "tool_start" }
 // ToolEndEvent fires after a tool's Execute returns. Duration is measured
 // inside the executor goroutine.
 type ToolEndEvent struct {
+	EventBase
 	CallID     string
 	Result     ToolResult
 	DurationMS int64
@@ -128,6 +157,7 @@ func (ToolEndEvent) EventName() string { return "tool_end" }
 
 // TurnEndEvent closes a single turn.
 type TurnEndEvent struct {
+	EventBase
 	TurnIndex  int
 	StopReason llm.FinishReason
 }
@@ -137,6 +167,7 @@ func (TurnEndEvent) EventName() string { return "turn_end" }
 
 // RunEndEvent marks the end of a Run (all turns for one dequeued message).
 type RunEndEvent struct {
+	EventBase
 	Turns int
 }
 
@@ -147,6 +178,7 @@ func (RunEndEvent) EventName() string { return "run_end" }
 // further events; a terminal abort is signalled by FinishReasonAborted
 // in the corresponding TurnEndEvent / AgentEndEvent.
 type AgentErrorEvent struct {
+	EventBase
 	Err error
 }
 
@@ -156,7 +188,7 @@ func (AgentErrorEvent) EventName() string { return "agent_error" }
 // AgentEndEvent marks the very end of Agent.Run. After this, the Agent
 // returns to idle and may accept new prompts (or auto-drain FollowUp).
 type AgentEndEvent struct {
-	SessionID  string
+	EventBase
 	TotalTurns int
 	TotalUsage llm.Usage
 }
@@ -167,6 +199,7 @@ func (AgentEndEvent) EventName() string { return "agent_end" }
 // CompactionEvent signals a context compaction. The agent loop does not
 // emit it directly; the ContextEngine produces it when Compact() runs.
 type CompactionEvent struct {
+	EventBase
 	Before int
 	After  int
 	Note   string
@@ -178,6 +211,7 @@ func (CompactionEvent) EventName() string { return "compaction" }
 // CustomEvent is an out-of-band channel for domain-specific events
 // (Skills / MCP / etc.) to publish without expanding the agent core.
 type CustomEvent struct {
+	EventBase
 	Name    string
 	Payload any
 }

@@ -232,6 +232,62 @@ func TestDispatch_PingIgnored(t *testing.T) {
 	}
 }
 
+// TestDispatch_ThinkingDelta verifies the extended-thinking branch: a
+// content_block_delta whose delta.type is "thinking_delta" carries its
+// text in the "thinking" field (not "text") and must surface as a
+// ThinkingDeltaEvent, kept distinct from ordinary text deltas.
+func TestDispatch_ThinkingDelta(t *testing.T) {
+	frames := strings.Join([]string{
+		`event: message_start`,
+		`data: {"message":{"id":"msg_1","model":"claude-x","usage":{"input_tokens":0,"output_tokens":0}}}`,
+		``,
+		`event: content_block_start`,
+		`data: {"index":0,"type":"content_block_start","content_block":{"type":"thinking","thinking":""}}`,
+		``,
+		`event: content_block_delta`,
+		`data: {"index":0,"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"step one"}}`,
+		``,
+		`event: content_block_delta`,
+		`data: {"index":0,"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":" step two"}}`,
+		``,
+		`event: content_block_stop`,
+		`data: {"index":0,"type":"content_block_stop"}`,
+		``,
+		`event: content_block_start`,
+		`data: {"index":1,"type":"content_block_start","content_block":{"type":"text","text":""}}`,
+		``,
+		`event: content_block_delta`,
+		`data: {"index":1,"type":"content_block_delta","delta":{"type":"text_delta","text":"answer"}}`,
+		``,
+		`event: message_stop`,
+		`data: {"type":"message_stop"}`,
+		``,
+		``,
+	}, "\n")
+
+	events := make(chan llm.StreamEvent, 16)
+	if err := runStream(testCtx(), strings.NewReader(frames), events, "claude-x"); err != nil {
+		t.Fatalf("runStream: %v", err)
+	}
+	close(events)
+
+	var thinking, text []string
+	for ev := range events {
+		switch e := ev.(type) {
+		case llm.ThinkingDeltaEvent:
+			thinking = append(thinking, e.Delta)
+		case llm.TextDeltaEvent:
+			text = append(text, e.Delta)
+		}
+	}
+	if got := strings.Join(thinking, ""); got != "step one step two" {
+		t.Errorf("thinking deltas = %q, want %q", got, "step one step two")
+	}
+	if got := strings.Join(text, ""); got != "answer" {
+		t.Errorf("text deltas = %q, want %q", got, "answer")
+	}
+}
+
 // TestDispatch_TruncatedToolArgs verifies that an in-flight tool buffer
 // is flushed on stream end even when the content_block_stop frame is
 // missing.

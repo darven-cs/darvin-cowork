@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -53,17 +54,73 @@ func TestMapEventToTSShapes(t *testing.T) {
 		t.Fatalf("text_delta shape: %+v", m)
 	}
 
-	end := mapEventToTS(event.AgentEndEvent{SessionID: "s1"}, "s1")
+	end := mapEventToTS(event.AgentEndEvent{
+		EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: "s1"}},
+	}, "s1")
 	m, _ = end.(map[string]any)
 	if m["type"] != "agent_end" {
 		t.Fatalf("agent_end shape: %+v", m)
 	}
 
 	// Unknown type falls through to the default branch.
-	other := mapEventToTS(event.RunStartEvent{SessionID: "s1"}, "s1")
+	other := mapEventToTS(event.RunStartEvent{
+		EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: "s1"}},
+	}, "s1")
 	m, _ = other.(map[string]any)
 	if m["type"] != "run_start" {
 		t.Fatalf("default shape: %+v", m)
+	}
+}
+
+// TestMapEventToTSCarriesMessageID pins the field names the renderer keys
+// on (src/shared/darvin-api.ts). A drift here is invisible in Go but
+// silently breaks the UI: a delta lands on no message, or an error leaves
+// the bubble spinning with no text.
+func TestMapEventToTSCarriesMessageID(t *testing.T) {
+	ec := event.EventBase{EventCommon: event.EventCommon{SessionID: "s1", MessageID: "m1"}}
+
+	cases := []struct {
+		name string
+		ev   event.Event
+		want map[string]any
+	}{
+		{
+			name: "text_delta",
+			ev:   event.TextDeltaEvent{EventBase: ec, Delta: "x"},
+			want: map[string]any{"type": "text_delta", "delta": "x", "messageId": "m1"},
+		},
+		{
+			name: "thinking_delta",
+			ev:   event.ThinkingDeltaEvent{EventBase: ec, Delta: "t"},
+			want: map[string]any{"type": "thinking_delta", "delta": "t", "messageId": "m1"},
+		},
+		{
+			name: "llm_end maps to done",
+			ev:   event.LLMEndEvent{EventBase: ec},
+			want: map[string]any{"type": "done", "messageId": "m1"},
+		},
+		{
+			name: "agent_error maps to error",
+			ev:   event.AgentErrorEvent{EventBase: ec, Err: errors.New("boom")},
+			want: map[string]any{"type": "error", "messageId": "m1", "message": "boom"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := mapEventToTS(tc.ev, "s1").(map[string]any)
+			if !ok {
+				t.Fatalf("expected map")
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("field set = %+v, want %+v", got, tc.want)
+			}
+			for k, want := range tc.want {
+				if got[k] != want {
+					t.Errorf("%s = %v, want %v", k, got[k], want)
+				}
+			}
+		})
 	}
 }
 

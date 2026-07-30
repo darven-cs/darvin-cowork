@@ -10,10 +10,9 @@ import (
 )
 
 // EventLedger is the bridge between the agent's event bus and WS clients.
-// S3 attaches no real subscription (handlers stub their own EmitStub); S4
-// will call AttachSubscription with a *event.Subscription and the bridge
-// will forward every event as an "agent.event" notification to subscribers
-// of the event's session.
+// AttachSubscription feeds it a *event.Subscription; every event read from
+// that channel is forwarded as an "agent.event" notification to the
+// subscribers of the event's session.
 //
 // Subscriptions are stored session-scoped: bySession maps sessionID → the
 // set of clients that want events for that session. A client subscribing
@@ -68,12 +67,25 @@ func (l *EventLedger) UnsubscribeAll(c *client) {
 	}
 }
 
-// AttachSubscription is the S4 hook: a real *event.Subscription is wired
-// into a goroutine that decodes bus events and re-publishes them through
-// publishLocked. S3 keeps it a no-op so the package still compiles and
-// the handler stub path is observable.
-func (l *EventLedger) AttachSubscription(_ *event.Subscription) {
-	// S4 will: go func() { for ev := range sub.C() { l.publishLocked(ev.SessionID, ev) } }()
+// AttachSubscription wires a real agent event bus into the ledger. Each
+// event read from sub.C() is routed to subscribers of its EventCommon.
+// SessionID via publishLocked; events with no SessionID (e.g. system
+// events emitted before any session is established) are dropped.
+//
+// main.go calls this once after constructing the Agent — the goroutine
+// runs for the lifetime of the WS server and exits when sub.Unsubscribe
+// closes the channel.
+func (l *EventLedger) AttachSubscription(sub *event.Subscription) {
+	go func() {
+		for ev := range sub.C() {
+			sid := ev.Common().SessionID
+			if sid == "" {
+				// Skip uncorrelated events — they have no fan-out target.
+				continue
+			}
+			l.publishLocked(sid, ev)
+		}
+	}()
 }
 
 // publishLocked fans ev out to every subscriber of sessionID. The caller
@@ -111,17 +123,22 @@ func (l *EventLedger) publishLocked(sessionID string, ev event.Event) {
 func (l *EventLedger) EmitStub(sessionID, msgID, content string) {
 	go func() {
 		time.Sleep(l.fakeDelay)
-		l.publishLocked(sessionID, event.TextDeltaEvent{Delta: "Echo: " + truncate(content, 80)})
+		l.publishLocked(sessionID, event.TextDeltaEvent{
+			EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: sessionID, MessageID: msgID}},
+			Delta:     "Echo: " + truncate(content, 80),
+		})
 		time.Sleep(2 * l.fakeDelay)
-		l.publishLocked(sessionID, event.AgentEndEvent{SessionID: sessionID})
+		l.publishLocked(sessionID, event.AgentEndEvent{
+			EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: sessionID, MessageID: msgID}},
+		})
 		l.log.Info("EmitStub done", zap.String("sessionId", sessionID), zap.String("messageId", msgID))
 	}()
 }
 
 // mapEventToTS converts an event.Event into the JSON object the renderer
-// consumes as DarvinEvent. S3 only populates the two types EmitStub
-// actually emits; everything else gets a bare {type, ...} envelope. S4
-// will fill in the tool / error shapes.
+// consumes as DarvinEvent. The session-scoped subscribe path uses these
+// shapes; events not matched here fall through to a bare {type, ...}
+// envelope so a new event class can't accidentally disappear.
 //
 // No sessionId is forwarded: the TS contract (src/shared/darvin-api.ts)
 // ties each event to the WS message id, not the session. A client
@@ -131,14 +148,20 @@ func mapEventToTS(ev event.Event, _ string) any {
 	switch e := ev.(type) {
 	case event.TextDeltaEvent:
 		return map[string]any{
-			"type":    ev.EventName(),
-			"delta":   e.Delta,
-			"message": map[string]any{"id": ""},
+			"type":      ev.EventName(),
+			"delta":     e.Delta,
+			"messageId": ev.Common().MessageID,
 		}
 	case event.ThinkingDeltaEvent:
 		return map[string]any{
-			"type":  ev.EventName(),
-			"delta": e.Delta,
+			"type":      ev.EventName(),
+			"delta":     e.Delta,
+			"messageId": ev.Common().MessageID,
+		}
+	case event.LLMEndEvent:
+		return map[string]any{
+			"type":      "done",
+			"messageId": ev.Common().MessageID,
 		}
 	case event.AgentEndEvent:
 		return map[string]any{
@@ -158,10 +181,13 @@ func mapEventToTS(ev event.Event, _ string) any {
 			"message": map[string]any{"id": e.CallID},
 		}
 	case event.AgentErrorEvent:
+		// Field names match the DarvinEvent 'error' variant in
+		// src/shared/darvin-api.ts: the renderer looks the message up by
+		// messageId and renders `message` on the bubble.
 		return map[string]any{
-			"type":   "error",
-			"error":  e.Err.Error(),
-			"detail": map[string]any{"id": ""},
+			"type":      "error",
+			"messageId": ev.Common().MessageID,
+			"message":   e.Err.Error(),
 		}
 	default:
 		return map[string]any{"type": ev.EventName()}

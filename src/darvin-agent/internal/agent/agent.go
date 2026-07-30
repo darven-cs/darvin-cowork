@@ -109,6 +109,12 @@ type Agent struct {
 	state    agentState
 	cancelFn context.CancelFunc
 
+	// msgIDSrc is wired by the ACP loop via AttachMessageIDSrc. The
+	// executor reads it through Deps.CurrentMessageID to populate the
+	// EventCommon.MessageID on every emitted event so subscribers can
+	// correlate events back to the prompt that produced them.
+	msgIDSrc func() string
+
 	// Assembler field + Deps satisfaction (spec §4.10 — agent-context-engine).
 	// M4: stubs only, returning nil / false so the executor's fallback path is
 	// exercised unchanged. M5 will populate these from NewAgentConfig and the
@@ -274,4 +280,21 @@ func (a *Agent) SessionHandle() *session.Session { return a.session }
 // Subscribe registers a new event subscriber.
 func (a *Agent) Subscribe(buffer int) *event.Subscription {
 	return a.bus.Subscribe(buffer)
+}
+
+// AttachMessageIDSrc wires the function the executor queries (via
+// Deps.CurrentMessageID) to read the in-flight messageID. main.go passes
+// a method value of acp.Loop.CurrentMessageID so every emitted event's
+// EventCommon.MessageID matches the prompt that triggered the run.
+func (a *Agent) AttachMessageIDSrc(src func() string) {
+	a.msgIDSrc = src
+}
+
+// CurrentMessageID satisfies executor.Deps. Returns "" when no messageID
+// source has been wired or when the agent is idle.
+func (a *Agent) CurrentMessageID() string {
+	if a.msgIDSrc == nil {
+		return ""
+	}
+	return a.msgIDSrc()
 }

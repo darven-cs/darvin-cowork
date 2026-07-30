@@ -73,15 +73,24 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	var totalTurns int
 	var totalUsage llm.Usage
+	// runMsgID is overwritten after each Dequeue below; the AgentEndEvent
+	// defer reads the most recent snapshot so it always reflects the last
+	// prompt the run consumed (across FollowUp iterations).
+	var runMsgID string
 	defer func() {
 		a.bus.Emit(event.AgentEndEvent{
-			SessionID:  a.session.ID,
+			EventBase: event.EventBase{EventCommon: event.EventCommon{
+				SessionID: a.session.ID,
+				MessageID: runMsgID,
+			}},
 			TotalTurns: totalTurns,
 			TotalUsage: totalUsage,
 		})
 	}()
 
-	a.bus.Emit(event.RunStartEvent{SessionID: a.session.ID})
+	a.bus.Emit(event.RunStartEvent{
+		EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: a.session.ID}},
+	})
 
 	for {
 		msg, mode, ok := a.queue.Dequeue(runCtx)
@@ -91,23 +100,49 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 			return runCtx.Err()
 		}
-		a.bus.Emit(event.PromptReceivedEvent{Content: msg.Content, Mode: event.Mode(mode)})
+		// Snapshot the messageID for this dequeued prompt. The executor
+		// reads it via Deps.CurrentMessageID on every emit, so events
+		// tagged to this prompt all carry the same MessageID.
+		runMsgID = a.CurrentMessageID()
+		a.bus.Emit(event.PromptReceivedEvent{
+			EventBase: event.EventBase{EventCommon: event.EventCommon{
+				SessionID: a.session.ID,
+				MessageID: runMsgID,
+			}},
+			Content: msg.Content,
+			Mode:    event.Mode(mode),
+		})
 		a.session.Append(llm.Message{Role: llm.RoleUser, Content: msg.Content})
 
 		turnsBefore := a.session.Len()
 		if err := a.exec.RunConversation(runCtx, a); err != nil {
 			if errors.Is(err, context.Canceled) {
-				a.bus.Emit(event.AgentErrorEvent{Err: ErrAborted})
+				a.bus.Emit(event.AgentErrorEvent{
+					EventBase: event.EventBase{EventCommon: event.EventCommon{
+						SessionID: a.session.ID,
+						MessageID: runMsgID,
+					}},
+					Err: ErrAborted,
+				})
 				return ErrAborted
 			}
-			a.bus.Emit(event.AgentErrorEvent{Err: err})
+			a.bus.Emit(event.AgentErrorEvent{
+				EventBase: event.EventBase{EventCommon: event.EventCommon{
+					SessionID: a.session.ID,
+					MessageID: runMsgID,
+				}},
+				Err: err,
+			})
 			return err
 		}
 		// approximate turn count from messages: each turn adds at least one
 		// assistant message. We compare session length before / after.
 		turnsThisRun := a.approxTurns(turnsBefore)
 		totalTurns += turnsThisRun
-		a.bus.Emit(event.RunEndEvent{Turns: turnsThisRun})
+		a.bus.Emit(event.RunEndEvent{
+			EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: a.session.ID}},
+			Turns:     turnsThisRun,
+		})
 
 		// if no followup is queued, exit; otherwise loop and consume it
 		if a.queue.Len() == 0 {

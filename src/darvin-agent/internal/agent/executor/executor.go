@@ -58,6 +58,11 @@ type Deps interface {
 	// ContextEngine can prefer API token counts over the local estimator.
 	RecordUsage(u llm.Usage)
 	LastUsage() llm.Usage
+	// CurrentMessageID returns the messageID the ACP loop assigned to the
+	// prompt that triggered the in-flight run. The executor embeds it on
+	// every emitted event so downstream consumers (EventLedger, renderer)
+	// can correlate events back to the originating prompt.
+	CurrentMessageID() string
 }
 
 // Executor runs one "user message -> possibly many turns -> natural stop"
@@ -77,9 +82,23 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 	}
 	cfg := d.Config()
 	var totalUsage llm.Usage
+	// ec is the EventCommon payload every emitted event in this run carries.
+	// SessionID is stable across the Run; MessageID is read at the moment of
+	// emit so it always reflects the in-flight prompt's id (no stale read
+	// across iterations).
+	ec := func() event.EventCommon {
+		return event.EventCommon{
+			SessionID: d.Session().ID,
+			MessageID: d.CurrentMessageID(),
+		}
+	}
 	for turnIndex := 1; turnIndex <= cfg.MaxTurns; turnIndex++ {
 		turnID := newTurnID()
-		d.Emit(event.TurnStartEvent{TurnID: turnID, TurnIndex: turnIndex})
+		d.Emit(event.TurnStartEvent{
+			EventBase: event.EventBase{EventCommon: ec()},
+			TurnID:    turnID,
+			TurnIndex: turnIndex,
+		})
 
 		// 1. assemble messages via the ContextEngine (fallback to the legacy
 		//    d.Session().Messages() path when the assembler is not wired or
@@ -100,7 +119,10 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		}
 
 		// 2. LLM call
-		d.Emit(event.LLMStartEvent{Model: d.ModelName()})
+		d.Emit(event.LLMStartEvent{
+			EventBase: event.EventBase{EventCommon: ec()},
+			Model:     d.ModelName(),
+		})
 		req := &llm.CompletionRequest{
 			Model:      d.ModelName(),
 			Messages:   messages,
@@ -118,12 +140,16 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		// 3. accumulate assistant message
 		var text string
 		var toolCalls []llm.ToolCall
-		turnUsage, streamErr := drainStream(ctx, d, stream, &text, &toolCalls)
+		turnUsage, streamErr := drainStream(ctx, d, ec, stream, &text, &toolCalls)
 		if streamErr != nil {
 			if streamErr == context.Canceled || ctx.Err() != nil {
 				assistant := llm.Message{Role: llm.RoleAssistant, Content: text, ToolCalls: toolCalls}
 				d.Session().Append(assistant)
-				d.Emit(event.TurnEndEvent{TurnIndex: turnIndex, StopReason: llm.FinishReasonAborted})
+				d.Emit(event.TurnEndEvent{
+					EventBase:  event.EventBase{EventCommon: ec()},
+					TurnIndex:  turnIndex,
+					StopReason: llm.FinishReasonAborted,
+				})
 				return context.Canceled
 			}
 			return streamErr
@@ -137,16 +163,24 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		totalUsage.TotalTokens += turnUsage.TotalTokens
 		assistant := llm.Message{Role: llm.RoleAssistant, Content: text, ToolCalls: toolCalls}
 		d.Session().Append(assistant)
-		d.Emit(event.LLMEndEvent{Assistant: assistant, Usage: totalUsage})
+		d.Emit(event.LLMEndEvent{
+			EventBase: event.EventBase{EventCommon: ec()},
+			Assistant: assistant,
+			Usage:     totalUsage,
+		})
 
 		// 4. decide next step
 		if len(toolCalls) == 0 {
-			d.Emit(event.TurnEndEvent{TurnIndex: turnIndex, StopReason: llm.FinishReasonStop})
+			d.Emit(event.TurnEndEvent{
+				EventBase:  event.EventBase{EventCommon: ec()},
+				TurnIndex:  turnIndex,
+				StopReason: llm.FinishReasonStop,
+			})
 			return nil
 		}
 
 		// 5. run tools in parallel
-		results := e.runToolsParallel(ctx, d, turnID, toolCalls)
+		results := e.runToolsParallel(ctx, d, ec, turnID, toolCalls)
 
 		// 6. append tool result messages in original order
 		for i, tc := range toolCalls {
@@ -156,7 +190,11 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 				ToolCallID: tc.ID,
 			})
 		}
-		d.Emit(event.TurnEndEvent{TurnIndex: turnIndex, StopReason: llm.FinishReasonToolCalls})
+		d.Emit(event.TurnEndEvent{
+			EventBase:  event.EventBase{EventCommon: ec()},
+			TurnIndex:  turnIndex,
+			StopReason: llm.FinishReasonToolCalls,
+		})
 	}
 	return fmt.Errorf("%w (limit: %d)", ErrMaxTurns, cfg.MaxTurns)
 }
@@ -166,14 +204,25 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 // from the terminal DoneEvent (zero value if the stream ended without a
 // DoneEvent — e.g. context cancellation) and the stream's terminal error
 // (nil on clean DoneEvent or context.Canceled if ctx fires).
-func drainStream(ctx context.Context, d Deps, stream *llm.StreamingResponse, textOut *string, callsOut *[]llm.ToolCall) (llm.Usage, error) {
+//
+// ec is the EventCommon payload for every passthrough event; the helper
+// reads it at each emit so MessageID reflects the in-flight prompt.
+func drainStream(ctx context.Context, d Deps, ec func() event.EventCommon, stream *llm.StreamingResponse, textOut *string, callsOut *[]llm.ToolCall) (llm.Usage, error) {
 	for ev := range stream.Events {
 		switch e := ev.(type) {
 		case llm.StartEvent:
 			// nothing to do — already emitted LLMStartEvent
 		case llm.TextDeltaEvent:
 			*textOut += e.Delta
-			d.Emit(event.TextDeltaEvent{Delta: e.Delta})
+			d.Emit(event.TextDeltaEvent{
+				EventBase: event.EventBase{EventCommon: ec()},
+				Delta:     e.Delta,
+			})
+		case llm.ThinkingDeltaEvent:
+			d.Emit(event.ThinkingDeltaEvent{
+				EventBase: event.EventBase{EventCommon: ec()},
+				Delta:     e.Delta,
+			})
 		case llm.ToolCallStartEvent:
 			// we accumulate via End event; nothing here
 		case llm.ToolCallDeltaEvent:
@@ -206,7 +255,7 @@ func drainStream(ctx context.Context, d Deps, stream *llm.StreamingResponse, tex
 	return llm.Usage{}, nil
 }
 
-func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, turnID string, calls []llm.ToolCall) []tool.Result {
+func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, ec func() event.EventCommon, turnID string, calls []llm.ToolCall) []tool.Result {
 	results := make([]tool.Result, len(calls))
 	var wg sync.WaitGroup
 	for i, c := range calls {
@@ -214,6 +263,7 @@ func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, turnID s
 		go func(i int, c llm.ToolCall) {
 			defer wg.Done()
 			d.Emit(event.ToolStartEvent{
+				EventBase: event.EventBase{EventCommon: ec()},
 				TurnID:    turnID,
 				CallID:    c.ID,
 				Name:      c.Name,
@@ -224,7 +274,8 @@ func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, turnID s
 			start := time.Now()
 			results[i] = executeOneTool(tctx, d, c)
 			d.Emit(event.ToolEndEvent{
-				CallID: c.ID,
+				EventBase: event.EventBase{EventCommon: ec()},
+				CallID:    c.ID,
 				Result: event.ToolResult{
 					Content:  results[i].Content,
 					IsError:  results[i].IsError,

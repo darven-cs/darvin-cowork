@@ -136,22 +136,80 @@
 
 ## S4 · agent-acp-loop（Phase 2 Go #3）
 
-> **2026-07-30 基于 v2 spec 同步修订**。两处跟在 v1 后的旧清单需要更新：
-> - 第 5 项 `AttachBus` → v2 spec 已定为 `AttachSubscription`（S3 阶段实装空壳）
-> - 第 7 项 `signal.NotifyContext` 优雅关闭 → **S3 已做**（v2 FR-8），S4 不重复
-> - 第 3 项 SteerControl v0 no-op 保留
-> - 任务清单其余按 v2 spec FR 顺序对齐
+> **2026-07-30 v2 spec 落地修订**。v1 spec（`2026-07-29-agent-acp-loop-design.md`）**作废**，仅历史参考。新 v2 spec：`specs/features/agent-acp-loop/2026-07-30-agent-acp-loop-design-v2.md`。
+>
+> **v1 → v2 主要修订（7 P0 + 5 P1，详见 v2 spec §0）**：
+> 1. **P0-1** `AttachBus` → `AttachSubscription`（S3 留空实现, v2 填实）
+> 2. **P0-2** 删除 v1 FR-5（SessionManager AttachClient 整套死代码，S3 EventLedger 已实装）
+> 3. **P0-3** handler 保留 `*client` 4 参签名, 不在 HandlePrompt 自动 subscribe（避免破坏 S3 跟 S1 TS 契约）
+> 4. **P0-4** 删除 v1 §1.1 main.go `select{}` 描述 + v1 FR-8（S3 已实装 gs.Shutdown, v2 只增量加 Agent.Abort + store.Close）
+> 5. **P0-5** `Loop.Prompt(ctx, content) (msgID, err)` 对齐 `Agent.Prompt` 实际 API（不收 sessionID, msgID 由 Loop 内部生成）
+> 6. **P0-6** `AttachSubscription` 从 `event.EventCommon` 提取 sessionID（v2 引入 EventCommon 嵌入 15 个事件）
+> 7. **P0-7** `SteerControl interface`（v1 是 struct, 跟 CHECKLIST 对齐）+ `ErrSteerNotImplemented` sentinel
+>
+> 加 5 P1 设计调整：executor 12 个 emit 点全表、ctx 生命周期明确、EmitStub 保留作 fixture、`done` event 不带 usage（S5 扩）、S4 验收 = Go-only smoke test。
 
-- [ ] `internal/acp/loop.go` Loop：接 prompt handler → Agent.Prompt/Run
-- [ ] `internal/acp/queue.go` 接入现有 `internal/agent/queue` 3 通道
-- [ ] `internal/acp/steer.go` SteerControl interface + v0 no-op
-- [ ] `internal/agent/event/event.go` 增 EventCommon（SessionID / MessageID）+ 各事件嵌入
-- [ ] `internal/gateway/eventledger.go` **实时替换 `AttachSubscription` 内空实现**，订阅 `event.Bus` 真接 → `publishLocked` 推 WS notification；补 `mapEventToTS` 函数实现 §4.2 全表（tool_start/tool_end/agent_error/thinking_delta 等 S3 没 emit 的 6 个）
-- [ ] `internal/gateway/handlers.go` `handlePrompt` 真接 `acp.Loop.Prompt`（替换 stub）；S3 EmitStub 删除
-- [ ] `internal/acp/loop.go` onRunEnd 调 `store.SaveSession` + `store.SaveMessage` 落 sessions.db
-- [ ] `internal/agent/llm/anthropic/stream.go` 解析 `content_block_delta` 的 thinking 类型 → emit `event.ThinkingDeltaEvent`（架构文档契约）
-- [ ] `internal/acp/loop_test.go` 端到端单测
-- [ ] 验收：发 prompt → WS 推 text_delta + done 流；SIGTERM ≤3s 走完 6 步（Abort → flush → WS shutdown → DB close → exit 0）；stderr "graceful shutdown complete"；sessions.db messages 表有 user + assistant 两条记录
+### 任务清单（按 v2 spec FR-1 ~ FR-13 顺序）
+
+- [x] **FR-1** `internal/acp/loop.go` 🆕 `Loop` struct（`agent + mu + curMsg + msgGen`）；`Prompt(ctx, content) (msgID, err)`；`Abort(ctx) error`；`CurrentMessageID() string`；21-char nanoid 内部生成
+- [x] **FR-2** `internal/acp/queue.go` 🆕 `Queue` 薄包装（`Enqueue` / `Dequeue` / `Len`）转 `agent/queue.Queue`
+- [x] **FR-3** `internal/acp/steer.go` 🆕 `SteerControl interface { Steer; Redirect }` + v0 `steerControl` impl + `ErrSteerNotImplemented` sentinel
+- [x] **FR-4**（v1 FR-5 删除）EventLedger.bySession + Subscribe/UnsubscribeAll/publishLocked 已 S3 实装
+- [x] **FR-5** `internal/agent/event/event.go` 加 `EventCommon{SessionID, MessageID}` + `eventBase{EventCommon}` + `Event.Common() EventCommon` 方法 + 15 个具体事件嵌入（`PromptReceived/RunStart/TurnStart/LLMStart/TextDelta/ThinkingDelta/LLMEnd/ToolStart/ToolEnd/TurnEnd/RunEnd/AgentError/AgentEnd/Compaction/Custom`）+ 删 `RunStartEvent/AgentEndEvent` 的直接 `SessionID` 字段
+- [x] **FR-6** `internal/agent/agent.go` 加 `CurrentMessageID() string`（满足 `executor.Deps`）+ `AttachMessageIDSrc(func() string)`（main.go 注入 `loop.CurrentMessageID` method value）
+- [x] **FR-7** `internal/agent/dispatcher.go` 3 个 emit 填 EventCommon：`RunStartEvent` / `RunEndEvent` / `AgentEndEvent`（defer）；AgentEndEvent 用 Run 期间 `runMsg` 快照避免全局读
+- [x] **FR-8** `internal/agent/executor/executor.go` `Deps` 加 `CurrentMessageID() string`；9 个 emit 点全填 EventCommon：`TurnStartEvent` / `LLMStartEvent` / `TurnEndEvent` × 3（abort/stop/tool_calls） / `LLMEndEvent` / `TextDeltaEvent` / `ToolStartEvent` / `ToolEndEvent`；`drainStream` 开头算 `ec` 共享
+- [x] **FR-9** `internal/gateway/eventledger.go` 填实 `AttachSubscription` 内部 goroutine `for ev := range sub.C() { l.publishLocked(ev.Common().SessionID, ev) }`；`mapEventToTS` 加 `case event.LLMEndEvent: {type:"done", messageId}`
+- [x] **FR-10** `internal/gateway/handlers.go` `dispatchRequest(ctx, req, c, h *Handler)` 收 `*Handler{Sessions, Ledger, Loop, Steer}`；`handlePrompt` 调 `h.Loop.Prompt(ctx, content)`；v0 限定 `p.SessionID` 必须为空或等于 `DefaultSessionID()` 否则返 -32602；新增 `handleSteer` 走 `h.Steer.Steer`
+- [x] **FR-11** `internal/gateway/sessionmgr.go` 加 `DefaultSessionID const = "default"`（对齐 `main.go:137`）+ `DefaultID() string` 方法
+- [x] **FR-12** `internal/gateway/server.go` `NewServer(h *Handler, log)` 替换原 `NewServer(sessions, ledger, log)` 签名
+- [x] **FR-13** `internal/agent/store/sqlite_store.go` 加 `Close() error`（`sqlDB.Close()`，给 shutdown 用）
+- [x] **FR-14** `internal/agent/llm/anthropic/stream.go` `dispatch` line 314 switch 加 `case "thinking_delta": out <- llm.ThinkingDeltaEvent{Delta: d.Delta.Thinking}`；`executor.go drainStream` 加 `case llm.ThinkingDeltaEvent: d.Emit(event.ThinkingDeltaEvent{...})`
+- [x] **FR-15** `cmd/app/main.go` 构造 `acp.NewLoop(a)` + `acp.NewSteerControl(a)`；`a.AttachMessageIDSrc(loop.CurrentMessageID)`；`sub := a.Subscribe(64)` 后 `ledger.AttachSubscription(sub)`；shutdown 4 步序列（GS Shutdown → `a.Abort` → `sub.Unsubscribe` → `sqliteStore.Close`）
+- [x] **测试** `internal/acp/loop_test.go` 端到端 3 个：`TestLoopEnd2End`（mock provider 注入 + 验 text_delta + done + agent_end 顺序）/ `TestLoopAbort`（abort 后无新 text_delta）/ `TestLoopPromptErrAgentBusy`（并发 Prompt 第二次返 ErrAgentBusy）
+- [x] **回归** `go test ./... -race` 全绿（EventCommon 嵌入 + 12 emit 改 + handler 签名改 后旧 fixture 不破坏）
+
+### 验收（v2 spec §7 全项）
+
+- [x] `go build ./...` / `go vet ./...` / `gofmt -l .` 干净
+- [x] `go test ./... -race` 全绿（含 S2 store 回归 + S3 gateway 回归 + S4 新加 5 套测试）
+- [x] 启动后 stdout 唯一一行 `<port>NNNNN</port>`，stderr 含 `agent initialized` + `gateway listening`
+- [x] `wscat -c ws://localhost:NNNNN/ws` 连上（**带 `/ws`**）
+- [x] `agent.prompt {content:"hi"}` 立即返 `{sessionId, messageId}`（21 字符）
+- [x] `agent.prompt {sessionId:"nonexistent"}` 返 `-32602 "session not active"`
+- [x] `agent.subscribe_events` 用真 sessionId → `{subscribed:true}`
+- [x] subscribe 后 ≤ 1s 收到 notification 链：`text_delta` (mock) + `done`（来自 `LLMEndEvent` 映射）+ `agent_end`
+- [x] `agent.abort` 在流式期间 → 后续 notification 含 `done`（`finishReason=aborted`）+ `agent_end`
+- [x] `agent.steer` 走 `h.Steer.Steer`（v0 调 `agent.Steer`）
+- [x] `kill -TERM <pid>` 走完 4 步 shutdown（GS Shutdown → Agent.Abort → sub.Unsubscribe → store.Close），stderr 末条 `graceful shutdown complete`，整体 ≤ 3s
+- [x] `kill -INT <pid>` 同上
+- [x] 优雅关闭期间新 WS 连接被拒（`http.Server.Shutdown` 行为）
+- [x] 优雅关闭后 `sessions.db` 不损坏（重启可 Load 之前 Save 的 session）
+- [x] `lsof -p <pid>` 验证：进程退出后无残留 fd
+- [x] EventCommon 各字段被 executor + dispatcher 填（snapshot check：注入 mock Deps 返固定 MessageID，断言 emit 出事件 `ev.Common().MessageID == expected`）—— 见 `executor/executor_test.go::TestEventCommonSnapshot{,_AcrossTurns}`
+- [x] `done` notification 的 `messageId` 来自 `LLMEndEvent.Common().MessageID`（**不是** SessionManager.CreateOrGet 的 msgID）—— 见 `gateway/eventledger_test.go::TestMapEventToTSCarriesMessageID`
+- [x] `thinking_delta` 解析：anthropic stream 单测覆盖 `content_block_delta.type == "thinking_delta"` 分支 —— 见 `anthropic/stream_test.go::TestDispatch_ThinkingDelta`
+
+### 实现偏差（spec v2 §9 摘要）
+
+落地过程中发现 spec 有 7 处需修订，全部已在 v2 spec §9 落地修正，CHECKLIST 同步引用：
+
+1. **`CreateOrGet("")` 必须返 `DefaultSessionID`**（spec 自相矛盾，否则 notification 永远投不到）。
+2. **`NewSessionManager()` 构造时即注册 default session**（subscribe-before-prompt 消除竞态）。
+3. **`Loop.Prompt` 失败时不清 `curMsg`**（保留 in-flight run 的 messageID，避免气泡卡住）。
+4. **`mapEventToTS(AgentErrorEvent)` 字段名对齐 TS 契约**：`{type:"error", messageId, message}`。
+5. **`eventBase` 需导出为 `EventBase`**（Go 字段提升不穿透双层嵌入 + 跨 package 字面量无法用未导出名）。
+6. **`acp` 测试不能 import `gateway`**（import cycle；改为 drain `sub.C()` 直接断言 + eventledger 测试覆盖路由）。
+7. 未处理 follow-up：`tool_start` / `tool_end` 字段名、`EmitStub` 删除、`acp.Queue` 调用方（留待 S6 / ACP QueueManager spec）。
+
+> **v1 spec 状态**：作废，仅历史参考。差异详见 v2 spec §0。
+>
+> **S6 待办**（已从 S4 清单移出）：
+> - `onRunEnd` 调 `store.SaveSession` + `store.SaveMessage` 落 messages 表
+> - 多 Agent 多 session 架构（v0 限定只跑 `default`）
+> - 端到端重启可见
+> - `agent.list_sessions` / `agent.get_messages` RPC
+> - `src/shared/darvin-api.ts` 扩 `done.usage` / `done.finishReason` 字段
 
 ---
 

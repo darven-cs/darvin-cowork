@@ -26,10 +26,9 @@ var upgrader = websocket.Upgrader{
 // Server owns the bound listener, the embedded *http.Server, and the
 // per-connection state. Start binds the port and Shutdown drains it.
 type Server struct {
-	addr     string
-	sessions *SessionManager
-	ledger   *EventLedger
-	log      *zap.Logger
+	addr    string
+	handler *Handler
+	log     *zap.Logger
 
 	mu       sync.Mutex
 	listener net.Listener
@@ -38,17 +37,15 @@ type Server struct {
 	started  bool
 }
 
-// NewServer wires the three gateway components. addr is the bind
-// address — S3 uses "localhost:0" so the OS picks a free port. log is
-// used by the server itself AND injected into EventLedger / client —
-// keeping a single zap.Logger across the package makes log fields
-// searchable by service=demo.
-func NewServer(sessions *SessionManager, ledger *EventLedger, log *zap.Logger) *Server {
+// NewServer wires the *Handler (which carries the SessionManager /
+// EventLedger / acp.Loop / acp.SteerControl dependencies) and the
+// server-local zap logger. addr is "localhost:0" so the OS picks a free
+// port; the actual port is reported via the stdout contract below.
+func NewServer(h *Handler, log *zap.Logger) *Server {
 	return &Server{
-		addr:     "localhost:0",
-		sessions: sessions,
-		ledger:   ledger,
-		log:      log,
+		addr:    "localhost:0",
+		handler: h,
+		log:     log,
 	}
 }
 
@@ -135,7 +132,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 // handleWS upgrades one HTTP request to a WebSocket and runs the
 // connection lifetime loop. Each accepted connection is independent;
-// cross-connection state lives in SessionManager / EventLedger.
+// cross-connection state lives in Handler / SessionManager / EventLedger.
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -144,8 +141,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	c := &client{
 		conn:     conn,
-		sessions: s.sessions,
-		ledger:   s.ledger,
+		sessions: s.handler.Sessions,
+		ledger:   s.handler.Ledger,
+		handler:  s.handler,
 		log:      s.log,
 	}
 	c.run(r.Context())

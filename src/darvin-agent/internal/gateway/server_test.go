@@ -18,9 +18,8 @@ import (
 // TestServerStartPrintsPort spins a Server and a pipe-backed stdout
 // capture. The port line must be the only line on stdout.
 func TestServerStartPrintsPort(t *testing.T) {
-	sessions := NewSessionManager()
-	ledger := NewEventLedger(zap.NewNop())
-	gs := NewServer(sessions, ledger, zap.NewNop())
+	h, _ := newTestHandler(t)
+	gs := NewServer(h, zap.NewNop())
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -67,9 +66,8 @@ func TestServerStartPrintsPort(t *testing.T) {
 // TestServerShutdownReturnsCleanly confirms the 3s-budget Shutdown path
 // used by main.go's signal handler.
 func TestServerShutdownReturnsCleanly(t *testing.T) {
-	sessions := NewSessionManager()
-	ledger := NewEventLedger(zap.NewNop())
-	gs := NewServer(sessions, ledger, zap.NewNop())
+	h, _ := newTestHandler(t)
+	gs := NewServer(h, zap.NewNop())
 	if err := gs.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -86,10 +84,9 @@ func TestServerShutdownReturnsCleanly(t *testing.T) {
 // started with its real listener, not httptest, so this also covers
 // the "no httptest behind the WS upgrade" path that main.go uses.
 func TestServerWSAcceptsConnections(t *testing.T) {
-	sessions := NewSessionManager()
-	ledger := NewEventLedger(zap.NewNop())
-	ledger.fakeDelay = 5 * time.Millisecond
-	gs := NewServer(sessions, ledger, zap.NewNop())
+	h, _ := newTestHandler(t)
+	h.Ledger.fakeDelay = 5 * time.Millisecond
+	gs := NewServer(h, zap.NewNop())
 
 	// Capture stdout so the test doesn't pollute the test runner's output.
 	r, w, _ := os.Pipe()

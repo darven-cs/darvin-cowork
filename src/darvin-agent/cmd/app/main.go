@@ -11,6 +11,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"darvin-cowork/backend/internal/acp"
 	"darvin-cowork/backend/internal/agent"
 	"darvin-cowork/backend/internal/agent/llm"
 	"darvin-cowork/backend/internal/agent/session"
@@ -152,29 +153,63 @@ func main() {
 
 	// --- Gateway (S3) -------------------------------------------------
 	// Sessions and the event ledger are process-local; the ledger will
-	// subscribe to the agent's event bus in S4 via AttachSubscription.
-	// S3 still constructs both so handlers can call EmitStub and exercise
-	// the WS round-trip end-to-end.
+	// subscribe to the agent's event bus via AttachSubscription below.
 	sessions := gateway.NewSessionManager()
 	ledger := gateway.NewEventLedger(log.Logger)
-	gs := gateway.NewServer(sessions, ledger, log.Logger)
+
+	// --- ACP loop (S4) ------------------------------------------------
+	// The loop wraps the Agent with prompt/abort plumbing. main.go wires
+	// Loop.CurrentMessageID into the Agent so every event the executor
+	// emits carries EventCommon.MessageID.
+	loop := acp.NewLoop(a)
+	a.AttachMessageIDSrc(loop.CurrentMessageID)
+	steer := acp.NewSteerControl(a)
+
+	handler := gateway.NewHandler(sessions, ledger, loop, steer)
+	gs := gateway.NewServer(handler, log.Logger)
 	if err := gs.Start(rootCtx); err != nil {
 		log.Error("gateway start failed", zap.Error(err))
 		os.Exit(1)
 	}
 
+	// --- EventLedger → agent bus subscription --------------------------
+	// After this point every event the executor emits is routed to WS
+	// subscribers of its EventCommon.SessionID.
+	sub := a.Subscribe(64)
+	ledger.AttachSubscription(sub)
+
 	log.Info("application started successfully", zap.Int("port", gs.Port()))
 
-	// Block until SIGINT/SIGTERM. The 3s budget covers the WS server
-	// Shutdown path; in practice the close is sub-100ms.
+	// Block until SIGINT/SIGTERM. The 3s budget covers the four-step
+	// shutdown below; in practice the close is sub-200ms without
+	// in-flight runs.
 	<-rootCtx.Done()
 	log.Info("shutdown signal received")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
+	// step 1: WS server refuses new connections and waits for in-flight
+	// requests to drain.
 	if err := gs.Shutdown(shutdownCtx); err != nil {
 		log.Error("gateway shutdown", zap.Error(err))
-	} else {
-		log.Info("graceful shutdown complete")
 	}
+
+	// step 2: cancel any in-flight Agent run via its cancelFn so the
+	// executor can emit its terminal TurnEnd + AgentEnd events.
+	if err := a.Abort(context.Background()); err != nil {
+		log.Error("agent abort", zap.Error(err))
+	}
+
+	// step 3: close the bus subscription channel so AttachSubscription's
+	// goroutine in the ledger exits cleanly.
+	sub.Unsubscribe()
+
+	// step 4: release the SQLite fd. Must come last so in-flight saves
+	// from steps 1–3 are not racing a closed pool.
+	if err := sqliteStore.Close(); err != nil {
+		log.Error("sqlite close", zap.Error(err))
+	}
+
+	log.Info("graceful shutdown complete")
 }
