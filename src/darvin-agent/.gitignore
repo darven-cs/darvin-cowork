@@ -3,6 +3,3 @@
 # sessions.db is the live store wired in S2.
 data.db
 sessions.db
-
-# Build artefacts produced by `node scripts/build-go.js`.
-bin/

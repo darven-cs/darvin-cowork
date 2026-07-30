@@ -98,5 +98,9 @@ out/
 go.work
 go.work.sum
 
+# Build artefacts produced by `node scripts/build-go.js`.
+bin/darvin-agent-*
+!bin/.gitkeep
+
 # Playwright CLI debug artifacts
 .playwright-cli/
