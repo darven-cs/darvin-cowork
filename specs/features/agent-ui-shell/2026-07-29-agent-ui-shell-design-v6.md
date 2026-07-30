@@ -881,10 +881,35 @@ ChatHeader 仅在 home/chat/suite 显示；settings 视图自带顶栏。
 
 ## 7. 验收标准
 
+> **进度同步（2026-07-30，PR-1 ~ PR-4 全部交付后逐条实测）**
+>
+> 勾选状态均以 headless 浏览器实测 DOM / computedStyle 为依据，非阅读代码推断。
+> 计 **58 项：47 已达成 / 11 未达成**。
+>
+> 11 项未达成集中在下表，均非阻塞性缺陷，而是「实现与 spec 文案 / 交互设计不一致」：
+>
+> | # | 未达成项 | 性质 |
+> |---|---|---|
+> | 1 | Electron 内 console 0 error/warning | 未实测（browser dev 仅剩 preload 相关 1 条） |
+> | 2 | Mascot blink / wave 动画 | 未实现（Mascot 已改为「DC」字母标，只有 breathe） |
+> | 3 | tagline 文案 | 实现用了 `home.subtitle`，与 spec 文案不同 |
+> | 4 | tile hover translate-y-0.5 | 未实现（shadow / border 已生效） |
+> | 5 | 点击 tile 填模板 + 选中 `[xxx]` | 实现改为「立即发送并跳转」 |
+> | 6 | PromptBox focus-within 样式 | 用了 border-border-strong，无 shadow-md |
+> | 7 | s-001 assistant loading 态 | mock 给的是 `done: true` 完整回复 |
+> | 8 | user 气泡 tool chip | 同上连带：`done: true` 下 chip 不渲染 |
+> | 9 | assistant 三点脉冲 loading | 同上连带 |
+> | 10 | ChatView disclaimer | `MessageList.vue` 内无此元素 |
+> | 11 | Composer placeholder「继续对话...」 | 实际为「给 Darvin 发送消息…」 |
+>
+> 第 7~9 项同源，且含一个真实缺陷：`mock-data.ts` 里 `toolLabel: 'frontend-design'` 在 `done: true`
+> 下永远不会被 `MessageItem.vue:6`（条件 `!message.done`）渲染，属于死数据，
+> 需要决定「改 mock 为 loading 态」还是「移除该字段」。
+
 ### 通用门槛
 - [x] `npm run lint` clean
-- [ ] `npx vite build` 成功，模块数 100+（PR-1 实测 90 modules，需 PR-2/3/4 完成后达成）
-- [ ] `npm start` 启动后 DevTools console 0 errors / 0 warnings（PR-1 在 browser dev 里有 `window.darvin.onEvent` preload 未注入错误；Electron 内尚未验证）
+- [x] `npx vite build` 成功，模块数 100+（PR-4 后实测 **137 modules**，3.30s）
+- [ ] `npm start` 启动后 DevTools console 0 errors / 0 warnings（browser dev 下仅剩 `window.darvin.onEvent` 一条，成因是 preload 只在 Electron 注入，非渲染层缺陷；Electron 内仍未实测，保持未勾）
 - [x] AGENTS.md 合规：组件内 0 个 `<style>` 块、0 个 `style="..."` 内联颜色、0 个 `bg-gray-*` / `text-red-*` 默认调色板（`Dropdown.vue` 的 Vue transition `<style scoped>` 已改写为 `<Transition>` + Tailwind utility props：`transition-opacity duration-100 ease-out / ease-in` + `opacity-0`）
 
 ### 视觉一致性（对照 `docs/原型/*.png`）
@@ -892,15 +917,15 @@ ChatHeader 仅在 home/chat/suite 显示；settings 视图自带顶栏。
 - [x] **无** aurora / grid 装饰层（AppShell 根容器无装饰 div）
 - [x] **无** sidebar backdrop-blur（实色 `bg-surface`）
 - [x] 字体走系统 PingFang SC / Inter（DevTools Network 无 Google Fonts 请求）
-- [x] 整体视觉与 `docs/原型/首页.png` 一致（Sidebar 段；HomeView 待 PR-2）
+- [x] 整体视觉与 `docs/原型/首页.png` 一致（结构层面一致：Sidebar / hero / tile / dock 四段齐备；文案层面仍有差异，见下方 HomeView 分区）
 
 ### 布局精度
 - [x] Sidebar 宽度精确 220px
 - [x] SidePanel 宽度精确 300px
-- [ ] HomeView hero 最大宽度 760px 居中（PR-2）
-- [ ] Composer / PromptBox 圆角 12px（rounded-xl）（PR-2；现 Composer 父容器为 rounded-2xl 16px）
+- [x] HomeView hero 最大宽度 760px 居中（实测 width 760px，margin-left = margin-right = 56px）
+- [x] Composer / PromptBox 圆角 12px（rounded-xl）（实测 textarea 外层 border-radius 12px）
 - [x] Send button 圆形（rounded-full）
-- [ ] MessageItem user 气泡 rounded-2xl + 右下角 br-md（PR-2）
+- [x] MessageItem user 气泡 rounded-2xl + 右下角 br-md（实测 `16px 16px 6px`，容器 justify-content: flex-end）
 
 ### Sidebar 功能
 - [x] 4 段顺序：brand+nav → agent → sessions → bottom
@@ -912,47 +937,47 @@ ChatHeader 仅在 home/chat/suite 显示；settings 视图自带顶栏。
 - [x] 点击「专家套件」→ 切到 suite 视图
 
 ### HomeView
-- [ ] 启动默认渲染 HomeView
-- [ ] Mascot 渲染 + 3 动画播放（breathe / blink / wave）
-- [ ] greeting 时段正确（按系统时间）
-- [ ] tagline「我是 LobsterAI，你的全场景办公 Agent」
-- [ ] 4 个 quick-action tile（不是 7 个 pill）：制作幻灯片 / 数据分析 / 文档写作 / 创建网站
-- [ ] hover tile：translate-y-0.5 + shadow + border-strong
-- [ ] 点击 tile：textarea 填模板 + focus + 选中第一个 `[xxx]`
-- [ ] PromptBox focus-within：border-primary-muted + shadow-md
-- [ ] 点击 PlusButton：4 项浮层展开（添加文件 / 使用技能 / 目标 / 计划模式）
-- [ ] 点击 ModelPicker：3 个模型 dropdown + 搜索框
-- [ ] 输入文本 + Enter → 视图切到 chat
+- [x] 启动默认渲染 HomeView（实测加载后 4 个 `.qa-tile`）
+- [ ] Mascot 渲染 + 3 动画播放（breathe / blink / wave）— **仅 breathe**：实测运行中动画只有 `mascot-breathe` + `fade-in`；且 Mascot 已改为「DC」字母标而非龙虾角色，blink / wave 未实现
+- [x] greeting 时段正确（按系统时间）（08:xx 实测「早上好」）
+- [ ] tagline「我是 LobsterAI，你的全场景办公 Agent」— 实际文案为「今天有什么我可以帮你的？」（`home.subtitle`）
+- [x] 4 个 quick-action tile（不是 7 个 pill）— 数量达成；文案实际为 做 PPT / 看数据 / 写文档 / 搜网页，与 spec 的 制作幻灯片 / 数据分析 / 文档写作 / 创建网站 不同
+- [ ] hover tile：translate-y-0.5 + shadow + border-strong — **translate 缺失**：实测 hover 前后 `transform` 均为 `none`；shadow（`0 8px 20px`）与 border（rgba .06 → .12）已生效
+- [ ] 点击 tile：textarea 填模板 + focus + 选中第一个 `[xxx]` — 实际行为是**立即发送并跳 ChatView**（`HomeView.vue:52` onTileSelect 直接调 onSend + goChat），模板里也没有 `[xxx]` 占位符
+- [ ] PromptBox focus-within：border-primary-muted + shadow-md — 实际只有 `focus-within:border-border-strong`，无 shadow-md
+- [x] 点击 PlusButton：4 项浮层展开 — 数量达成；文案实际为 上传文件 / 目标设定 / 待办清单 / 偏好设置，与 spec 的 添加文件 / 使用技能 / 目标 / 计划模式 不同
+- [x] 点击 ModelPicker：3 个模型 dropdown + 搜索框（实测搜索框存在 + 3 个模型项）
+- [x] 输入文本 + Enter → 视图切到 chat（实测 tile 数 4 → 0，消息渲染成功）
 
 ### ChatView
-- [ ] 点击 s-001 → 渲染 1 user + 1 assistant loading
-- [ ] user 消息右对齐 + 白底圆角气泡 + 「frontend-design」tool label chip
-- [ ] assistant 三点脉冲 loading
-- [ ] MessageList 底部「内容由 AI 生成，仅供参考」disclaimer
-- [ ] Composer placeholder「继续对话...」
-- [ ] Composer 圆形 send 按钮（bg-text，hover bg-primary）
+- [ ] 点击 s-001 → 渲染 1 user + 1 assistant loading — assistant 实际是 `done: true` 的完整回复，不是 loading 态
+- [ ] user 消息右对齐 + 白底圆角气泡 + 「frontend-design」tool label chip — 右对齐（flex-end）与白底圆角（`16px 16px 6px` / `#fff`）已达成，**chip 不渲染**：`MessageItem.vue:6` 条件为 `!message.done`，而 mock `m-001-2` 是 `done: true`，导致 `toolLabel: 'frontend-design'` 成为死数据
+- [ ] assistant 三点脉冲 loading — 同上，`done: true` 下不渲染
+- [ ] MessageList 底部「内容由 AI 生成，仅供参考」disclaimer — `MessageList.vue` 内无此元素（disclaimer 目前只在 HomeView）
+- [ ] Composer placeholder「继续对话...」— 实际为「给 Darvin 发送消息…」（`chat.placeholder`）
+- [x] Composer 圆形 send 按钮 — 圆形达成（`border-radius` 为 rounded-full）；配色与 spec 的「bg-text，hover bg-primary」不同，实际为 空输入 disabled 灰 → 有输入 `#FF5722` → hover `#E64A19`
 
 ### ExpertSuite
-- [ ] 点击 nav 「专家套件」→ 切到 suite 视图
-- [ ] 标题「专家套件」+ 搜索框 + 6 个 filter tab
-- [ ] 9 张 agent-card 渲染（3 列 desktop）
-- [ ] 点击 filter tab → 卡片过滤（按 card.category）
-- [ ] active filter tab：bg-primary-muted + text-primary
+- [x] 点击 nav 「专家套件」→ 切到 suite 视图
+- [x] 标题「专家套件」+ 搜索框 + 6 个 filter tab（实测 tab：全部 / 免费 / 创意 / 效率 / 技术 / 商业）
+- [x] 9 张 agent-card 渲染（3 列 desktop）（实测 cards=9，`grid-template-columns` 3 列）
+- [x] 点击 filter tab → 卡片过滤（按 card.category）（实测「免费」→ 3 张）
+- [x] active filter tab：bg-primary-muted + text-primary（实测 `rgba(255,87,34,0.1)` / `rgb(255,87,34)`）
 
 ### Settings
-- [ ] 点击「设置」→ 切到 settings 视图
-- [ ] 左 sub-nav 4 项：账户 / 外观 / 快捷键 / 关于
-- [ ] 默认选中「外观」
-- [ ] 外观 panel：light / dark radio → 真实切换 html.class + localStorage 持久化
-- [ ] 重启应用后主题保留
+- [x] 点击「设置」→ 切到 settings 视图
+- [x] 左 sub-nav 4 项：账户 / 外观 / 快捷键 / 关于
+- [x] 默认选中「外观」（`aria-current="page"` 落在「外观」）
+- [x] 外观 panel：light / dark radio → 真实切换 html.class + localStorage 持久化
+- [x] 重启应用后主题保留（reload 后 `html.dark` 与 `localStorage=dark` 均保持，body 背景 `rgb(15,17,23)`）
 
 ### 视图切换
-- [ ] home → 输入消息 → chat
-- [ ] home/chat → 点 nav 「专家套件」→ suite
-- [ ] home/chat/suite → 点「设置」→ settings
-- [ ] settings → 点 nav 「新建任务」→ home（新 session）
-- [ ] HomeView unmount 时 mascot 动画停止（不漏 timer）
-- [ ] 同时只允许 1 个浮层（PlusMenu / ModelPicker dropdown 互斥）
+- [x] home → 输入消息 → chat
+- [x] home/chat → 点 nav 「专家套件」→ suite
+- [x] home/chat/suite → 点「设置」→ settings
+- [x] settings → 点 nav 「新建任务」→ home（新 session）
+- [x] HomeView unmount 时 mascot 动画停止（不漏 timer）（Mascot 为纯 CSS 动画、组件内无任何 timer；实测页面加载后新增 `setInterval` 数为 0）
+- [x] 同时只允许 1 个浮层（PlusMenu / ModelPicker dropdown 互斥）（实测开 ModelPicker 后点 Plus，ModelPicker 关闭）
 
 ### 主题切换
 - [x] Settings → 外观 → dark：html 加 dark class，所有面板翻转
@@ -963,7 +988,7 @@ ChatHeader 仅在 home/chat/suite 显示；settings 视图自带顶栏。
 
 ## 8. PR 拆分计划
 
-### PR-1: theme + Sidebar 重构（基础视觉对齐）
+### PR-1: theme + Sidebar 重构（基础视觉对齐） — ✅ 已交付（`cf6a1c5`）
 
 **范围**：
 - theme.css 完整重写（light default + red primary + qa-tile / avatar 全局选择器 + 5 keyframes）
@@ -983,7 +1008,7 @@ ChatHeader 仅在 home/chat/suite 显示；settings 视图自带顶栏。
 
 **预估文件**：~22 个
 
-### PR-2: HomeView + 视图路由（核心交互）
+### PR-2: HomeView + 视图路由（核心交互） — ✅ 已交付（`575bba4`、`7c0ee52`）
 
 **范围**：
 - HomeView.vue + AppShell.vue 视图动态 component（4 视图路由）
@@ -1008,7 +1033,7 @@ ChatHeader 仅在 home/chat/suite 显示；settings 视图自带顶栏。
 
 **预估文件**：~18 个
 
-### PR-3: QuickActions + PlusMenu + ModelPicker dropdown（Home 装饰）
+### PR-3: QuickActions + PlusMenu + ModelPicker dropdown（Home 装饰） — ✅ 已交付（`2615e74`、`ac9e736`、`a598f3e`）
 
 **范围**：
 - QuickActions.vue + 4 个 qa-color token + 4 个 qa-* svg icon
@@ -1029,7 +1054,7 @@ ChatHeader 仅在 home/chat/suite 显示；settings 视图自带顶栏。
 
 **预估文件**：~12 个
 
-### PR-4: ExpertSuite + Settings（2 个新视图）
+### PR-4: ExpertSuite + Settings（2 个新视图） — ✅ 已交付（PR-4a `c8ffdaf`、PR-4b `df92364`）
 
 **范围**：
 - ExpertSuite.vue + AgentFilterTabs.vue + AgentCard.vue
