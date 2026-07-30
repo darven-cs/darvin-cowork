@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agent/event"
+	"darvin-cowork/backend/internal/agent/llm"
 )
 
 // EventLedger is the bridge between the agent's event bus and WS clients.
@@ -159,10 +160,23 @@ func mapEventToTS(ev event.Event, _ string) any {
 			"messageId": ev.Common().MessageID,
 		}
 	case event.LLMEndEvent:
-		return map[string]any{
+		out := map[string]any{
 			"type":      "done",
 			"messageId": ev.Common().MessageID,
 		}
+		// Surface Usage as an optional `usage` block. Token accounting is
+		// the renderer's hook for displaying cost / progress; the field is
+		// omitted (rather than zero-valued) so consumers that don't care
+		// can ignore it and zero-usage turns don't carry a misleading
+		// `{totalTokens: 0}` payload.
+		if e.Usage != (llm.Usage{}) {
+			out["usage"] = map[string]any{
+				"inputTokens":  e.Usage.PromptTokens,
+				"outputTokens": e.Usage.CompletionTokens,
+				"totalTokens":  e.Usage.TotalTokens,
+			}
+		}
+		return out
 	case event.AgentEndEvent:
 		return map[string]any{
 			"type": ev.EventName(),

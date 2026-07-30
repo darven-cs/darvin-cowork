@@ -96,6 +96,7 @@ func main() {
 	log.Info("database migrated")
 
 	sqliteStore := store.NewSQLiteStore(database.Get())
+	msgStore := store.NewSQLiteMessageStore(database.Get())
 
 	// --- Agent wiring (M7: config + cmd sync) -------------------------
 	// Build the LLM provider from cfg.LLM. The provider name must match
@@ -137,6 +138,7 @@ func main() {
 		Provider:         provider,
 		Session:          session.NewSession("default"),
 		Store:            sqliteStore,
+		MessageStore:     msgStore,
 		Logger:           log.Logger, // *logger.Logger embeds *zap.Logger; dereference for agent.NewAgentConfig.Logger (*zap.Logger).
 		Config:           agentCfg,
 		AssemblerEnabled: cfg.Agent.AssemblerEnabled,
@@ -165,7 +167,7 @@ func main() {
 	a.AttachMessageIDSrc(loop.CurrentMessageID)
 	steer := acp.NewSteerControl(a)
 
-	handler := gateway.NewHandler(sessions, ledger, loop, steer)
+	handler := gateway.NewHandler(sessions, ledger, loop, steer, sqliteStore, msgStore)
 	gs := gateway.NewServer(handler, log.Logger)
 	if err := gs.Start(rootCtx); err != nil {
 		log.Error("gateway start failed", zap.Error(err))

@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agent/event"
+	"darvin-cowork/backend/internal/agent/llm"
 )
 
 func TestSubscribeAndUnsubscribeAll(t *testing.T) {
@@ -122,6 +123,45 @@ func TestMapEventToTSCarriesMessageID(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMapEventToTSDoneUsage pins down FR-4: when an LLMEndEvent carries
+// non-zero Usage, the resulting `done` notification gains a `usage`
+// block. When Usage is zero, the block is omitted (no
+// `{totalTokens: 0}` noise on every smoke-test turn).
+func TestMapEventToTSDoneUsage(t *testing.T) {
+	ec := event.EventBase{EventCommon: event.EventCommon{SessionID: "s1", MessageID: "m1"}}
+
+	t.Run("zero usage omits block", func(t *testing.T) {
+		got := mapEventToTS(event.LLMEndEvent{EventBase: ec}, "s1").(map[string]any)
+		if _, present := got["usage"]; present {
+			t.Errorf("usage block present for zero Usage; got %+v", got)
+		}
+	})
+
+	t.Run("non-zero usage emits block", func(t *testing.T) {
+		got := mapEventToTS(event.LLMEndEvent{
+			EventBase: ec,
+			Usage: llm.Usage{
+				PromptTokens:     12,
+				CompletionTokens: 34,
+				TotalTokens:      46,
+			},
+		}, "s1").(map[string]any)
+		u, ok := got["usage"].(map[string]any)
+		if !ok {
+			t.Fatalf("usage not a map; got %T (%+v)", got["usage"], got)
+		}
+		if u["inputTokens"] != 12 {
+			t.Errorf("inputTokens = %v, want 12", u["inputTokens"])
+		}
+		if u["outputTokens"] != 34 {
+			t.Errorf("outputTokens = %v, want 34", u["outputTokens"])
+		}
+		if u["totalTokens"] != 46 {
+			t.Errorf("totalTokens = %v, want 46", u["totalTokens"])
+		}
+	})
 }
 
 // TestEmitStubDeliversNotifications pairs a real WebSocket server with a

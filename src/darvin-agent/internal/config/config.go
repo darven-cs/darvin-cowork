@@ -1,6 +1,11 @@
 package config
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/spf13/viper"
 )
 
@@ -99,14 +104,59 @@ type AgentConfig struct {
 
 var globalConfig *Config
 
+// UserConfigPath returns the OS-aware user-level config path. The
+// directory may not exist yet — Load creates it lazily so a fresh
+// install without an `api_key` written by the Settings UI still works.
+//
+// Linux:   $XDG_CONFIG_HOME/darvin-cowork/config.yaml
+//          or ~/.config/darvin-cowork/config.yaml
+// macOS:   ~/Library/Application Support/darvin-cowork/config.yaml
+// Windows: %APPDATA%\darvin-cowork\config.yaml
+func UserConfigPath() (string, error) {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "darvin-cowork", "config.yaml"), nil
+}
+
+// Load reads the bundled config first, then merges any user-level
+// overlay on top (spec FR-1.2 / FR-5.3). The order is critical: the
+// overlay must win so the Settings UI can override a placeholder
+// bundled api_key without editing the source tree.
+//
+// LLM_API_KEY from the environment always wins last — viper's
+// AutomaticEnv binds it to the `llm.api_key` mapstructure key.
 func Load(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
 	viper.SetConfigType("yaml")
-
 	viper.AutomaticEnv()
+	// BindEnv is what makes Unmarshal honour env vars: AutomaticEnv alone
+	// only intercepts viper.Get calls, not the recursive walk that
+	// Unmarshal performs. BindEnv("llm.api_key", "LLM_API_KEY") maps the
+	// exact leaf to the env var name (with SetEnvKeyReplacer handling
+	// the standard `.`→`_` rule for any future leaf).
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	if err := viper.BindEnv("llm.api_key", "LLM_API_KEY"); err != nil {
+		return nil, fmt.Errorf("bind LLM_API_KEY: %w", err)
+	}
 
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, err
+	}
+
+	if userPath, err := UserConfigPath(); err == nil {
+		if _, statErr := os.Stat(userPath); statErr == nil {
+			viper.SetConfigFile(userPath)
+			if err := viper.MergeInConfig(); err != nil {
+				return nil, fmt.Errorf("merge user config %s: %w", userPath, err)
+			}
+		}
+	} else {
+		// os.UserConfigDir failure is non-fatal; log via stderr so a
+		// user without HOME on a minimal Linux still gets the bundled
+		// config without a hard failure.
+		fmt.Fprintf(os.Stderr, "config: user config dir unavailable: %v\n", err)
 	}
 
 	var cfg Config
@@ -123,4 +173,32 @@ func Get() *Config {
 		panic("config not initialized, call Load first")
 	}
 	return globalConfig
+}
+
+// WriteUserConfig serialises llm.api_key + llm.provider + llm.base_url
+// to the user-level config path, creating the parent directory if
+// missing. Called from the Settings UI flow when the user saves an
+// LLM provider config (spec FR-5.2). The renderer / Electron side
+// writes the file directly through its own yaml helper; this Go
+// helper exists so the round-trip is exercised by Go-level tests.
+//
+// Errors fall through verbatim; the caller decides whether to surface
+// them to the user.
+func WriteUserConfig(apiKey, provider, baseURL string) error {
+	path, err := UserConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	// Hand-rolled YAML keeps the helper independent of viper (viper is
+	// already loaded with the bundled config; reuse would clobber
+	// globals). The schema is the only shape WriteUserConfig writes —
+	// anything else stays in the bundled config.
+	body := fmt.Sprintf(
+		"llm:\n  provider: %q\n  api_key: %q\n  base_url: %q\n",
+		provider, apiKey, baseURL,
+	)
+	return os.WriteFile(path, []byte(body), 0o600)
 }

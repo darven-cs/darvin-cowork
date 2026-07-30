@@ -2,11 +2,16 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"time"
+
+	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/llm"
 	"darvin-cowork/backend/internal/agent/queue"
+	"darvin-cowork/backend/internal/agent/store"
 )
 
 // Prompt enqueues content for immediate processing. Returns ErrAgentBusy
@@ -113,9 +118,29 @@ func (a *Agent) Run(ctx context.Context) error {
 			Mode:    event.Mode(mode),
 		})
 		a.session.Append(llm.Message{Role: llm.RoleUser, Content: msg.Content})
+		// Hook 1 of 3: persist the user message before the LLM call so a
+		// crash mid-Run still leaves the question in sessions.db.
+		a.persistUserMessage(runCtx, runMsgID, msg.Content)
 
 		turnsBefore := a.session.Len()
-		if err := a.exec.RunConversation(runCtx, a); err != nil {
+		// Hooks 2 and 3 must fire on every iteration — even when
+		// RunConversation errors — so the session row reflects the
+		// activity (list_sessions surfaces the session as
+		// recently-touched). RunEndEvent is emitted only on success;
+		// the error path emits AgentErrorEvent and returns without
+		// RunEndEvent so the renderer can paint an explicit error
+		// bubble instead of a "done" state.
+		err := a.exec.RunConversation(runCtx, a)
+		turnsThisRun := a.approxTurns(turnsBefore)
+		totalTurns += turnsThisRun
+		// Hook 2 of 3: persist the assistant messages RunConversation
+		// produced. Persist all rows appended since turnsBefore so a
+		// multi-turn (tool_calls loop) replays fully on next launch.
+		a.persistAssistantMessages(runCtx, runMsgID, turnsBefore)
+		// Hook 3 of 3: refresh session metadata so list_sessions reflects
+		// the new updated_at.
+		a.persistSession(runCtx)
+		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				a.bus.Emit(event.AgentErrorEvent{
 					EventBase: event.EventBase{EventCommon: event.EventCommon{
@@ -135,10 +160,6 @@ func (a *Agent) Run(ctx context.Context) error {
 			})
 			return err
 		}
-		// approximate turn count from messages: each turn adds at least one
-		// assistant message. We compare session length before / after.
-		turnsThisRun := a.approxTurns(turnsBefore)
-		totalTurns += turnsThisRun
 		a.bus.Emit(event.RunEndEvent{
 			EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: a.session.ID}},
 			Turns:     turnsThisRun,
@@ -148,6 +169,94 @@ func (a *Agent) Run(ctx context.Context) error {
 		if a.queue.Len() == 0 {
 			return nil
 		}
+	}
+}
+
+// persistUserMessage is hook 1 of 3 (spec FR-2.2). It records the
+// just-appended user prompt to the messages table so a crash mid-Run
+// still leaves the question on disk. No-op when MessageStore is nil
+// (the unit-test / fast-path default) or when the message lacks a
+// messageID (RunContext hasn't bound one yet — should not happen on the
+// dispatch path because Run always snapshots CurrentMessageID before
+// calling here).
+func (a *Agent) persistUserMessage(ctx context.Context, msgID, content string) {
+	if a.msgStore == nil || msgID == "" {
+		return
+	}
+	rec := &store.MessageRecord{
+		ID:        msgID,
+		SessionID: a.session.ID,
+		Role:      string(llm.RoleUser),
+		Content:   content,
+		Timestamp: time.Now().UnixMilli(),
+	}
+	if err := a.msgStore.Save(ctx, rec); err != nil {
+		a.logger.Warn("persist user message failed",
+			zap.String("message_id", msgID),
+			zap.String("session_id", a.session.ID),
+			zap.Error(err))
+	}
+}
+
+// persistAssistantMessages is hook 2 of 3. It walks every message
+// appended since `beforeLen` and writes the assistant ones to disk.
+// Each assistant row is keyed by the run's messageID (the dispatcher
+// does not yet mint per-message ids — S6 follows the same single-id-per-
+// turn shape the renderer's `done` notification already consumes).
+// ToolCalls are JSON-encoded into the ToolCalls column.
+func (a *Agent) persistAssistantMessages(ctx context.Context, msgID string, beforeLen int) {
+	if a.msgStore == nil || msgID == "" {
+		return
+	}
+	msgs := a.session.Messages()
+	if beforeLen >= len(msgs) {
+		return
+	}
+	now := time.Now().UnixMilli()
+	for i := beforeLen; i < len(msgs); i++ {
+		m := msgs[i]
+		if m.Role != llm.RoleAssistant {
+			continue
+		}
+		var toolCallsJSON string
+		if len(m.ToolCalls) > 0 {
+			b, err := json.Marshal(m.ToolCalls)
+			if err != nil {
+				a.logger.Warn("marshal tool_calls failed",
+					zap.String("message_id", msgID), zap.Error(err))
+				continue
+			}
+			toolCallsJSON = string(b)
+		}
+		rec := &store.MessageRecord{
+			ID:        msgID,
+			SessionID: a.session.ID,
+			Role:      string(llm.RoleAssistant),
+			Content:   m.Content,
+			ToolCalls: toolCallsJSON,
+			Timestamp: now,
+		}
+		if err := a.msgStore.Save(ctx, rec); err != nil {
+			a.logger.Warn("persist assistant message failed",
+				zap.String("message_id", msgID),
+				zap.Int("index", i),
+				zap.Error(err))
+		}
+	}
+}
+
+// persistSession is hook 3 of 3. It saves the session row so
+// list_sessions (FR-3) sees the new updated_at. Errors are logged and
+// swallowed so a transient DB lock doesn't abort an otherwise successful
+// Run — the in-memory session is the source of truth for the live agent.
+func (a *Agent) persistSession(ctx context.Context) {
+	if a.store == nil {
+		return
+	}
+	if err := a.store.Save(ctx, a.session); err != nil {
+		a.logger.Warn("persist session failed",
+			zap.String("session_id", a.session.ID),
+			zap.Error(err))
 	}
 }
 

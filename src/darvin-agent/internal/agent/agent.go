@@ -70,6 +70,11 @@ type NewAgentConfig struct {
 	Provider     llm.ModelProvider
 	Session      *session.Session
 	Store        store.SessionStore
+	// MessageStore is optional. When nil, dispatcher.go skips persistence
+	// at every hook point (user message append, assistant accumulation,
+	// session metadata save). main.go wires the same SQLiteMessageStore
+	// it uses for sessions so a single *gorm.DB powers both.
+	MessageStore store.MessageStore
 	Logger       *zap.Logger
 	Config       Config
 	// Executor is optional. If nil, executor.New() is used.
@@ -98,6 +103,7 @@ type Agent struct {
 	provider     llm.ModelProvider
 	session      *session.Session
 	store        store.SessionStore
+	msgStore     store.MessageStore
 	logger       *zap.Logger
 	cfg          Config
 	tools        *tool.Registry
@@ -187,6 +193,7 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		provider:     cfg.Provider,
 		session:      cfg.Session,
 		store:        cfg.Store,
+		msgStore:     cfg.MessageStore,
 		logger:       cfg.Logger,
 		cfg:          cfg.Config,
 		tools:        cfg.Tools,

@@ -4,16 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"testing"
 
+	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"darvin-cowork/backend/internal/acp"
 	"darvin-cowork/backend/internal/agent"
 	"darvin-cowork/backend/internal/agent/llm"
 	"darvin-cowork/backend/internal/agent/session"
+	"darvin-cowork/backend/internal/agent/store"
 )
 
 // newTestHandler wires a real Agent + acp.Loop + acp.SteerControl on top
@@ -37,7 +41,7 @@ func newTestHandler(t *testing.T) (*Handler, *client) {
 	sessions := NewSessionManager()
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
-	handler := NewHandler(sessions, ledger, loop, steer)
+	handler := NewHandler(sessions, ledger, loop, steer, nil, nil)
 	client := &client{
 		sessions: sessions,
 		ledger:   ledger,
@@ -48,6 +52,48 @@ func newTestHandler(t *testing.T) (*Handler, *client) {
 }
 
 var idRe21 = regexp.MustCompile(`^[A-Za-z0-9]{21}$`)
+
+// newTestHandlerWithStores builds the same wiring as newTestHandler but
+// additionally plumbs in a real SQLite SessionStore + MessageStore so the
+// list_sessions / get_messages handlers can be exercised end-to-end.
+func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionStore, store.MessageStore) {
+	t.Helper()
+	prov := &blockingProvider{}
+	sess := session.NewSession(DefaultSessionID)
+	a, err := agent.New(agent.NewAgentConfig{
+		Session:  sess,
+		Provider: prov,
+	})
+	if err != nil {
+		t.Fatalf("agent.New: %v", err)
+	}
+	loop := acp.NewLoop(a)
+	a.AttachMessageIDSrc(loop.CurrentMessageID)
+	steer := acp.NewSteerControl(a)
+	sessions := NewSessionManager()
+	ledger := NewEventLedger(zap.NewNop())
+	ledger.fakeDelay = 0
+
+	dsn := filepath.Join(t.TempDir(), "sessions.db")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("gorm.Open: %v", err)
+	}
+	if err := db.AutoMigrate(&store.Session{}, &store.Message{}, &store.CompactionCheckpoint{}, &store.SkillSnapshot{}); err != nil {
+		t.Fatalf("AutoMigrate: %v", err)
+	}
+	sessStore := store.NewSQLiteStore(db)
+	msgStore := store.NewSQLiteMessageStore(db)
+
+	handler := NewHandler(sessions, ledger, loop, steer, sessStore, msgStore)
+	client := &client{
+		sessions: sessions,
+		ledger:   ledger,
+		handler:  handler,
+		log:      zap.NewNop(),
+	}
+	return handler, client, sessStore, msgStore
+}
 
 func TestDispatchPrompt(t *testing.T) {
 	_, c := newTestHandler(t)
@@ -238,6 +284,163 @@ func TestDispatchSteer(t *testing.T) {
 	res, _ := resp.Result.(SteerResult)
 	if !res.Steered {
 		t.Fatalf("expected steered=true, got %+v", res)
+	}
+}
+
+// TestDispatchListSessionsEmpty verifies list_sessions returns an empty
+// list (not nil, not an error) when the store is fresh.
+func TestDispatchListSessionsEmpty(t *testing.T) {
+	_, c, _, _ := newTestHandlerWithStores(t)
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.list_sessions",
+	}, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res, _ := resp.Result.(ListSessionsResult)
+	if res.Sessions == nil {
+		t.Error("Sessions is nil; want empty slice for stable JSON shape")
+	}
+	if len(res.Sessions) != 0 {
+		t.Errorf("len(Sessions) = %d, want 0", len(res.Sessions))
+	}
+}
+
+// TestDispatchListSessionsSeeded saves two sessions through the store
+// and confirms list_sessions surfaces both, with updatedAt preserved.
+func TestDispatchListSessionsSeeded(t *testing.T) {
+	_, c, sessStore, _ := newTestHandlerWithStores(t)
+	ctx := context.Background()
+	a := session.NewSession("a")
+	b := session.NewSession("b")
+	if err := sessStore.Save(ctx, a); err != nil {
+		t.Fatalf("Save a: %v", err)
+	}
+	if err := sessStore.Save(ctx, b); err != nil {
+		t.Fatalf("Save b: %v", err)
+	}
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.list_sessions",
+	}, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res, _ := resp.Result.(ListSessionsResult)
+	if len(res.Sessions) != 2 {
+		t.Fatalf("len = %d, want 2", len(res.Sessions))
+	}
+	got := map[string]bool{}
+	for _, s := range res.Sessions {
+		got[s.ID] = true
+		if s.UpdatedAt == 0 {
+			t.Errorf("session %s has zero UpdatedAt", s.ID)
+		}
+	}
+	if !got["a"] || !got["b"] {
+		t.Errorf("missing session(s); got %v", got)
+	}
+}
+
+// TestDispatchGetMessagesEmpty returns an empty list for a session with
+// no messages (no error).
+func TestDispatchGetMessagesEmpty(t *testing.T) {
+	_, c, _, _ := newTestHandlerWithStores(t)
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.get_messages",
+		Params: json.RawMessage(`{"sessionId":"any"}`),
+	}, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res, _ := resp.Result.(GetMessagesResult)
+	if res.Messages == nil {
+		t.Error("Messages is nil; want empty slice for stable JSON shape")
+	}
+	if len(res.Messages) != 0 {
+		t.Errorf("len(Messages) = %d, want 0", len(res.Messages))
+	}
+}
+
+// TestDispatchGetMessagesSeeded writes two messages via the store and
+// confirms get_messages replays them in timestamp order.
+func TestDispatchGetMessagesSeeded(t *testing.T) {
+	_, c, _, msgStore := newTestHandlerWithStores(t)
+	ctx := context.Background()
+	if err := msgStore.Save(ctx, &store.MessageRecord{
+		ID: "m1", SessionID: "s1", Role: "user", Content: "hi", Timestamp: 1000,
+	}); err != nil {
+		t.Fatalf("Save m1: %v", err)
+	}
+	if err := msgStore.Save(ctx, &store.MessageRecord{
+		ID: "m2", SessionID: "s1", Role: "assistant", Content: "hello", Timestamp: 1100,
+	}); err != nil {
+		t.Fatalf("Save m2: %v", err)
+	}
+
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.get_messages",
+		Params: json.RawMessage(`{"sessionId":"s1"}`),
+	}, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res, _ := resp.Result.(GetMessagesResult)
+	if len(res.Messages) != 2 {
+		t.Fatalf("len = %d, want 2", len(res.Messages))
+	}
+	if res.Messages[0].ID != "m1" || res.Messages[1].ID != "m2" {
+		t.Errorf("order = [%s, %s], want [m1, m2]",
+			res.Messages[0].ID, res.Messages[1].ID)
+	}
+	if !res.Messages[0].Done || !res.Messages[1].Done {
+		t.Error("persisted messages must report Done=true")
+	}
+	if res.Messages[0].Role != "user" || res.Messages[1].Role != "assistant" {
+		t.Errorf("role mapping wrong: %+v", res.Messages)
+	}
+	if res.Messages[0].CreatedAt != 1000 {
+		t.Errorf("createdAt = %d, want 1000", res.Messages[0].CreatedAt)
+	}
+}
+
+// TestDispatchGetMessagesRequiresSessionID covers the input validation.
+func TestDispatchGetMessagesRequiresSessionID(t *testing.T) {
+	_, c, _, _ := newTestHandlerWithStores(t)
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.get_messages",
+		Params: json.RawMessage(`{}`),
+	}, c, c.handler)
+	if resp.Error == nil || resp.Error.Code != CodeInvalidParams {
+		t.Fatalf("expected invalid params, got %+v", resp)
+	}
+}
+
+// TestDispatchListGetMessagesNilStores covers the graceful-degradation
+// path: a Handler with nil stores still answers list_sessions and
+// get_messages with empty slices instead of panicking. This matches
+// the unit-test fast path (no DB) and is what keeps the dispatch
+// layer safe even if main.go forgets to wire a store.
+func TestDispatchListGetMessagesNilStores(t *testing.T) {
+	_, c := newTestHandler(t)
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.list_sessions",
+	}, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("list_sessions: %+v", resp.Error)
+	}
+	if res, _ := resp.Result.(ListSessionsResult); res.Sessions == nil {
+		t.Error("Sessions nil with nil store")
+	}
+
+	resp = dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.get_messages",
+		Params: json.RawMessage(`{"sessionId":"x"}`),
+	}, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("get_messages: %+v", resp.Error)
+	}
+	if res, _ := resp.Result.(GetMessagesResult); res.Messages == nil {
+		t.Error("Messages nil with nil store")
 	}
 }
 

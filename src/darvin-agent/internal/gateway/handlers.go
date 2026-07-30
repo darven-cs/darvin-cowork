@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"darvin-cowork/backend/internal/acp"
+	"darvin-cowork/backend/internal/agent/store"
 )
 
 // PromptParams is the JSON-RPC params for agent.prompt. sessionId is
@@ -57,20 +58,79 @@ type SteerResult struct {
 	Steered bool `json:"steered"`
 }
 
+// ListSessionsResult is the JSON-RPC result for agent.list_sessions.
+// Matches DarvinListSessionsResponse in src/shared/darvin-api.ts:
+// `sessions: [{id, title, updatedAt}]`.
+type ListSessionsResult struct {
+	Sessions []SessionSummary `json:"sessions"`
+}
+
+// SessionSummary is the wire-shape the renderer consumes. Title is
+// generated client-side from the first user message when empty.
+type SessionSummary struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	UpdatedAt int64  `json:"updatedAt"`
+}
+
+// GetMessagesParams is the JSON-RPC params for agent.get_messages.
+// sessionId selects which conversation to replay.
+type GetMessagesParams struct {
+	SessionID string `json:"sessionId"`
+	Limit     int    `json:"limit,omitempty"`
+	Offset    int    `json:"offset,omitempty"`
+}
+
+// GetMessagesResult is the JSON-RPC result for agent.get_messages.
+// Matches DarvinGetMessagesResponse in src/shared/darvin-api.ts.
+type GetMessagesResult struct {
+	Messages []MessageSummary `json:"messages"`
+}
+
+// MessageSummary is one persisted turn replayed to the renderer. CreatedAt
+// is unix milliseconds; Done is always true for rows loaded from disk
+// (the live stream keeps updating in-memory state for the active turn).
+type MessageSummary struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionId"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	Done      bool   `json:"done"`
+	CreatedAt int64  `json:"createdAt"`
+	ToolCalls string `json:"toolCalls,omitempty"`
+}
+
 // Handler bundles the shared dependencies the JSON-RPC dispatch layer
 // needs. Each per-connection *client carries a reference alongside its
 // own write state; the read loop pulls handler into dispatchRequest.
 type Handler struct {
-	Sessions *SessionManager
-	Ledger   *EventLedger
-	Loop     *acp.Loop
-	Steer    acp.SteerControl
+	Sessions     *SessionManager
+	Ledger       *EventLedger
+	Loop         *acp.Loop
+	Steer        acp.SteerControl
+	SessionStore store.SessionStore
+	MessageStore store.MessageStore
 }
 
-// NewHandler wires the four dependencies. main.go passes the singleton
-// SessionManager / EventLedger / acp.Loop / acp.SteerControl instances.
-func NewHandler(s *SessionManager, l *EventLedger, loop *acp.Loop, steer acp.SteerControl) *Handler {
-	return &Handler{Sessions: s, Ledger: l, Loop: loop, Steer: steer}
+// NewHandler wires the six dependencies. main.go passes the singleton
+// SessionManager / EventLedger / acp.Loop / acp.SteerControl instances
+// plus the two stores that back list_sessions / get_messages.
+func NewHandler(
+	s *SessionManager,
+	l *EventLedger,
+	loop *acp.Loop,
+	steer acp.SteerControl,
+	sessStore store.SessionStore,
+	msgStore store.MessageStore,
+) *Handler {
+	return &Handler{
+		Sessions:     s,
+		Ledger:       l,
+		Loop:         loop,
+		Steer:        steer,
+		SessionStore: sessStore,
+		MessageStore: msgStore,
+	}
 }
 
 // dispatchRequest routes one parsed JSON-RPC request to the matching
@@ -86,6 +146,10 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleSubscribeEvents(ctx, req.ID, req.Params, c, h)
 	case "agent.steer":
 		return handleSteer(ctx, req.ID, req.Params, c, h)
+	case "agent.list_sessions":
+		return handleListSessions(ctx, req.ID, h)
+	case "agent.get_messages":
+		return handleGetMessages(ctx, req.ID, req.Params, h)
 	default:
 		return errorResp(req.ID, CodeMethodNotFound,
 			"Method not found: "+req.Method, nil)
@@ -168,4 +232,64 @@ func handleSteer(ctx context.Context, id json.RawMessage, params json.RawMessage
 		return errorResp(id, CodeInternalError, "loop steer", err)
 	}
 	return successResp(id, SteerResult{Steered: true})
+}
+
+// handleListSessions returns every session known to SessionStore,
+// newest first (the SessionStore contract sorts by updated_at desc).
+// Sessions with no messages are still returned so the renderer's empty
+// state has a row to highlight. Title is left empty here — the renderer
+// derives a title from the first user message.
+func handleListSessions(ctx context.Context, id json.RawMessage, h *Handler) *Response {
+	if h.SessionStore == nil {
+		return successResp(id, ListSessionsResult{Sessions: []SessionSummary{}})
+	}
+	rows, err := h.SessionStore.List(ctx)
+	if err != nil {
+		return errorResp(id, CodeInternalError, "session list", err)
+	}
+	out := make([]SessionSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, SessionSummary{
+			ID:        r.ID,
+			Title:     "",
+			UpdatedAt: r.UpdatedAt.UnixMilli(),
+		})
+	}
+	return successResp(id, ListSessionsResult{Sessions: out})
+}
+
+// handleGetMessages returns the messages for one session. Pagination is
+// supported via params.limit / params.offset (default 1000 / 0). An
+// unknown sessionId returns an empty list rather than an error so the
+// renderer's initial-load path doesn't choke on a stale id.
+func handleGetMessages(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	var p GetMessagesParams
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+		}
+	}
+	if p.SessionID == "" {
+		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
+	}
+	if h.MessageStore == nil {
+		return successResp(id, GetMessagesResult{Messages: []MessageSummary{}})
+	}
+	rows, err := h.MessageStore.List(ctx, p.SessionID, p.Limit, p.Offset)
+	if err != nil {
+		return errorResp(id, CodeInternalError, "message list", err)
+	}
+	out := make([]MessageSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, MessageSummary{
+			ID:        r.ID,
+			SessionID: r.SessionID,
+			Role:      r.Role,
+			Content:   r.Content,
+			Done:      true,
+			CreatedAt: r.Timestamp,
+			ToolCalls: r.ToolCalls,
+		})
+	}
+	return successResp(id, GetMessagesResult{Messages: out})
 }

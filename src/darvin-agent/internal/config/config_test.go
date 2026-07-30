@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/spf13/viper"
 )
 
 // TestLoad_AgentContextEngineFields decodes a YAML fixture that populates
@@ -124,4 +126,212 @@ agent:
 
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
+}
+
+// resetViper clears viper's globals between tests so each Load call
+// starts from a clean slate. Without this, the second test in a
+// sequence inherits keys from the first.
+func resetViper() {
+	viper.Reset()
+	globalConfig = nil
+}
+
+// TestLoadReadsBundled is the baseline: Load(configPath) unmarshals the
+// bundled yaml and the empty `llm.api_key` flows through. HOME /
+// XDG_CONFIG_HOME are redirected to a tmp dir with no overlay, so this
+// matches a fresh install.
+func TestLoadReadsBundled(t *testing.T) {
+	defer resetViper()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := writeFile(cfgPath, `
+app:
+  name: darvin-cowork
+  env: test
+database:
+  sessions_dsn: ./sessions.db
+log:
+  level: info
+  encoding: console
+  output: stderr
+llm:
+  provider: anthropic
+  api_key: ""
+  base_url: ""
+agent:
+  max_turns: 5
+  event_buffer: 8
+  provider_name: anthropic
+  model: claude-sonnet-4-5
+  instructions: ""
+`); err != nil {
+		t.Fatalf("write bundled config: %v", err)
+	}
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	t.Setenv("APPDATA", "")
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.APIKey != "" {
+		t.Errorf("LLM.APIKey = %q, want empty (bundled is empty)", cfg.LLM.APIKey)
+	}
+	if cfg.Agent.MaxTurns != 5 {
+		t.Errorf("Agent.MaxTurns = %d, want 5", cfg.Agent.MaxTurns)
+	}
+}
+
+// TestLoadMergesUserOverlay is FR-1.2: an existing user-level
+// darvin-cowork/config.yaml wins over the bundled file. The bundled
+// api_key is empty; the overlay sets it to "user-key-123".
+func TestLoadMergesUserOverlay(t *testing.T) {
+	defer resetViper()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := writeFile(cfgPath, `
+llm:
+  provider: anthropic
+  api_key: ""
+  base_url: ""
+`); err != nil {
+		t.Fatalf("write bundled: %v", err)
+	}
+
+	// Place user-level config at the location os.UserConfigDir returns.
+	home := filepath.Join(dir, "home")
+	xdg := filepath.Join(home, ".config")
+	userCfgDir := filepath.Join(xdg, "darvin-cowork")
+	if err := os.MkdirAll(userCfgDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll user cfg dir: %v", err)
+	}
+	userCfgPath := filepath.Join(userCfgDir, "config.yaml")
+	if err := writeFile(userCfgPath, `
+llm:
+  api_key: "user-key-123"
+`); err != nil {
+		t.Fatalf("write user overlay: %v", err)
+	}
+
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("APPDATA", "")
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.APIKey != "user-key-123" {
+		t.Errorf("LLM.APIKey = %q, want user-key-123", cfg.LLM.APIKey)
+	}
+	if cfg.LLM.Provider != "anthropic" {
+		t.Errorf("LLM.Provider = %q, want anthropic (from bundled)", cfg.LLM.Provider)
+	}
+}
+
+// TestLoadEnvVarOverrides confirms AutomaticEnv binds LLM_API_KEY to
+// llm.api_key — when the env var is set, it wins over both bundled
+// and user-overlay values (spec FR-1.3).
+func TestLoadEnvVarOverrides(t *testing.T) {
+	defer resetViper()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := writeFile(cfgPath, `
+llm:
+  provider: anthropic
+  api_key: "bundled"
+  base_url: ""
+`); err != nil {
+		t.Fatalf("write bundled: %v", err)
+	}
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	t.Setenv("LLM_API_KEY", "env-key-xyz")
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.APIKey != "env-key-xyz" {
+		t.Errorf("LLM.APIKey = %q, want env-key-xyz", cfg.LLM.APIKey)
+	}
+}
+
+// TestUserConfigPathIsOSAware makes sure the helper returns a path
+// under os.UserConfigDir() — the exact platform location is exercised
+// by the os package itself.
+func TestUserConfigPathIsOSAware(t *testing.T) {
+	path, err := UserConfigPath()
+	if err != nil {
+		t.Fatalf("UserConfigPath: %v", err)
+	}
+	if filepath.Base(path) != "config.yaml" {
+		t.Errorf("file name = %q, want config.yaml", filepath.Base(path))
+	}
+	if filepath.Base(filepath.Dir(path)) != "darvin-cowork" {
+		t.Errorf("dir name = %q, want darvin-cowork", filepath.Base(filepath.Dir(path)))
+	}
+}
+
+// TestWriteUserConfigRoundTrip writes via WriteUserConfig and reads
+// back via Load — verifies the two helpers agree on the file
+// location / shape.
+func TestWriteUserConfigRoundTrip(t *testing.T) {
+	defer resetViper()
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	t.Setenv("APPDATA", "")
+
+	if err := WriteUserConfig("roundtrip-key", "anthropic", ""); err != nil {
+		t.Fatalf("WriteUserConfig: %v", err)
+	}
+
+	// Bundled stub is empty api_key.
+	bundledPath := filepath.Join(dir, "bundled.yaml")
+	if err := writeFile(bundledPath, `
+llm:
+  provider: anthropic
+  api_key: ""
+  base_url: ""
+`); err != nil {
+		t.Fatalf("write bundled: %v", err)
+	}
+
+	cfg, err := Load(bundledPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.APIKey != "roundtrip-key" {
+		t.Errorf("LLM.APIKey = %q, want roundtrip-key", cfg.LLM.APIKey)
+	}
+}
+
+// TestLoadMissingUserOverlayIsGraceful covers the fresh-install path:
+// the user-level config doesn't exist yet, so the bundled file is
+// the only source. Load must not return an error.
+func TestLoadMissingUserOverlayIsGraceful(t *testing.T) {
+	defer resetViper()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := writeFile(cfgPath, `
+llm:
+  provider: anthropic
+  api_key: ""
+  base_url: ""
+`); err != nil {
+		t.Fatalf("write bundled: %v", err)
+	}
+	t.Setenv("HOME", filepath.Join(dir, "missing-home"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "missing-xdg"))
+	t.Setenv("APPDATA", "")
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load with no overlay: %v", err)
+	}
+	if cfg.LLM.Provider != "anthropic" {
+		t.Errorf("LLM.Provider = %q, want anthropic", cfg.LLM.Provider)
+	}
 }
