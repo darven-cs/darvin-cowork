@@ -3,7 +3,7 @@ app:
   env: development
 
 database:
-  dsn: ./data.db
+  sessions_dsn: ./sessions.db
 
 log:
   level: info

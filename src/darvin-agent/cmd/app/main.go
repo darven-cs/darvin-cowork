@@ -46,13 +46,13 @@ func main() {
 	log.Info("starting application", zap.String("name", cfg.App.Name), zap.String("env", cfg.App.Env))
 
 	dbCfg := &database.Config{
-		DSN: cfg.Database.DSN,
+		SessionsDSN: cfg.Database.SessionsDSN,
 	}
 	if err := database.Init(dbCfg); err != nil {
 		log.Error("failed to init database", zap.Error(err))
 		os.Exit(1)
 	}
-	log.Info("database initialized", zap.String("dsn", cfg.Database.DSN))
+	log.Info("database initialized", zap.String("sessions_dsn", cfg.Database.SessionsDSN))
 
 	// --- Agent wiring (M7: config + cmd sync) -------------------------
 	// Build the LLM provider from cfg.LLM. The provider name must match

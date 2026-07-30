@@ -8,12 +8,18 @@ import (
 
 var globalDB *gorm.DB
 
+// Config holds the database connection settings. SessionsDSN is the
+// path passed to the SQLite driver (relative to the Go agent's cwd).
 type Config struct {
-	DSN string
+	SessionsDSN string
 }
 
+// Init opens the SQLite database at SessionsDSN and stores the handle
+// in the package-level singleton. All SessionStore implementations must
+// share this handle (see internal/agent/store.NewSQLiteStore) — opening
+// the same DSN twice would race on SQLite's write lock.
 func Init(cfg *Config) error {
-	db, err := gorm.Open(sqlite.Open(cfg.DSN), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(cfg.SessionsDSN), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
 	})
 	if err != nil {
@@ -24,6 +30,7 @@ func Init(cfg *Config) error {
 	return nil
 }
 
+// Get returns the *gorm.DB opened by Init. Panics if Init has not run.
 func Get() *gorm.DB {
 	if globalDB == nil {
 		panic("database not initialized, call Init first")

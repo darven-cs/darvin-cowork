@@ -18,7 +18,7 @@ type AppConfig struct {
 }
 
 type DatabaseConfig struct {
-	DSN string `mapstructure:"dsn"`
+	SessionsDSN string `mapstructure:"sessions_dsn"`
 }
 
 type LogConfig struct {

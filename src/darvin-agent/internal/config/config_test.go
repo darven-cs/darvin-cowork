@@ -17,7 +17,7 @@ app:
   name: test
   env: test
 database:
-  dsn: ":memory:"
+  sessions_dsn: ":memory:"
 log:
   level: info
 llm:
@@ -48,6 +48,9 @@ agent:
 		t.Fatalf("Load: %v", err)
 	}
 
+	if cfg.Database.SessionsDSN != ":memory:" {
+		t.Errorf("SessionsDSN = %q, want :memory:", cfg.Database.SessionsDSN)
+	}
 	a := cfg.Agent
 	if a.TokenBudget != 4096 {
 		t.Errorf("TokenBudget = %d, want 4096", a.TokenBudget)
@@ -90,7 +93,7 @@ func TestLoad_AgentContextEngineDefaults(t *testing.T) {
 
 	yaml := `
 app: {name: test, env: test}
-database: {dsn: ":memory:"}
+database: {sessions_dsn: ":memory:"}
 log: {level: info}
 llm: {provider: anthropic}
 agent:
