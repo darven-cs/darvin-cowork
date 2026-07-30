@@ -60,30 +60,98 @@
 
 ## S3 · agent-gateway-server（Phase 2 Go #2）
 
-- [ ] `go.mod` 加 `github.com/gorilla/websocket`
-- [ ] `internal/gateway/server.go` WS server + `<port>...</port>` stdout 输出
-- [ ] `internal/gateway/jsonrpc.go` JSON-RPC 2.0 envelope（Request / Response / Notification / RPCError）
-- [ ] `internal/gateway/client.go` WS connection lifecycle + ping-pong + batch dispatch
-- [ ] `internal/gateway/handlers.go` 3 个 stub：agent.prompt / abort / subscribe_events
-- [ ] `internal/gateway/sessionmgr.go` SessionManager（nanoid 21 字符 / CreateOrGet / Callbacks）
-- [ ] `internal/gateway/eventledger.go` EventLedger stub（EmitStub fake event）
-- [ ] `internal/gateway/server_test.go` / `jsonrpc_test.go` / `sessionmgr_test.go` / `eventledger_test.go`
-- [ ] `cmd/app/main.go` 接入 Gateway（但 `select{}` 占位，不做优雅关闭）
-- [ ] 验收：`go test ./internal/gateway/... -race` 全绿；启动后 stdout 唯一一行 `<port>NNNNN</port>`；wscat 调 prompt 收到 `{sessionId, messageId}`
+> **2026-07-30 v2 spec + 架构对齐后修订**。已出 v2 spec：`specs/features/agent-gateway-server/2026-07-30-agent-gateway-server-design-v2.md`，**直接照 v2 做**。原 v1 spec 标作废。
+>
+> **关键决策（4 项，与 v1 不同）**：
+> 1. **S3 真把 event 推 WS**（按架构文档 `docs/系统架构.md:117-118` EventLedger → Gateway → WSBridge 链路）
+> 2. **driver 换 `glebarez/sqlite`**（保 build-go.js 的 CGO_ENABLED=0 交叉编译）
+> 3. **加 `ThinkingDeltaEvent` 空壳**（架构文档要求，S3 不 emit，S4 补 provider 解析）
+> 4. **`AttachSubscription` 替代 `AttachBus`**（`agent.Agent` 无 `Bus()` getter，签名不可达）
+
+### 任务清单（按 v2 spec FR-1 ~ FR-12 顺序）
+
+- [x] **FR-1** `go.mod` 加 `gorilla/websocket v1.5.3` + `jaevor/go-nanoid v1.4.0` + `glebarez/sqlite v1.11.0`；`go mod tidy` 顺带把 gorm 升 v1.25.7
+- [x] **FR-2** `internal/gateway/server.go` WS server：`localhost:0` bind + `<port>` 单行 stdout + 路由 `/ws` + 注入 `*zap.Logger`
+- [x] **FR-3** `internal/gateway/jsonrpc.go` JSON-RPC 2.0 envelope（Request / Response / Notification / RPCError + 5 标准 code）
+- [x] **FR-4** `internal/gateway/client.go`：WS lifecycle + ping-pong + batch dispatch + `SendNotification` + run 退出时调 `UnsubscribeAll(ledger)`
+- [x] **FR-5** `internal/gateway/handlers.go`：`dispatchRequest(ctx, req, c *client)` 3 handler（**不**导 `agent/session`）；handleSubscribeEvents 调 `ledger.Subscribe(sessionID, c)`
+- [x] **FR-6** `internal/gateway/sessionmgr.go`：nanoid 21 字符 `MustCustomASCII([A-Za-z0-9])` + `CreateOrGet`（**不**赋 `sess.UpdatedAt`/`CreatedAt` 字段）+ Has / Get（**注意**：CHECKLIST 原写 Has / AddCallback，v2 spec §3.2 实际只列 Has + Get；最终代码按 spec 走）
+- [x] **FR-7** `internal/gateway/eventledger.go`：`Subscribe(sessionID, *client)` + `UnsubscribeAll(*client)` + `publishLocked` 同步推 + `EmitStub`（emit `event.TextDeltaEvent` + `event.AgentEndEvent`）+ `AttachSubscription(*event.Subscription)` 给 S4 调（S3 no-op）
+- [x] **FR-8** `cmd/app/main.go`：configPath 三级回退 (`DARVIN_CONFIG` env → exe 同级 → cwd) + Gateway 接入 + `signal.NotifyContext(SIGINT, SIGTERM)` + 3s 超时优雅关闭
+- [x] **FR-9** `internal/logger/logger.go:55` 改 `switch cfg.Output` 支持 `stderr`；`config.yaml` `log.output: stderr`；gorm logger 同步重定向 stderr
+- [x] **FR-10** `internal/agent/event/event.go` + `internal/agent/llm/events.go` 加 `ThinkingDeltaEvent{Delta string}` 空壳（`EventName()` 返回 `thinking_delta`）
+- [x] **FR-11** `internal/database/sqlite.go` import `gorm.io/driver/sqlite` → `github.com/glebarez/sqlite`（一行）
+- [x] **FR-12** `scripts/build-go.js:30` `go build -o "$out" .` → `./cmd/app`；`.gitignore` 加 `bin/`（**注**：build-go.js 同步去掉了 `GOOS`/`GOARCH` 覆盖，仅保留 `CGO_ENABLED=0`；spec §7 只要求本机 build 即可）
+- [x] **测试** `internal/gateway/*_test.go` 6 个：server / jsonrpc / handlers / client / sessionmgr / eventledger（v1 漏 handlers + client）
+- [x] **S2 回归** `go test ./internal/agent/store/... -race` 全绿（driver 换 glebarez 后）
+
+### 验收（v2 spec §7 全 18 项）
+
+- [x] `go build ./...` / `go vet ./...` / `gofmt -l .` 干净
+- [x] `go test ./... -race` 全绿（含 S2 回归）
+- [x] `node scripts/build-go.js` 成功 → `bin/darvin-agent-<os>-<arch>` 落地
+- [x] 启动 binary，**stdout 唯一一行** `<port>NNNNN</port>`，stderr 含 INFO log，进程不退出
+- [x] Ctrl-C ≤ 3s exit 0，stderr 含 "graceful shutdown complete"
+- [x] `wscat -c ws://localhost:NNNNN/ws` 连上（**带 `/ws`**）
+- [x] `agent.prompt {"content":"hi"}` → `{sessionId: <21字符>, messageId: <21字符>}`（无 `s-`/`m-` 前缀）
+- [x] `agent.subscribe_events` 用**真 sessionId** → `{"subscribed":true}`
+- [x] subscribe 后 ≤ 1s 收到 2 条 WS notification（`text_delta` + `agent_end`）
+- [x] 未知 method → `-32601`；缺 content → `-32602`；batch 数组 → 数组响应
+- [x] SessionManager.CreateOrGet 同 id 返同实例，msgID 独立
+- [x] nanoid 10000 次无重复
+- [x] 4 个不同 cwd 都能找到 config.yaml
+- [x] EmitStub 完成时 stderr 含 "EmitStub done" 日志
+
+> **完成说明（2026-07-30）**：
+>
+> - 设计文档：`specs/features/agent-gateway-server/2026-07-30-agent-gateway-server-design-v2.md`（v2，相对 v1 修 10 P0 + 11 P1），§7 验收清单已 18/18 勾上。
+> - **实际落地方式**：本次整 spec 作为一个聚合 `feat(agent)` commit 落地（impl + 6 套 test + v2 spec 文档 + 架构相关 side 改动一起），对应 `feat/agent-loop` 分支上的 commit `e8a8055` `feat(agent): ship S3 agent-gateway-server (impl + 6 test suites + v2 spec)`。S4 启动后用 `git log --oneline` 找 v3 spec + impl 的对应 commit 串。
+> - 相对 CHECKLIST 原版的偏差（v2 spec 调整 + 实装妥协）：
+>   - **FR-6 第 3 子项**：`Has / AddCallback` → `Has / Get`（v2 spec §3.2 ground truth；`AddCallback` 是 v1 残留，代码未实装）。
+>   - **FR-8 子项**：config.yaml 实际有 `llm.api_key: sk-ant-smoke-test-placeholder` 占位字符串（v2 spec 写空串，smoke test 时 handler 不调 LLM，占位只为通过 config 校验；S4 替换）。
+>   - **FR-12**：build-go.js 同时移除了 `GOOS`/`GOARCH` 覆盖，仅保留 `CGO_ENABLED=0`（spec §7 只验证本机 build）。
+> - 验收实测（cwd = `src/darvin-agent/`）：
+>   - `go build ./...` ✓ / `CGO_ENABLED=0 go build ./...` ✓ / `go vet ./...` 无警告 / `gofmt -l .` 干净。
+>   - `go test -count=1 -race ./...` 全绿（gateway 6 套 + store 7 套，含 10000 次 nanoid 属性测试）。
+>   - `node scripts/build-go.js` 成功 → `bin/darvin-agent-linux-x64` 可执行；`file` 验证 ELF。
+>   - 启动实际只产出一行 stdout `<port>34939</port>`，stderr 走 zap INFO 结构化日志。
+>   - SIGINT 优雅关闭实测 < 100ms（无 in-flight），3s timeout 富裕。
+>   - 6 个 JSON-RPC 验收项通过 `/tmp/ws-smoke.sh`（Node 22 内置 WebSocket）实测：unknown → -32601、batch 数组返回、缺 content → -32602、subscribe_events → text_delta + agent_end 两条 notification。
+>   - SessionManager 同 id 返同 `*session.Session` 指针，msgID 每次 `CreateOrGet` 重新生成 21 字符独立。
+>   - 4 cwd（`./`、`src/darvin-agent/`、`/tmp/`、`bin/`）全部能起；`bin/` 那条靠 `DARVIN_CONFIG=/path/to/config.yaml` 兜底。
+> - 已知 follow-up（写进 v2 spec §8 S4 候选）：`AttachSubscription` no-op 需 S4 实装、tool_start/tool_end/agent_error 的 TS 形状在 S3 留好形状但 S3 不触发（S4 接 event.Bus 后补）、`messageId` 字段位置在 S4 引入 `EventCommon` 时统一露出顶层。
+
+> **v1 spec 状态**：已废弃，仅作历史参考。差异详见 v2 spec §0「相对 v1 的修订清单」（10 P0 + 11 P1）。
+>
+> **架构文档已知偏差**（按你决策 4 留作目标态文档，**不修**）：
+> - §实现状态表全部标 ❌，实际 S1/S2/M1-M7 已完成
+> - §ContextEngine 接口 6 方法 vs 源码 12 方法（含 `Info`/`Dispose`/`IngestBatch`/`PrepareSubagentSpawn`/`OnSubagentEnded`）
+> - §Provider 接口缺 `ResolveCost`/`Cost`（实际 `llm.ModelProvider` 没有）
+> - §事件总线契约 列 `thinking_delta` 源码无（S3 加空壳）；`compaction_start`/`end` 源码合并为单 `CompactionEvent`
+> - §HTTP API 远期，未排期
+> - `lobsterai.db` 列出但六份 spec 都不提，是否立 spec 待定
+> - Gateway 层位置 line 32「独立进程或 Main 进程内」 vs mermaid 「Go Agent 内」 自相矛盾
 
 ---
 
 ## S4 · agent-acp-loop（Phase 2 Go #3）
 
+> **2026-07-30 基于 v2 spec 同步修订**。两处跟在 v1 后的旧清单需要更新：
+> - 第 5 项 `AttachBus` → v2 spec 已定为 `AttachSubscription`（S3 阶段实装空壳）
+> - 第 7 项 `signal.NotifyContext` 优雅关闭 → **S3 已做**（v2 FR-8），S4 不重复
+> - 第 3 项 SteerControl v0 no-op 保留
+> - 任务清单其余按 v2 spec FR 顺序对齐
+
 - [ ] `internal/acp/loop.go` Loop：接 prompt handler → Agent.Prompt/Run
 - [ ] `internal/acp/queue.go` 接入现有 `internal/agent/queue` 3 通道
 - [ ] `internal/acp/steer.go` SteerControl interface + v0 no-op
 - [ ] `internal/agent/event/event.go` 增 EventCommon（SessionID / MessageID）+ 各事件嵌入
-- [ ] `internal/gateway/eventledger.go` 实装 AttachBus + Go↔TS event 映射表
-- [ ] `internal/gateway/handlers.go` prompt 真接 acp.Loop.Prompt（替换 stub）
-- [ ] `cmd/app/main.go` `signal.NotifyContext(SIGTERM, SIGINT, SIGQUIT)` 优雅关闭
+- [ ] `internal/gateway/eventledger.go` **实时替换 `AttachSubscription` 内空实现**，订阅 `event.Bus` 真接 → `publishLocked` 推 WS notification；补 `mapEventToTS` 函数实现 §4.2 全表（tool_start/tool_end/agent_error/thinking_delta 等 S3 没 emit 的 6 个）
+- [ ] `internal/gateway/handlers.go` `handlePrompt` 真接 `acp.Loop.Prompt`（替换 stub）；S3 EmitStub 删除
+- [ ] `internal/acp/loop.go` onRunEnd 调 `store.SaveSession` + `store.SaveMessage` 落 sessions.db
+- [ ] `internal/agent/llm/anthropic/stream.go` 解析 `content_block_delta` 的 thinking 类型 → emit `event.ThinkingDeltaEvent`（架构文档契约）
 - [ ] `internal/acp/loop_test.go` 端到端单测
-- [ ] 验收：发 prompt → WS 推 text_delta + done 流；SIGTERM ≤3s 走完 6 步（Abort → flush → WS shutdown → DB close → exit 0）；stderr "graceful shutdown complete"
+- [ ] 验收：发 prompt → WS 推 text_delta + done 流；SIGTERM ≤3s 走完 6 步（Abort → flush → WS shutdown → DB close → exit 0）；stderr "graceful shutdown complete"；sessions.db messages 表有 user + assistant 两条记录
 
 ---
 
