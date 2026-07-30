@@ -30,6 +30,14 @@ type TextDeltaEvent struct {
 	Delta string
 }
 
+// ThinkingDeltaEvent carries an incremental chunk of the model's
+// extended-thinking output, kept separate from TextDeltaEvent so the UI
+// can render it in a collapsed panel. Providers do not emit it yet — the
+// anthropic parser grows the thinking branch in S4.
+type ThinkingDeltaEvent struct {
+	Delta string
+}
+
 // ToolCallStartEvent signals the beginning of a tool invocation.
 // The provider guarantees that a matching ToolCallEndEvent with the same
 // ID will follow (or an ErrorEvent terminating the stream).
@@ -70,6 +78,7 @@ type ErrorEvent struct {
 
 func (StartEvent) isStreamEvent()         {}
 func (TextDeltaEvent) isStreamEvent()     {}
+func (ThinkingDeltaEvent) isStreamEvent() {}
 func (ToolCallStartEvent) isStreamEvent() {}
 func (ToolCallDeltaEvent) isStreamEvent() {}
 func (ToolCallEndEvent) isStreamEvent()   {}

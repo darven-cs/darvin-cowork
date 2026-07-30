@@ -1,9 +1,12 @@
 package database
 
 import (
-	"gorm.io/driver/sqlite"
+	"log"
+	"os"
+
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 var globalDB *gorm.DB
@@ -18,9 +21,15 @@ type Config struct {
 // in the package-level singleton. All SessionStore implementations must
 // share this handle (see internal/agent/store.NewSQLiteStore) — opening
 // the same DSN twice would race on SQLite's write lock.
+//
+// GORM's query log goes to stderr: stdout carries the Gateway port line
+// (see internal/gateway.Server.Start) and must stay single-line.
 func Init(cfg *Config) error {
 	db, err := gorm.Open(sqlite.Open(cfg.SessionsDSN), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: gormlogger.New(
+			log.New(os.Stderr, "[gorm] ", log.LstdFlags),
+			gormlogger.Config{LogLevel: gormlogger.Info},
+		),
 	})
 	if err != nil {
 		return err

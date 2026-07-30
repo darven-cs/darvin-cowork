@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
 	"time"
 
 	"go.uber.org/zap"
@@ -14,6 +17,7 @@ import (
 	"darvin-cowork/backend/internal/agent/store"
 	"darvin-cowork/backend/internal/config"
 	"darvin-cowork/backend/internal/database"
+	"darvin-cowork/backend/internal/gateway"
 	"darvin-cowork/backend/internal/logger"
 
 	// Blank import triggers anthropic.init() which registers the provider
@@ -21,8 +25,26 @@ import (
 	_ "darvin-cowork/backend/internal/agent/llm/anthropic"
 )
 
+// configPath resolves config.yaml in three places, in order:
+//  1. $DARVIN_CONFIG, if set (lets Electron point at a project-local file)
+//  2. <exe-dir>/config.yaml, the production layout where the binary
+//     and the file ship side-by-side
+//  3. "config.yaml" — relative to the Go agent's cwd, for `go run`
+func configPath() string {
+	if p := os.Getenv("DARVIN_CONFIG"); p != "" {
+		return p
+	}
+	if exe, err := os.Executable(); err == nil {
+		cand := filepath.Join(filepath.Dir(exe), "config.yaml")
+		if _, err := os.Stat(cand); err == nil {
+			return cand
+		}
+	}
+	return "config.yaml"
+}
+
 func main() {
-	cfg, err := config.Load("config.yaml")
+	cfg, err := config.Load(configPath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
 		os.Exit(1)
@@ -43,6 +65,12 @@ func main() {
 	}
 	log := logger.Get()
 	defer log.Sync()
+
+	// signal.NotifyContext turns SIGINT/SIGTERM into a context
+	// cancellation; everything downstream (Gateway Serve loop, the
+	// per-connection ping loop) watches ctx and exits gracefully.
+	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	log.Info("starting application", zap.String("name", cfg.App.Name), zap.String("env", cfg.App.Env))
 
@@ -73,7 +101,7 @@ func main() {
 	// a registered factory (currently only "anthropic"); an unknown name
 	// surfaces as llm.ErrUnknownProvider. Logger is left nil —
 	// llm.NewHTTPClient accepts nil and silently skips per-call logging.
-	provider, err := llm.NewProvider(context.Background(), cfg.LLM.Provider, llm.ProviderConfig{
+	provider, err := llm.NewProvider(rootCtx, cfg.LLM.Provider, llm.ProviderConfig{
 		APIKey:  cfg.LLM.APIKey,
 		BaseURL: cfg.LLM.BaseURL,
 	})
@@ -122,5 +150,31 @@ func main() {
 		zap.Int("token_budget", cfg.Agent.TokenBudget),
 	)
 
-	log.Info("application started successfully")
+	// --- Gateway (S3) -------------------------------------------------
+	// Sessions and the event ledger are process-local; the ledger will
+	// subscribe to the agent's event bus in S4 via AttachSubscription.
+	// S3 still constructs both so handlers can call EmitStub and exercise
+	// the WS round-trip end-to-end.
+	sessions := gateway.NewSessionManager()
+	ledger := gateway.NewEventLedger(log.Logger)
+	gs := gateway.NewServer(sessions, ledger, log.Logger)
+	if err := gs.Start(rootCtx); err != nil {
+		log.Error("gateway start failed", zap.Error(err))
+		os.Exit(1)
+	}
+
+	log.Info("application started successfully", zap.Int("port", gs.Port()))
+
+	// Block until SIGINT/SIGTERM. The 3s budget covers the WS server
+	// Shutdown path; in practice the close is sub-100ms.
+	<-rootCtx.Done()
+	log.Info("shutdown signal received")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := gs.Shutdown(shutdownCtx); err != nil {
+		log.Error("gateway shutdown", zap.Error(err))
+	} else {
+		log.Info("graceful shutdown complete")
+	}
 }

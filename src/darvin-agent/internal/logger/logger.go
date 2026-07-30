@@ -50,11 +50,18 @@ func Init(cfg *Config) error {
 		encoder = zapcore.NewConsoleEncoder(encoderConfig)
 	}
 
-	core := zapcore.NewCore(
-		encoder,
-		zapcore.AddSync(os.Stdout),
-		zapLevel,
-	)
+	// The Go agent writes its Gateway port as the single line on stdout
+	// (see internal/gateway.Server.Start), so any deployment that parses
+	// that line must set Output to "stderr".
+	var sink zapcore.WriteSyncer
+	switch cfg.Output {
+	case "stderr":
+		sink = zapcore.AddSync(os.Stderr)
+	default:
+		sink = zapcore.AddSync(os.Stdout)
+	}
+
+	core := zapcore.NewCore(encoder, sink, zapLevel)
 
 	if cfg.Output == "file" && cfg.Filename != "" {
 		fileWriter := zapcore.AddSync(&lumberjack.Logger{

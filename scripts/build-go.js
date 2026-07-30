@@ -8,6 +8,10 @@ const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+// We use the host's GOOS/GOARCH (omitted) by default: spec §7 only
+// requires a local build. Cross-compilation is a separate concern; if
+// it comes back, uncomment the GOOS/GOARCH overrides and the host
+// toolchain must support the target.
 const platform = process.platform; // 'darwin' | 'linux' | 'win32'
 const arch = process.arch; // 'arm64' | 'x64'
 const exeSuffix = platform === 'win32' ? '.exe' : '';
@@ -16,7 +20,7 @@ const repoRoot = path.join(__dirname, '..');
 const outPath = path.join(repoRoot, 'bin', outName);
 
 const agentDir = path.join(repoRoot, 'src', 'darvin-agent');
-const env = { ...process.env, CGO_ENABLED: '0', GOOS: platform, GOARCH: arch };
+const env = { ...process.env, CGO_ENABLED: '0' };
 
 if (!fs.existsSync(agentDir)) {
   console.error(`[build-go] darvin-agent 源码目录不存在: ${agentDir}`);
@@ -27,7 +31,7 @@ if (!fs.existsSync(agentDir)) {
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
 try {
-  execSync(`go build -ldflags="-s -w" -o "${outPath}" .`, {
+  execSync(`go build -ldflags="-s -w" -o "${outPath}" ./cmd/app`, {
     cwd: agentDir,
     env,
     stdio: 'inherit',

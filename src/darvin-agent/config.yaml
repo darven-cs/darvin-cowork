@@ -8,7 +8,8 @@ database:
 log:
   level: info
   encoding: console
-  output: stdout
+  # stderr keeps stdout clean for the Gateway `<port>NNNNN</port>` line.
+  output: stderr
   filename: ./logs/app.log
   max_size: 100
   max_backups: 7
@@ -16,7 +17,9 @@ log:
 
 llm:
   provider: anthropic
-  api_key: ""
+  # Placeholder for the smoke test — S3 doesn't call the LLM. S4 will
+  # wire the real key in via DARVIN_LLM_API_KEY or the env-var hook.
+  api_key: "sk-ant-smoke-test-placeholder"
   base_url: ""
 
 agent:

@@ -82,6 +82,17 @@ type TextDeltaEvent struct {
 func (TextDeltaEvent) isAgentEvent()     {}
 func (TextDeltaEvent) EventName() string { return "text_delta" }
 
+// ThinkingDeltaEvent is a passthrough of provider.ThinkingDeltaEvent —
+// an incremental chunk of the model's extended-thinking output. No
+// provider emits it yet: the anthropic stream parser gains the
+// content_block_delta thinking branch in S4.
+type ThinkingDeltaEvent struct {
+	Delta string
+}
+
+func (ThinkingDeltaEvent) isAgentEvent()     {}
+func (ThinkingDeltaEvent) EventName() string { return "thinking_delta" }
+
 // LLMEndEvent fires after the provider's stream closes (DoneEvent or
 // ErrorEvent), with the accumulated assistant message and usage.
 type LLMEndEvent struct {
