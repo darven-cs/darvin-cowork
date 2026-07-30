@@ -46,6 +46,17 @@
   --color-qa-doc:          #3B82F6;
   --color-qa-web:          #10B981;
 
+  /* ExpertSuite agent avatar 配色（与 qa-* 复用 + 扩展） */
+  --color-agent-amber:     #F59E0B;
+  --color-agent-violet:    #8B5CF6;
+  --color-agent-blue:      #3B82F6;
+  --color-agent-green:     #10B981;
+  --color-agent-red:       #EF4444;
+  --color-agent-cyan:      #06B6D4;
+  --color-agent-pink:      #EC4899;
+  --color-agent-orange:    #F97316;
+  --color-agent-purple:    #A855F7;
+
   /* vendor 品牌色（ModelPicker 头像徽标） */
   --color-vendor-anthropic: #CC785C;
   --color-vendor-openai:    #10A37F;
@@ -177,5 +188,16 @@
 .qa-tile--qa-doc:hover        { box-shadow: 0 8px 20px -10px var(--color-qa-doc);   }
 .qa-tile--qa-web   .icon-wrap { background: color-mix(in srgb, var(--color-qa-web)   14%, transparent); color: var(--color-qa-web);   }
 .qa-tile--qa-web:hover        { box-shadow: 0 8px 20px -10px var(--color-qa-web);   }
+
+/* ExpertSuite AgentCard 头像底色（按 data-color 映射 token） */
+.agent-card[data-color="amber"]  .agent-avatar { background: var(--color-agent-amber);  }
+.agent-card[data-color="violet"] .agent-avatar { background: var(--color-agent-violet); }
+.agent-card[data-color="blue"]   .agent-avatar { background: var(--color-agent-blue);   }
+.agent-card[data-color="green"]  .agent-avatar { background: var(--color-agent-green);  }
+.agent-card[data-color="red"]    .agent-avatar { background: var(--color-agent-red);    }
+.agent-card[data-color="cyan"]   .agent-avatar { background: var(--color-agent-cyan);   }
+.agent-card[data-color="pink"]   .agent-avatar { background: var(--color-agent-pink);   }
+.agent-card[data-color="orange"] .agent-avatar { background: var(--color-agent-orange); }
+.agent-card[data-color="purple"] .agent-avatar { background: var(--color-agent-purple); }
 
 .bg-avatar-main { background-image: var(--color-avatar-main); }

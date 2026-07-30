@@ -70,6 +70,9 @@ const dict: Record<string, string> = {
   'plus.settings.desc': '主题 / 快捷键 / 通知',
   'model.search.placeholder': '搜索模型…',
   'model.menu.title': '切换模型',
+  'expert.search.placeholder': '搜索专家 Agent…',
+  'expert.use': '使用',
+  'expert.details': '详情',
 };
 
 let currentLang: Lang = 'zh';

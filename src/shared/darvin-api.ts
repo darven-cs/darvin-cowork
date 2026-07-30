@@ -29,6 +29,7 @@ export interface DarvinMessage {
   content: string;
   done: boolean;
   error?: string;
+  toolLabel?: string;
   createdAt: number;
 }
 
