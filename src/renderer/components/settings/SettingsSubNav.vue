@@ -1,5 +1,5 @@
 <template>
-  <nav class="flex w-56 flex-col gap-1 border-r border-border px-3 py-4" aria-label="设置子导航">
+  <nav class="flex w-56 flex-col gap-1 border-r border-border px-3 py-4" :aria-label="t('settings.nav.aria_label')">
     <button
       v-for="item in items"
       :key="item.id"
@@ -12,20 +12,22 @@
         : 'text-text-muted hover:bg-surface-hover'"
       @click="emit('select', item.id)"
     >
-      {{ item.label }}
+      {{ t(item.labelKey) }}
     </button>
   </nav>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../services/i18n';
+
 export type SettingsSectionId = 'account' | 'appearance' | 'shortcuts' | 'models' | 'about';
 
-const items: { id: SettingsSectionId; label: string }[] = [
-  { id: 'account',    label: '账户' },
-  { id: 'appearance', label: '外观' },
-  { id: 'shortcuts',  label: '快捷键' },
-  { id: 'models',     label: '模型' },
-  { id: 'about',      label: '关于' },
+const items: { id: SettingsSectionId; labelKey: string }[] = [
+  { id: 'account',    labelKey: 'settings.account.title' },
+  { id: 'appearance', labelKey: 'settings.appearance.title' },
+  { id: 'shortcuts',  labelKey: 'settings.shortcuts.title' },
+  { id: 'models',     labelKey: 'settings.models.title' },
+  { id: 'about',      labelKey: 'settings.about.title' },
 ];
 
 defineProps<{ active: SettingsSectionId }>();
