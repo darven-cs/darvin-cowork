@@ -7,9 +7,6 @@
  * - session id 在 main 端用 `crypto.randomUUID()` 生成，renderer 不参与
  * - 当前激活 session id 是 process-local 状态（不落库），重启时按
  *   "最近一次 updated_at 的 session" 兜底
- *
- * 所有写操作同步走 SQLite prepared statement，无显式事务 — v1 schema
- * 简单，单条 INSERT/UPDATE 不需要事务包装。等出现多步写再补 `db.transaction`。
  */
 
 // eslint-disable-next-line import/no-named-as-default

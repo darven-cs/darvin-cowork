@@ -33,7 +33,7 @@ import { useViewMode, type ViewMode } from '../composables/useViewMode';
 
 const sidebar = useSidebar();
 const sidePanel = useSidePanel();
-useTheme(); // 立即应用持久化主题
+useTheme();
 const messages = useMessages();
 const session = useSession();
 const viewMode = useViewMode();
@@ -64,11 +64,9 @@ function navigateTo(target: string) {
 }
 
 function onSidebarNavigate(target: string) {
-  // Sidebar 已经在内部处理了 'home'（创建新会话）和 'suite' / 'settings'
   navigateTo(target);
 }
 
-// active session 切换时重载消息；main 是消息数据的唯一所有者。
 watch(
   () => session.activeSessionId.value,
   (id) => {
@@ -82,7 +80,6 @@ watch(
 );
 
 onMounted(() => {
-  // streaming 事件订阅：main 已经按 activeSessionId 路由过，直接 append。
   window.darvin.onEvent((e) => messages.appendEvent(e));
 });
 </script>

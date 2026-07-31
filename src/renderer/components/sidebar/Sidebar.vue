@@ -1,13 +1,10 @@
 <template>
   <aside class="flex h-full w-[220px] flex-col border-r border-border bg-surface">
-    <!-- 段 1：Brand + Nav -->
     <SidebarBrand />
     <SidebarNav :active-id="activeNavId" @navigate="onNavigate" />
 
-    <!-- 段 2：我的 Agent -->
     <SidebarAgentCard />
 
-    <!-- 段 3：近期任务（flex-1 scroll） -->
     <div class="flex min-h-0 flex-1 flex-col">
       <div class="px-4 pt-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-subtle">
         {{ t('sidebar.recent_label') }}
@@ -19,7 +16,6 @@
       />
     </div>
 
-    <!-- 段 4：底部按钮 -->
     <SidebarBottom @login="onLogin" @settings="onSettings" />
   </aside>
 </template>
@@ -47,8 +43,6 @@ const activeNavId = ref<NavId>('new_task');
 function onNavigate(id: NavId) {
   activeNavId.value = id;
   if (id === 'new_task') {
-    // 不阻塞 UI：createSession 内部更新 ref + main push 也会更新；
-    // 这里 fire-and-forget，error 由 useSession 静默吃掉
     void session.createSession();
     emit('new-chat');
     emit('navigate', 'home');
@@ -61,7 +55,6 @@ function onNavigate(id: NavId) {
 
 function onSelect(id: string) {
   void session.switchSession(id);
-  // 切 session 同步切到 chat 视图（home 的 send 已自动 goChat；sidebar 路径补齐）
   emit('navigate', 'chat');
 }
 

@@ -37,7 +37,7 @@ import { useTheme } from '../../composables/useTheme';
 import IconButton from '../common/IconButton.vue';
 import RuntimeStatusBadge from '../runtime/RuntimeStatusBadge.vue';
 
-const props = defineProps<{ sidePanelOpen: boolean }>();
+defineProps<{ sidePanelOpen: boolean }>();
 const emit = defineEmits<{ 'toggle-sidebar': []; 'toggle-side-panel': [] }>();
 
 const session = useSession();
@@ -48,7 +48,4 @@ const title = computed(() => {
   const s = id ? session.sessions.value.find((x) => x.id === id) : undefined;
   return s?.title ?? 'Darvin';
 });
-
-// 防止 props 未使用 lint 警告
-void props;
 </script>

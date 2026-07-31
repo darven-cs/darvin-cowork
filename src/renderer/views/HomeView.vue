@@ -6,7 +6,6 @@
       @toggle-side-panel="emit('toggle-side-panel')"
     />
 
-    <!-- hero 区：mascot + greeting + quick actions 居中 -->
     <div class="flex-1 overflow-y-auto px-6 animate-fade-in">
       <div class="mx-auto flex h-full w-full max-w-[760px] flex-col items-center justify-center gap-6 py-10">
         <Mascot :size="96" />
@@ -17,7 +16,6 @@
       </div>
     </div>
 
-    <!-- 输入 dock -->
     <PromptDock :busy="busy" ref="dockRef" @send="onSend" />
   </div>
 </template>
@@ -50,7 +48,6 @@ async function onSend(content: string) {
 }
 
 function onTileSelect(id: 'qa-slide' | 'qa-data' | 'qa-doc' | 'qa-web') {
-  // PR-3 stub：把 tile 选择的 prompt template 注入到 dock 然后发送
   const TEMPLATES: Record<typeof id, string> = {
     'qa-slide': '帮我做一个 5 页的产品介绍 PPT，主题是 AI Agent',
     'qa-data':  '分析我上传的 CSV 文件并给出关键洞察',

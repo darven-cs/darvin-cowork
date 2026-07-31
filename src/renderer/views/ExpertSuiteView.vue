@@ -6,7 +6,6 @@
       @toggle-side-panel="emit('toggle-side-panel')"
     />
 
-    <!-- 顶栏：标题 + 搜索框 + filter tabs -->
     <div class="border-b border-border px-6 pt-6 pb-4">
       <div class="flex items-center justify-between">
         <h2 class="font-sans text-[20px] font-semibold text-text">专家套件</h2>
@@ -25,7 +24,6 @@
       </div>
     </div>
 
-    <!-- 卡片网格 -->
     <div class="flex-1 overflow-y-auto p-6">
       <div v-if="filtered.length === 0" class="py-16 text-center font-sans text-[13px] text-text-muted">
         没有匹配的专家
@@ -64,7 +62,6 @@ const activeTab = ref<FilterTabId>('all');
 const filtered = computed<ExpertAgent[]>(() => {
   const q = query.value.trim().toLowerCase();
   return expertSuiteAgents.filter((a) => {
-    // tab 过滤：free 是按价格，其余按分类
     if (activeTab.value === 'free' && a.price !== 'Free') return false;
     if (activeTab.value !== 'all' && activeTab.value !== 'free' && a.category !== activeTab.value) return false;
     if (q && !a.name.toLowerCase().includes(q) && !a.description.toLowerCase().includes(q)) return false;
@@ -77,7 +74,6 @@ function onSelectTab(id: FilterTabId) {
 }
 
 function onUse(agent: ExpertAgent) {
-  // PR-4 stub：仅 console.log，不接跳 ExpertSuite 实际工作流
   // eslint-disable-next-line no-console
   console.log('[expert] use:', agent.id, agent.name);
 }

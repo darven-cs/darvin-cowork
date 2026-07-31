@@ -33,11 +33,9 @@ async function handleSend(content: string) {
   busy.value = true;
   messages.appendUserMessage(sessId, content);
   try {
-    // 不传 sessionId：main 端知道当前 active session
     const r = await window.darvin.prompt({ content });
     messages.startAssistantMessage(r.sessionId, r.messageId);
   } catch (err) {
-    // 网络 / 协议错误时把消息标红并恢复 composer
     const mid = `m-err-${Date.now().toString(36)}`;
     messages.startAssistantMessage(sessId, mid);
     messages.appendEvent({ type: 'error', messageId: mid, message: (err as Error).message });

@@ -1,6 +1,5 @@
 <template>
   <div class="flex items-center gap-1 px-1">
-    <!-- Plus（PR-3 接 PlusMenu 浮层） -->
     <div class="relative">
       <button
         type="button"
@@ -17,7 +16,6 @@
 
     <div class="mx-1 h-3.5 w-px bg-border" />
 
-    <!-- Grid（PR-4 接 ExpertSuite 视图） -->
     <button
       type="button"
       :aria-label="ariaGrid"
@@ -30,12 +28,10 @@
 
     <div class="mx-1 h-3.5 w-px bg-border" />
 
-    <!-- Model picker chip + dropdown -->
     <ModelPicker />
 
     <div class="mx-1 h-3.5 w-px bg-border" />
 
-    <!-- Mic -->
     <MicButton :label="ariaMic" @click="$emit('mic')" />
   </div>
 </template>
@@ -60,7 +56,6 @@ defineEmits<{
 }>();
 
 function onPick(id: 'upload' | 'goal' | 'todo' | 'settings') {
-  // PR-3 stub：仅打印；后续路由 / 弹窗落地
   // eslint-disable-next-line no-console
   console.warn('PlusMenu pick:', id);
 }

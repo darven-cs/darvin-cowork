@@ -1,8 +1,4 @@
 <template>
-  <!--
-    PlusMenu 浮层：从 PromptToolbar 的 plus 按钮向上弹出。
-    通过 useFloatingPanel('plus') 控制可见性，外部 click 自动关闭。
-  -->
   <div
     v-if="isOpen"
     class="absolute bottom-full left-0 mb-2 w-72 rounded-xl border border-border bg-surface p-1 shadow-lg"

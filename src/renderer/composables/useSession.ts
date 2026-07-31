@@ -29,7 +29,6 @@ function ensureSubscribed(): void {
     activeSessionId.value = id;
   });
 
-  // 首屏拉一次主进程的快照；后续都靠 push
   void (async () => {
     try {
       const [s, a] = await Promise.all([
@@ -39,7 +38,7 @@ function ensureSubscribed(): void {
       sessions.value = s.sessions;
       activeSessionId.value = a.sessionId;
     } catch {
-      // agent offline 时静默；UI 由 runtime status badge 告知
+      // agent offline: badge carries the user-visible state.
     }
   })();
 }
@@ -49,8 +48,6 @@ export function useSession() {
 
   async function createSession(title?: string): Promise<DarvinSession> {
     const r = await window.darvin.createSession({ title });
-    // main 端会立刻 broadcast，push 也会更新 ref；这里同时返新 session
-    // 给 caller，方便 caller 立刻知道 id。
     if (!sessions.value.some((s) => s.id === r.session.id)) {
       sessions.value = [r.session, ...sessions.value];
     }
@@ -61,13 +58,11 @@ export function useSession() {
   async function switchSession(id: string): Promise<void> {
     if (activeSessionId.value === id) return;
     await window.darvin.switchSession(id);
-    // main push 后 activeSessionId.value 会被覆盖；这里先乐观更新避免闪烁
     activeSessionId.value = id;
   }
 
   async function deleteSession(id: string): Promise<void> {
     await window.darvin.deleteSession(id);
-    // main 已经 broadcast；sessions 由 push 更新
   }
 
   return {

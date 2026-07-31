@@ -102,7 +102,6 @@ const createWindow = (): void => {
   }
 };
 
-// ── IPC：session 管理（data owner = main）────────────────────────────
 ipcMain.handle(
   'darvin:create_session',
   (_e, req?: { title?: string }): { session: DarvinSession } => {
@@ -151,12 +150,6 @@ ipcMain.handle(
   },
 );
 
-// ── IPC：prompt / abort ───────────────────────────────────────────────
-//
-// sessionId 由 main 自己管 —— 调用方不传，main 从 store.getActive()
-// 拿到当前 session，先把 user message 落库 + 再调 backend prompt。
-// backend 单 session：所有 main 的 active session 都路由到同一个
-// backend "default" session。
 ipcMain.handle(
   'darvin:prompt',
   async (_e, req: DarvinPromptRequest): Promise<DarvinPromptResponse> => {
@@ -178,7 +171,6 @@ ipcMain.handle(
         sessionId: BACKEND_DEFAULT_SESSION_ID,
         model: req.model,
       });
-      // 把 assistant message 也落库 —— streaming 文本由 EventRouter 累加
       store.appendMessage({
         id: r.messageId,
         sessionId,
@@ -188,8 +180,6 @@ ipcMain.handle(
       });
       return { sessionId, messageId: r.messageId };
     } catch (e) {
-      // prompt 失败时把 user message 标红提示用户，assistant 占位由
-      // renderer 端 ChatPane 自己用 error message 补。
       store.markMessageError(userMessageId, (e as Error).message);
       throw e;
     }
@@ -202,21 +192,12 @@ ipcMain.handle('darvin:abort', async () => {
   return client.abort({ sessionId: BACKEND_DEFAULT_SESSION_ID });
 });
 
-// ── IPC：runtime status ───────────────────────────────────────────────
-//
-// no-binary 用二进制是否存在判定，而不是 mgr 是否 resolved：子进程 crash
-// 之后 resolvedPort 会被清掉，那种情况应该报 offline（可重启）而不是
-// no-binary（要重新编译），两者对用户的下一步动作完全不同。
 ipcMain.handle('darvin:status', (): DarvinRuntimeStatus => {
   if (!resolveAgentBinaryPath()) return 'no-binary';
   if (!client.isConnected()) return 'offline';
   return 'online';
 });
 
-// ── IPC：LLM 配置（spec FR-5.2）──────────────────────────────────────
-//
-// get 走 user-level yaml；set 写盘 + 重启 Go 子进程，子进程重启后才用
-// 新 key（冷启动语义，避免热更新 LLM）。
 ipcMain.handle('darvin:get_llm_config', async (): Promise<DarvinLLMConfig> => {
   const cfg = await readUserSettingsYAML();
   return {
@@ -238,10 +219,6 @@ ipcMain.handle(
   },
 );
 
-// ── IPC：locale（renderer i18n）──────────────────────────────────────
-//
-// locale 不需要重启 Go 子进程；renderer 拿到 set 返回值后自己 setLang。
-// 写入只 patch locale 字段，由 writeUserSettingsYAML merge 保留 llm 配置。
 ipcMain.handle(
   'darvin:get_locale',
   async (): Promise<DarvinLocaleResponse> => {
@@ -256,8 +233,6 @@ ipcMain.handle(
     await writeUserSettingsYAML({ locale: req.locale });
   },
 );
-
-// EventRouter 在启动序列里显式调 start()/stop()，不需要单独的兜底订阅。
 
 mgr.on('exit', ({ code, signal }: { code: number | null; signal: string | null }) => {
   console.error(`[runtime] darvin-agent exited code=${code} signal=${signal}`);
@@ -287,7 +262,6 @@ async function restartGoSubprocess(): Promise<boolean> {
   try {
     const resolved = await mgr.start();
     await client.connect(resolved.port);
-    // backend 单 session：重新订阅 "default" 让 EventRouter 能继续收事件
     await client.subscribeEvents(BACKEND_DEFAULT_SESSION_ID);
     eventRouter.start();
     return true;
@@ -297,15 +271,9 @@ async function restartGoSubprocess(): Promise<boolean> {
   }
 }
 
-// ── 启动时序：spawn → WS 连 + 订阅 → EventRouter → 开窗 ──────────────
-//
-// 子进程起不来不阻塞开窗：窗口照常打开，badge 显示 no-binary / offline，
-// 用户至少能看到界面和错误提示，而不是一个黑屏。
 app.whenReady().then(async () => {
   installAppMenu();
 
-  // main 端兜底一个 session：first-run 时 db 空，用户进来点 "+" 才正式创建；
-  // 已有数据时 bootstrapActiveSession 选最近 updated 的那一个。
   store.bootstrapActiveSession();
 
   try {
@@ -320,7 +288,6 @@ app.whenReady().then(async () => {
   createWindow();
 });
 
-// ── 关闭时序：before-quit 是唯一能保证 graceful 的钩子 ────────────────
 app.on('before-quit', (e) => {
   if (shuttingDown) return;
   e.preventDefault();

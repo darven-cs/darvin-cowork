@@ -84,13 +84,6 @@ export async function writeUserSettingsYAML(patch: UserSettings): Promise<void> 
   await fs.writeFile(file, body, { encoding: 'utf8', mode: 0o600 });
 }
 
-// ── 极简 yaml 解析 ──────────────────────────────────────────────────
-// 只支持 spec FR-5.2 涉及的两种形状（writeUserSettingsYAML 产出前者，
-// 手工编辑的用户可能写成后者）：
-//   llm:
-//     api_key: "..."
-//   llm.api_key: "..."
-// 空值解析为 undefined。
 function parseSimpleYaml(src: string): UserSettings {
   const root: UserSettings = {};
   let section = '';

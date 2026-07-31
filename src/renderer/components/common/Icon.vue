@@ -1,8 +1,4 @@
 <template>
-  <!--
-    v-html 内容来自 assets/icons 的构建期静态 SVG 表，不含任何用户输入或远程数据，
-    因此不存在 XSS 面。若将来 SVG 改为运行时/远程来源，必须先做 sanitize 再放开。
-  -->
   <!-- eslint-disable-next-line vue/no-v-html -->
   <span v-if="svg" class="inline-flex items-center justify-center" v-html="html" />
   <span

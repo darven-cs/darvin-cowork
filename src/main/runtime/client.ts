@@ -25,11 +25,7 @@ import type {
 } from '../../shared/darvin-api';
 
 /**
- * Agent v0 只跑单 backend session。gateway 的 handlePrompt 会拒掉既非
- * 空、又不等于此值的 sessionId（-32602 "session not active"），且
- * EventLedger 只把事件路由给订阅了这个 id 的连接。
- *
- * 本常量保留给 `EventRouter` 用，main 侧不再裸调 `client.prompt`。
+ * 后端默认 session id：EventRouter 把它作为订阅 / prompt 的目标 session。
  */
 export const BACKEND_DEFAULT_SESSION_ID = 'default';
 
@@ -183,7 +179,6 @@ export class AgentClient extends EventEmitter {
   }
 
   /**
-   * 订阅 backend 单 session 的事件流（v0 backend 不支持多 session）。
    * 在 `connect` 成功之后调一次；EventRouter 接入前需要先 subscribe
    * 才能拿到 notification。
    */

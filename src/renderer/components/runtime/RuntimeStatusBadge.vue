@@ -12,9 +12,6 @@
 <script setup lang="ts">
 /**
  * Runtime 状态指示：绿 = 在线，琥珀 = 子进程掉了，红 = 二进制没编译。
- *
- * v0 用 2s 轮询而不是主进程推送：状态只有三态、变化频率极低，
- * 一个 interval 比再拉一条 IPC 事件通道简单得多。
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import type { DarvinRuntimeStatus } from '../../../shared/darvin-api';
@@ -29,7 +26,6 @@ async function refresh(): Promise<void> {
   try {
     status.value = await window.darvin.status();
   } catch {
-    // 主进程 handler 还没注册或已销毁，按离线处理
     status.value = 'offline';
   }
 }
@@ -43,8 +39,7 @@ onUnmounted(() => {
   if (timer !== undefined) window.clearInterval(timer);
 });
 
-// 'ready' 是给远期 supervisor 预留的（子进程在跑且队列已空），v0 不发，
-// 这里跟 'online' 同样处理。
+// 'ready' 是给远期 supervisor 预留的（子进程在跑且队列已空），暂未发出，与 'online' 同处理。
 const label = computed(() => {
   switch (status.value) {
     case 'online':

@@ -1,10 +1,5 @@
 <template>
-  <!--
-    ModelPicker dropdown：搜索框 + 3 模型选项。
-    通过 useFloatingPanel('model') 控制可见性。
-  -->
   <div class="relative">
-    <!-- chip 触发器 -->
     <button
       type="button"
       :aria-label="t('model.label')"
@@ -16,7 +11,6 @@
       <Icon name="chevron-down" :size="12" />
     </button>
 
-    <!-- dropdown -->
     <div
       v-if="isOpen"
       class="absolute bottom-full left-0 mb-2 w-72 rounded-xl border border-border bg-surface p-2 shadow-lg"
@@ -99,9 +93,7 @@ watch(isOpen, async (open) => {
   }
 });
 
-function onSearchInput() {
-  // reactivity handled via computed
-}
+function onSearchInput() {}
 
 function onPick(id: typeof mockModels[number]['id']) {
   model.selectModel(id);

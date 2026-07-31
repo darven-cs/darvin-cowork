@@ -64,7 +64,6 @@ const themeOptions: { id: 'light' | 'dark'; label: string; desc: string }[] = [
   { id: 'dark',  label: '深色', desc: '深底 + 亮色龙虾品牌色' },
 ];
 
-// 语言标签保持原语种显示，避免翻译导致无法识别；描述可走 t()。
 const langOptions: { id: 'zh' | 'en'; label: string }[] = [
   { id: 'zh', label: '中文' },
   { id: 'en', label: 'English' },

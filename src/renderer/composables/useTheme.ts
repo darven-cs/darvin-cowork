@@ -11,8 +11,6 @@ function readStored(): Theme {
 
 const theme = ref<Theme>(readStored());
 
-// 模块加载时立即应用持久化主题（在任何组件 mount 之前）
-// theme.css 默认 :root 是 light，html.dark 触发 dark 覆盖
 if (typeof document !== 'undefined') {
   document.documentElement.classList.toggle('dark', theme.value === 'dark');
   document.documentElement.classList.remove('light');

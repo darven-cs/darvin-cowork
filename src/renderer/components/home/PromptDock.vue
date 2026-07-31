@@ -3,7 +3,6 @@
     <div
       class="mx-auto flex w-full max-w-[720px] flex-col gap-3 rounded-xl border border-border bg-surface-2 px-4 py-3 transition-colors focus-within:border-border-strong"
     >
-      <!-- textarea + send -->
       <div class="flex items-end gap-2">
         <textarea
           ref="textareaRef"
@@ -18,7 +17,6 @@
         <SendButton :can-send="canSend" @click="emitSend" />
       </div>
 
-      <!-- 工具条（输入框下方） -->
       <PromptToolbar
         @grid="onGrid"
         @mic="onMic"
@@ -83,7 +81,6 @@ function focus() {
 
 defineExpose({ focus });
 
-// PR-3 / PR-4 stubs
-function onGrid() { /* TODO: open ExpertSuite */ }
-function onMic() { /* TODO: start voice input */ }
+function onGrid() {}
+function onMic() {}
 </script>

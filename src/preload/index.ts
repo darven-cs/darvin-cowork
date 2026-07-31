@@ -30,7 +30,6 @@ import type {
 import { DarvinPushEvent } from '../shared/darvin-api';
 
 const api: DarvinApi = {
-  // session 管理
   async createSession(req?: { title?: string }): Promise<DarvinCreateSessionResponse> {
     return ipcRenderer.invoke('darvin:create_session', req);
   },
@@ -61,12 +60,10 @@ const api: DarvinApi = {
     };
   },
 
-  // 消息查询
   async getMessages(sessionId: string): Promise<DarvinGetMessagesResponse> {
     return ipcRenderer.invoke('darvin:get_messages', sessionId);
   },
 
-  // prompt / abort：main 知道当前 active session，renderer 不传 sessionId
   async prompt(req: DarvinPromptRequest): Promise<DarvinPromptResponse> {
     return ipcRenderer.invoke('darvin:prompt', req);
   },
@@ -74,7 +71,6 @@ const api: DarvinApi = {
     return ipcRenderer.invoke('darvin:abort');
   },
 
-  // streaming 事件订阅：main 已按 activeSessionId 路由过
   onEvent(handler: (e: DarvinEvent) => void): () => void {
     const wrap = (_e: unknown, ev: DarvinEvent) => handler(ev);
     ipcRenderer.on(DarvinPushEvent.SessionEvent, wrap);
@@ -83,7 +79,6 @@ const api: DarvinApi = {
     };
   },
 
-  // LLM 配置
   async getLLMConfig(): Promise<DarvinLLMConfig> {
     return ipcRenderer.invoke('darvin:get_llm_config');
   },
@@ -91,7 +86,6 @@ const api: DarvinApi = {
     return ipcRenderer.invoke('darvin:set_llm_config', req);
   },
 
-  // locale
   async getLocale(): Promise<DarvinLocaleResponse> {
     return ipcRenderer.invoke('darvin:get_locale');
   },
@@ -99,7 +93,6 @@ const api: DarvinApi = {
     return ipcRenderer.invoke('darvin:set_locale', req);
   },
 
-  // 运行时状态
   async status(): Promise<DarvinRuntimeStatus> {
     return ipcRenderer.invoke('darvin:status');
   },

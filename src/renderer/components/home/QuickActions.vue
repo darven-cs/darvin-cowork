@@ -1,8 +1,4 @@
 <template>
-  <!--
-    4 个 quick-action tile：颜色 / icon 来自已有 qa-* token
-    hover glow 由 theme.css 的 .qa-tile--* hover 规则驱动
-  -->
   <div class="grid w-full grid-cols-2 gap-3 sm:grid-cols-4">
     <button
       v-for="tile in tiles"

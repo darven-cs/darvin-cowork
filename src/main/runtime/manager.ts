@@ -85,8 +85,6 @@ export class RuntimeMgr extends EventEmitter {
   /**
    * spawn 子进程，在 stdout 出现 `<port>NNNNN</port>` 时 resolve；
    * START_TIMEOUT_MS 内没读到则 reject 并 SIGKILL 兜底。
-   *
-   * v0 只允许单个子进程，重复调用直接 reject。
    */
   start(): Promise<ResolvedAgent> {
     if (this.proc) {
