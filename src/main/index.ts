@@ -21,6 +21,8 @@ import { SessionStore, defaultSessionStorePath } from './store/SessionStore';
 import { EventRouter } from './store/EventRouter';
 import type {
   DarvinLLMConfig,
+  DarvinLocale,
+  DarvinLocaleResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
   DarvinRuntimeStatus,
@@ -36,7 +38,14 @@ if (require('electron-squirrel-startup')) {
   app.quit();
 }
 
-app.setName('Darvin');
+app.setName('Darvin-Cowork');
+
+if (!app.isPackaged) {
+  // 固定调试端口 9222
+  app.commandLine.appendSwitch('remote-debugging-port', '9222')
+  // 允许任意客户端跨域连接调试端口（必须加，否则 Playwright 连不上）
+  app.commandLine.appendSwitch('remote-allow-origins', '*')
+}
 
 const mgr = new RuntimeMgr();
 const client = new AgentClient({ logger: console });
@@ -226,6 +235,25 @@ ipcMain.handle(
     await writeUserSettingsYAML({ llm: { api_key: req.apiKey, base_url: req.baseUrl ?? '' } });
     const restarted = await restartGoSubprocess();
     return { saved: true, restarted };
+  },
+);
+
+// ── IPC：locale（renderer i18n）──────────────────────────────────────
+//
+// locale 不需要重启 Go 子进程；renderer 拿到 set 返回值后自己 setLang。
+// 写入只 patch locale 字段，由 writeUserSettingsYAML merge 保留 llm 配置。
+ipcMain.handle(
+  'darvin:get_locale',
+  async (): Promise<DarvinLocaleResponse> => {
+    const cfg = await readUserSettingsYAML();
+    return { locale: cfg?.locale ?? 'zh' };
+  },
+);
+
+ipcMain.handle(
+  'darvin:set_locale',
+  async (_e, req: { locale: DarvinLocale }): Promise<void> => {
+    await writeUserSettingsYAML({ locale: req.locale });
   },
 );
 
