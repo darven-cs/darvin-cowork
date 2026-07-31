@@ -6,8 +6,9 @@
  * - backend 事件 → renderer 路由（EventRouter）
  *
  * 数据所有权归 main：renderer 是纯 UI，所有 session / message 读写都
- * 走 IPC 进 main 端的 SQLite。backend (Go agent) 单 session 时，main
- * 把多个 renderer session 的 prompt 都路由到同一个 backend session。
+ * 走 IPC 进 main 端的 SQLite。每个 main session 映射到一个 backend session
+ * —— 切换 session 不中断后台 session 的运行；每次 prompt 生成 runId，
+ * abort 按 (sessionId, runId) 精确停某一次 turn。
  */
 
 import { app, BrowserWindow, ipcMain } from 'electron';
@@ -16,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { readUserSettingsYAML, writeUserSettingsYAML } from './libs/user-settings';
 import { installAppMenu } from './menu';
 import { RuntimeMgr, resolveAgentBinaryPath } from './runtime/manager';
-import { AgentClient, BACKEND_DEFAULT_SESSION_ID } from './runtime/client';
+import { AgentClient } from './runtime/client';
 import { SessionStore } from './store/SessionStore';
 import { sessionStorePath } from './libs/user-paths';
 import { EventRouter } from './store/EventRouter';
@@ -55,6 +56,10 @@ const eventRouter = new EventRouter({
   client,
   getWindows: () => BrowserWindow.getAllWindows(),
 });
+
+// 每个 session 当前在跑的 runId；abort 时按 (sessionId, runId) 精确停。
+// prompt 时写入；session 删时清掉。
+const currentRunIdBySessionId = new Map<string, string>();
 let shuttingDown = false;
 
 function broadcastSessions(): void {
@@ -71,6 +76,19 @@ function broadcastActiveSession(): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send(DarvinPushEvent.ActiveSessionChanged, active);
+    }
+  }
+}
+
+// 把所有已知 session 订阅到 backend；多 session 时每个 session 自己一条
+// 事件流。Go 侧 EventLedger 按 sessionId 维护订阅集合。
+async function subscribeAllSessions(): Promise<void> {
+  if (!client.isConnected()) return;
+  for (const s of store.listSessions()) {
+    try {
+      await client.subscribeEvents(s.id);
+    } catch (e) {
+      console.warn(`[main] subscribe failed for ${s.id}: ${(e as Error).message}`);
     }
   }
 }
@@ -104,9 +122,17 @@ const createWindow = (): void => {
 
 ipcMain.handle(
   'darvin:create_session',
-  (_e, req?: { title?: string }): { session: DarvinSession } => {
+  async (_e, req?: { title?: string }): Promise<{ session: DarvinSession }> => {
     const session = store.createSession(req?.title);
     store.setActive(session.id);
+    // 给新 session 在 backend 留一条事件通道
+    if (client.isConnected()) {
+      try {
+        await client.subscribeEvents(session.id);
+      } catch (e) {
+        console.warn(`[main] subscribe failed for new session: ${(e as Error).message}`);
+      }
+    }
     broadcastSessions();
     broadcastActiveSession();
     return { session };
@@ -132,7 +158,20 @@ ipcMain.handle(
 
 ipcMain.handle(
   'darvin:delete_session',
-  (_e, sessionId: string): { deleted: boolean; nextActiveSessionId: string | null } => {
+  async (
+    _e,
+    sessionId: string,
+  ): Promise<{ deleted: boolean; nextActiveSessionId: string | null }> => {
+    // 删之前先 abort 该 session 当前正在跑的 turn（若有）
+    const runId = currentRunIdBySessionId.get(sessionId);
+    if (runId && client.isConnected()) {
+      try {
+        await client.abort({ sessionId, runId });
+      } catch {
+        /* session 可能从没 prompt 过；忽略 */
+      }
+    }
+    currentRunIdBySessionId.delete(sessionId);
     const r = store.deleteSession(sessionId);
     broadcastSessions();
     broadcastActiveSession();
@@ -156,6 +195,8 @@ ipcMain.handle(
     if (sessionId === null) {
       throw new Error('no active session');
     }
+    const runId = randomUUID();
+    currentRunIdBySessionId.set(sessionId, runId);
     const userMessageId = `m-${randomUUID()}`;
     store.appendMessage({
       id: userMessageId,
@@ -167,7 +208,8 @@ ipcMain.handle(
     try {
       const r = await client.prompt({
         content: req.content,
-        sessionId: BACKEND_DEFAULT_SESSION_ID,
+        sessionId,
+        runId,
         model: req.model,
       });
       store.appendMessage({
@@ -177,8 +219,9 @@ ipcMain.handle(
         content: '',
         done: false,
       });
-      return { sessionId, messageId: r.messageId };
+      return { sessionId, messageId: r.messageId, runId: r.runId ?? runId };
     } catch (e) {
+      currentRunIdBySessionId.delete(sessionId);
       store.markMessageError(userMessageId, (e as Error).message);
       throw e;
     }
@@ -188,7 +231,18 @@ ipcMain.handle(
 ipcMain.handle('darvin:abort', async () => {
   const sessionId = store.getActive();
   if (sessionId === null) return { aborted: false, sessionId: '' };
-  return client.abort({ sessionId: BACKEND_DEFAULT_SESSION_ID });
+  const runId = currentRunIdBySessionId.get(sessionId);
+  if (runId === undefined) {
+    // session 没在跑；返回 aborted=true 让 renderer 不要重试
+    return { aborted: true, sessionId };
+  }
+  try {
+    return await client.abort({ sessionId, runId });
+  } catch {
+    // abort 失败（例如 session 已结束）；当作 aborted 成功
+    currentRunIdBySessionId.delete(sessionId);
+    return { aborted: true, sessionId };
+  }
 });
 
 ipcMain.handle('darvin:status', (): DarvinRuntimeStatus => {
@@ -259,7 +313,7 @@ async function restartGoSubprocess(): Promise<boolean> {
   try {
     const resolved = await mgr.start();
     await client.connect(resolved.port);
-    await client.subscribeEvents(BACKEND_DEFAULT_SESSION_ID);
+    await subscribeAllSessions();
     eventRouter.start();
     return true;
   } catch (e) {
@@ -276,7 +330,7 @@ app.whenReady().then(async () => {
   try {
     const resolved = await mgr.start();
     await client.connect(resolved.port);
-    await client.subscribeEvents(BACKEND_DEFAULT_SESSION_ID);
+    await subscribeAllSessions();
     eventRouter.start();
   } catch (e) {
     console.error(`[runtime] ${(e as Error).message}`);

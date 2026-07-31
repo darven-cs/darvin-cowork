@@ -170,11 +170,13 @@ export class AgentClient extends EventEmitter {
     });
   }
 
-  prompt(req: DarvinPromptRequest & { sessionId: string }): Promise<DarvinPromptResponse> {
+  prompt(
+    req: DarvinPromptRequest & { sessionId: string; runId: string },
+  ): Promise<DarvinPromptResponse> {
     return this.request<DarvinPromptResponse>('agent.prompt', req);
   }
 
-  abort(req: { sessionId: string }): Promise<DarvinAbortResponse> {
+  abort(req: { sessionId: string; runId: string }): Promise<DarvinAbortResponse> {
     return this.request<DarvinAbortResponse>('agent.abort', req);
   }
 
