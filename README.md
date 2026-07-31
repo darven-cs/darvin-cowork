@@ -89,20 +89,18 @@ npm run smoke
 因为用的是占位 key，第 4 步的 prompt 会走到 LLM 报错分支——这是预期行为，
 smoke 校验的是协议链路与落盘钩子（prompt 之后 `list_sessions` 必须能看到该会话）。
 
-### Playwright e2e
+### UI / Electron 行为验证（playwright-cli，dev 手动）
+
+主进程在 `!app.isPackaged` 时已自动开 `remote-debugging-port=9222` + `remote-allow-origins=*`（见 `src/main/index.ts`），跑 `npm start` 拉起 Electron 后端口即可用。
+
+CLI 与 skills 一次性安装：
 
 ```bash
-npm run e2e          # 全量；@real-llm 用例在没 key 时自动 skip
-npm run e2e:headed   # 同上，带界面
-npx playwright test --project=core   # 只跑不依赖 LLM 的用例
+playwright-cli --help             # 缺则：npm install -g @playwright/cli@latest
+playwright-cli install --skills   # 缺则跑这条装项目级 skills
 ```
 
-带 `@real-llm` 标签的用例需要真实 key，设置后才会实际执行：
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-npm run e2e
-```
+需要真实 LLM key 时通过 Settings → Models 面板配置（或 `LLM_API_KEY` 环境变量），装好后用 skills 直接驱动窗口验证。详见 `AGENTS.md` 测试章节。
 
 ### 其他
 

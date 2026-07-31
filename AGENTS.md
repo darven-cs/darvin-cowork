@@ -76,13 +76,31 @@ Go agent 相关：
 
 ## 测试
 
-当前仓库**尚未配置测试运行器**——`package.json` 没有 `test` 脚本，`node_modules` 里也没有 vitest / jest。不要假设测试可用：
+当前仓库**尚未配置单元测试运行器**——`package.json` 没有 `test` 脚本，`node_modules` 里也没有 vitest / jest。不要假设单元测试可用：
 
 - 修改逻辑时不要新增依赖隐式测试覆盖。
 - CI 入口为 `npm run lint`。
 - 真正落地功能时，应在 `package.json` 加 `test` 脚本（建议 Vitest，与 Electron 主进程解耦测试逻辑函数），并把测试文件放在被测源码旁 `*.test.ts`。
 
-针对 UI / Electron 行为，目前只能通过 `npm start` 手动验证窗口与 DevTools。
+UI / Electron 行为验证走 `playwright-cli`（不入 CI，dev 手动跑）。主进程在 `!app.isPackaged` 时已自动开 `remote-debugging-port=9222` + `remote-allow-origins=*`（见 `src/main/index.ts`），跑 `npm start` 拉起 Electron 后端口即可用。
+
+前置环境检查（每次接活时跑一次）：
+
+1. CLI 是否已装：
+   ```bash
+   playwright-cli --help
+   ```
+   没装就全局装：
+   ```bash
+   npm install -g @playwright/cli@latest
+   ```
+2. 项目级 skills 是否已装：
+   ```bash
+   playwright-cli install --skills
+   ```
+   没装就跑这条装上；已装就跳过，之后直接用 skills 驱动 Electron 窗口。
+
+验证流程：先 `npm start` 起 Electron，再在另一终端按需调用 `playwright-cli` / skills 操作。
 
 ## 质量门槛
 
@@ -172,11 +190,68 @@ export type AgentChannel = typeof AgentChannel[keyof typeof AgentChannel];
 
 ## 国际化
 
-目前**还没有 UI 字符串**（Hello World 不算）。一旦接入 Vue3 / 实现功能：
+renderer 侧 i18n 已落地（`src/renderer/services/i18n.ts`，平铺字典、当前仅 `zh`，`en` 字典待补）；主进程侧 i18n（托盘 / 菜单 / 窗口标题 / 通知）尚未建。任何面向用户的字符串必须经 `t()`，不要直接写死在 template / script。
 
-- renderer 侧：在 `src/renderer/services/i18n.ts` 提供 `t('key')`，同时维护 `zh` 与 `en` 字典；
-- 主进程侧：托盘 / 菜单 / 窗口标题 / 通知使用 `src/main/i18n.ts` 的 `t()`；
-- 仅开发者可见的日志、DevTools 诊断不强制 i18n。
+### 字典结构
+
+- 文件：`src/renderer/services/i18n.ts` 内的 `dict: Record<string, string>`（`zh` 默认；`en` 字典落地时同文件加 `dictEn` / 或拆 `locales/zh.ts` / `locales/en.ts`，**不要**新建第三套运行时 i18n 库）。
+- key 命名：`feature.subfeature.label`，按 feature 子域分段：
+  - `app.*` 应用级（标题、菜单入口、状态）
+  - `sidebar.*` 侧栏
+  - `chat.*` 主聊天区
+  - `sidepanel.*` 右侧工具面板
+  - `home.*` 首屏
+  - `settings.*` 设置面板（按子面板再分 `settings.about.*` / `settings.models.*`）
+  - `model.*` / `expert.*` / `quick.*` / `plus.*` 跨域模块
+- value 用原文（中英混排可接受，模型名 / API 名 / 协议字段保持英文：`'app.runtime.ready': 'Runtime: ready'`）。
+
+### API 表面
+
+- `t(key: string): string`：命中返回译文，未命中**直接返回 key**（便于 dev 期发现遗漏；生产期不要凭 key 直接展示给用户——必须先把字典补齐）。
+- `setLang(lang: 'zh' | 'en')` / `getLang(): 'zh' | 'en'`：全局语言切换，目前**不响应式**——切换语言后已渲染的文本不会自动更新，需要组件自行订阅（现状是组件首次渲染时取一次）。
+- 组件消费：**直接 import**（`import { t } from '../../services/i18n'`），不引入 vue-i18n / i18next 等第三方库，不写 composable 包装层（按 YAGNI，重复 `import { t }` 比多一层抽象便宜）。
+
+### 写入规则
+
+- ✅ 写完整句子作 value：`'chat.placeholder': 'Send a message...'`
+- ❌ 拆分句子跨 key：`'chat.greet' + 'chat.body'` 拼接（语序因语言而变，会破坏翻译）
+- ❌ 模板字符串拼用户输入：`t('chat.greet') + userName`（变量位置不可控；目前 `t()` 不支持插值，需要时改成 vue-i18n 而不是手拼）
+- ❌ 数字 / 时间 / 日期硬编码格式：日期 / 数字 / 列表序数一律走 `Intl.DateTimeFormat` / `Intl.NumberFormat`，按当前 locale 取；不要写 `12 个任务` 这类硬拼接。
+- ❌ `<template>` 内直接写中文字面量：必须 `{{ t('xxx') }}` 或 `:aria-label="t('xxx')"`（哪怕是过渡期占位也得走 key，方便后续翻译）。
+- ❌ 同一字符串在多处出现却只在一个 key 里登记：先抽 key 再用——重复字符串就是隐性漏译。
+- ✅ 占位文案也要走 `t()`：写 `'sidebar.placeholder.warn': '此功能尚未实现'`，不要直接 `<div>此功能尚未实现</div>`。
+
+### 不走 i18n 的内容
+
+- DevTools / stdout / 日志（`console.log` / `console.error` 等）：开发者诊断信息，保留英文或源码语言，不要花精力翻译。
+- 错误堆栈、异常 message、IPC 协议字段：技术输出，不走 i18n。
+- 用户可见但纯英文的 token：模型名（`claude-sonnet-4-5`）、API Key 前缀提示（`sk-ant-...`）、技术标识符。
+
+### zh / en 字典同步
+
+`en` 字典落地时强制做 key 一致性：
+
+- 两份字典**必须**包含完全相同的 key 集合（多 key / 少 key 都视为 bug）。
+- 校验方式：在 `src/renderer/services/i18n.ts` 顶部写一段 `assertSameKeys(dictZh, dictEn)`，开发期跑一次（`process.env.NODE_ENV !== 'production'` 守卫）。
+- 翻译缺失临时态：英文 key 暂时用 `dictEn[key] = dictZh[key]`（机器/拼音回退也行）兜底，**不允许**直接 fallback 到 zh 后悄悄上生产。
+
+### 主进程侧（待建）
+
+- 文件位置：`src/main/i18n.ts`，**不要**复用 renderer 的 `services/i18n.ts`（主进程不能直接 `import` renderer 路径，会跨进程边界拉拽依赖）。
+- 范围：托盘 tooltip / 菜单项（`app.applicationMenu`）/ 窗口标题 / 系统通知（`Notification` body）/ 退出确认弹窗。
+- 与 renderer 共享 key：把 `dict` 抽到 `src/shared/i18n-dict.ts`，renderer / main 各包一层 runtime API（读取 + 切换 + 当前 locale）。
+- locale 持久化：跟随用户设置（`src/main/libs/user-settings.ts` 的 `locale` 字段），不要单独存一份；首次启动回落到 `app.getLocale()` 探测的 `zh-CN` / `en-US`。
+
+### 何时升级到 vue-i18n
+
+当前手写 `t()` 满足平铺字符串 + zh/en 二语 + 简单切换。**遇到任意一条**即应停下评估引入 vue-i18n：
+
+- 出现插值需求（`t('chat.greet', { name })`）。
+- 出现复数形式（`{count, plural, one {} other {}}`）。
+- 语言 ≥ 3 种或需要按 namespace 懒加载字典。
+- 需要响应式语言切换（`<i18n-t>` 自动重渲）。
+
+不要为了「将来可能需要」提前换；先在现有字典里把缺失能力显式列出，等真正落地时再迁。
 
 ## 编码风格
 
@@ -265,19 +340,40 @@ renderer 允许从 `fonts.googleapis.com` 加载 3 套字体（Fraunces / Inter 
 
 ### 注释规范
 
-注释描述代码做什么 / 怎么用，**不写阶段、版本、后续路线**。前后端一致。
+源码追求「代码即文档」，靠清晰命名替代注释，注释越少越好。本规则仅约束 `.ts` / `.vue` / `.go` 等业务源代码文件；`docs/`、根目录 `AGENTS.md`、各类 spec 文档可以随意编写阶段、版本、规划内容。
 
-- ❌ 禁用的注释形态
-  - 阶段 / 版本号：`// S1 阶段` `// S5 替换为` `// v0 returns nil` `// v0 TODO seam` `// 后续 S 阶段按需`
-  - 占位 / 待定 / 未来：`// 占位：后续接入子进程 spawn` `// 未来要走 contextBridge` `// IPC 协议待定` `// 当前仍是占位`
-  - Roadmap 暗示：`// 真实 S5 阶段替换为 AgentClient.request()` `// 真实实现留 future spec` `// the Skills spec will populate it`
-- ✅ 允许的注释形态
-  - 导出 API / 公共函数的 JSDoc（描述输入、输出、约束、不变量）
-  - 单行说明代码意图（避免读者必须理解上下文才能知道为什么这么写）
-  - 设计约束（`event 形状必须与 DarvinEvent union 一致` `CreatedAt is overwritten with time.Now() if zero`）
-- 标识符命名同样适用：避免 `ErrNotImplementedInV0` / `FixForV2` / `MockS5` 这类把版本号塞进 API 名字的做法
+#### 一、绝对禁止编写的注释（出现即违规，必须删除）
 
-注释之外，**文档**（`docs/`、`specs/`、`AGENTS.md` 本体）允许讨论阶段、版本、roadmap——本规则只针对源码注释。
+- **阶段、版本、迭代规划类注释**
+  - `// S1/S5 阶段实现` `// v0 占位，v1 重构` `// 后续迭代替换此处逻辑` `// 未来会接入 MCP 协议`
+- **代码复述型废话注释**（把代码逻辑用文字再念一遍）
+  - 例：代码已经写了 `if (!path) return undefined`，不许加 `// 如果路径不存在就返回空`
+- **模型思考、编写过程、改动说明注释**
+  - `// 按照规范调整写法` `// 适配项目架构修改逻辑` `// 根据 AGENTS.md 约束重构`
+- **展望、TODO 大范围规划注释**（仅极小范围内部标记 TODO 可保留）
+  - 禁止大面积罗列后续开发路线、架构演进内容
+- **无关铺垫、开场白、收尾总结注释**
+  - 代码块前后不要加：`// 下面实现二进制路径解析逻辑` `// 以上完成进程启动封装` 这类首尾解说注释
+- **冗余分隔线、空行堆砌注释**
+  - 不要用 `// --------------------------` 分割代码区块
+
+#### 二、仅允许保留的注释场景（按需少量添加，能不写就不写）
+
+- **导出公共函数 / 类型 / 类：JSDoc 注释**
+  - 仅标注：入参含义、返回值、边界约束、业务不变量；简洁短句，不啰嗦。
+- **非常规特殊逻辑：单行意图注释**
+  - 代码写法违背常规写法、存在业务硬性约束、后续容易被误改时，一句话说明**为什么这么写**，而非写代码做了什么。
+- **硬性架构约束校验注释**
+  - 例：`// 事件结构必须对齐 DarvinEvent 类型定义`
+- **关键边界兜底逻辑注释**
+  - 异常兜底、平台差异化兼容逻辑可简短标注。
+
+#### 三、通用注释格式要求
+
+- 单行注释统一使用 `//`（空格分隔），放在代码上方；行内注释尽量不用。
+- JSDoc 精简撰写，无冗余描述，不添加 `@example` 等非必要标签。
+- Vue `<template>` 内：完全禁止写 HTML 注释，模板结构语义自解释即可。
+- 标识符命名同样适用：避免 `ErrNotImplementedInV0` / `FixForV2` / `MockS5` 这类把版本号塞进 API 名字的做法。
 
 ## 遗留问题与小文件
 
