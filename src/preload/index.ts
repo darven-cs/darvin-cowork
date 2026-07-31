@@ -20,6 +20,7 @@ import type {
   DarvinGetMessagesResponse,
   DarvinListSessionsResponse,
   DarvinLLMConfig,
+  DarvinLocaleResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
   DarvinRuntimeStatus,
@@ -88,6 +89,14 @@ const api: DarvinApi = {
   },
   async setLLMConfig(req): Promise<DarvinSetLLMConfigResponse> {
     return ipcRenderer.invoke('darvin:set_llm_config', req);
+  },
+
+  // locale
+  async getLocale(): Promise<DarvinLocaleResponse> {
+    return ipcRenderer.invoke('darvin:get_locale');
+  },
+  async setLocale(req: { locale: 'zh' | 'en' }): Promise<void> {
+    return ipcRenderer.invoke('darvin:set_locale', req);
   },
 
   // 运行时状态
