@@ -131,45 +131,51 @@ func main() {
 		AssemblerEnabled:     cfg.Agent.AssemblerEnabled,
 	}
 
-	a, err := agent.New(agent.NewAgentConfig{
+	// Steer 仍接单例 Agent(本期不迁,见 spec §1.3 非目标)。这个 steerAgent
+	// 仅给 acp.NewSteerControl 持有,不会被任何 Loop 驱动、也不会订阅事件
+	// —— UI 本期不发 steer message,实际不影响行为。
+	steerAgent, err := agent.New(agent.NewAgentConfig{
 		Name:             cfg.App.Name + "-agent",
 		Instructions:     cfg.Agent.Instructions,
 		Model:            agent.ModelRef{Provider: cfg.Agent.ProviderName, Model: cfg.Agent.Model},
 		Provider:         provider,
-		Session:          session.NewSession("default"),
+		Session:          session.NewSession("steer-placeholder"),
 		Store:            sqliteStore,
 		MessageStore:     msgStore,
-		Logger:           log.Logger, // *logger.Logger embeds *zap.Logger; dereference for agent.NewAgentConfig.Logger (*zap.Logger).
+		Logger:           log.Logger,
 		Config:           agentCfg,
 		AssemblerEnabled: cfg.Agent.AssemblerEnabled,
 	})
 	if err != nil {
-		log.Error("failed to construct agent", zap.Error(err))
+		log.Error("failed to construct steer agent", zap.Error(err))
 		os.Exit(1)
 	}
-	log.Info("agent initialized",
-		zap.String("name", a.SessionHandle().ID),
-		zap.Bool("assembler_enabled", cfg.Agent.AssemblerEnabled),
-		zap.Int("token_budget", cfg.Agent.TokenBudget),
-	)
 
-	sessions := gateway.NewSessionManager()
+	factory := &acp.AgentFactory{
+		Name:             cfg.App.Name + "-agent",
+		Instructions:     cfg.Agent.Instructions,
+		Model:            agent.ModelRef{Provider: cfg.Agent.ProviderName, Model: cfg.Agent.Model},
+		Provider:         provider,
+		Store:            sqliteStore,
+		MessageStore:     msgStore,
+		Logger:           log.Logger,
+		Config:           agentCfg,
+		AssemblerEnabled: cfg.Agent.AssemblerEnabled,
+	}
+
 	ledger := gateway.NewEventLedger(log.Logger)
+	sessions := gateway.NewSessionManager(
+		gateway.WithAgentFactory(factory),
+		gateway.WithEventLedger(ledger),
+	)
+	steer := acp.NewSteerControl(steerAgent)
 
-	loop := acp.NewLoop(a)
-	a.AttachMessageIDSrc(loop.CurrentMessageID)
-	a.AttachRunIDSrc(loop.CurrentRunID)
-	steer := acp.NewSteerControl(a)
-
-	handler := gateway.NewHandler(sessions, ledger, loop, steer, sqliteStore, msgStore)
+	handler := gateway.NewHandler(sessions, ledger, steer, sqliteStore, msgStore)
 	gs := gateway.NewServer(handler, log.Logger)
 	if err := gs.Start(rootCtx); err != nil {
 		log.Error("gateway start failed", zap.Error(err))
 		os.Exit(1)
 	}
-
-	sub := a.Subscribe(64)
-	ledger.AttachSubscription(sub)
 
 	log.Info("application started successfully", zap.Int("port", gs.Port()))
 
@@ -185,12 +191,6 @@ func main() {
 	if err := gs.Shutdown(shutdownCtx); err != nil {
 		log.Error("gateway shutdown", zap.Error(err))
 	}
-
-	if err := a.Abort(context.Background()); err != nil {
-		log.Error("agent abort", zap.Error(err))
-	}
-
-	sub.Unsubscribe()
 
 	if err := sqliteStore.Close(); err != nil {
 		log.Error("sqlite close", zap.Error(err))

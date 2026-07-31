@@ -74,6 +74,8 @@ export interface DarvinPromptResponse {
   messageId: string;
   /** 本次 prompt 在 main 端生成的 runId（UUIDv4），abort / 事件路由用 */
   runId?: string;
+  /** true 表示该 turn 落在同 session 的 followUpQueue,要等上一条完成才真正起跑 */
+  queued?: boolean;
 }
 
 export interface DarvinAbortResponse {

@@ -12,13 +12,26 @@ import "encoding/json"
 const JSONRPCVersion = "2.0"
 
 // JSON-RPC 2.0 reserved error codes (spec §5.1). Application-defined codes
-// would live in the -32000..-32099 range.
+// live in the -32000..-32099 range.
 const (
 	CodeParseError     = -32700
 	CodeInvalidRequest = -32600
 	CodeMethodNotFound = -32601
 	CodeInvalidParams  = -32602
 	CodeInternalError  = -32603
+
+	// CodeSessionStalled: prompt 落在 Stop 之后的拒绝窗口内。
+	// 见 SessionManager.Stop / stoppedUntilMs。
+	CodeSessionStalled = -32001
+
+	// CodeNoAcpSession: handler 命中一个 entry 但其 AcpSession 还没建
+	//(subscribe 早于 prompt,且 SessionManager 未注入 factory)。
+	// 正常生产路径不会触发;只用于 handler 测试 stub。
+	CodeNoAcpSession = -32002
+
+	// CodeAgentInitFailed: factory.NewAcpSession 构造失败,SessionManager
+	// 已回滚 entry;renderer 可重试。
+	CodeAgentInitFailed = -32003
 )
 
 // Request is an inbound JSON-RPC call. ID is kept as raw JSON because the

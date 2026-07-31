@@ -1,12 +1,20 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.uber.org/zap"
+
+	"darvin-cowork/backend/internal/acp"
+	"darvin-cowork/backend/internal/agent"
+	"darvin-cowork/backend/internal/agent/event"
+	"darvin-cowork/backend/internal/agent/session"
+	"darvin-cowork/backend/internal/agent/store"
 )
 
 var idRe = regexp.MustCompile(`^[A-Za-z0-9]{21}$`)
@@ -28,33 +36,106 @@ func (n *nowCounter) advance(d time.Duration) {
 	n.t += d.Milliseconds()
 }
 
-// withFakeClock 给 SessionManager 注入 fake clock 与可调上限。
-//
-// NewSessionManager 用真实时间戳注册 default,所以这里把它踢掉用 fake
-// 时钟重新注册,后续 TTL 比较才不会被真实时钟污染。
 func withFakeClock(maxSessions int, idleTtl time.Duration) (*SessionManager, *nowCounter) {
 	clk := &nowCounter{t: 1_700_000_000_000}
 	m := NewSessionManager()
 	m.nowMs = clk.now
 	m.maxSessions = maxSessions
 	m.idleTtl = idleTtl
-
-	m.mu.Lock()
-	if def, ok := m.byID[DefaultSessionID]; ok {
-		def.lastTouchedMs = clk.t
-		if def.idleElem != nil {
-			m.idleOrder.MoveToBack(def.idleElem)
-		}
-	}
-	m.mu.Unlock()
-
 	return m, clk
 }
 
-func TestDefaultSessionRegisteredUpFront(t *testing.T) {
+func waitForRunning(t *testing.T, sub *event.Subscription) {
+	t.Helper()
+	select {
+	case <-sub.C():
+	case <-time.After(2 * time.Second):
+		t.Fatal("agent did not start running")
+	}
+}
+
+func waitForCondition(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("condition not met within budget")
+}
+
+// installRunningAcp 用 blocking provider 构 AcpSession 并把一个 turn
+// 推入 in-flight 状态,然后手动挂到 m 的 entry 上 —— 等价于懒建路径
+// 跑完之后的样子,只是绕开 GetOrCreateEntry 的工厂调用,避免在不动
+// factory 的测试里双建。
+//
+// 后台 goroutine 是镜像 attachAcpLocked 的 cancel 监听;evict 测试
+// 靠 poll Submit 拿 ErrLoopClosed 验证 Loop 确实被关掉。
+func installRunningAcp(t *testing.T, m *SessionManager, id, runID string) *acp.AcpSession {
+	t.Helper()
+	factory := &acp.AgentFactory{
+		Provider: &blockingProvider{},
+		Store:    store.NewMemoryStore(),
+		Logger:   zap.NewNop(),
+	}
+	sess, err := factory.NewAcpSession(id)
+	if err != nil {
+		t.Fatalf("NewAcpSession(%q): %v", id, err)
+	}
+	sub := sess.Agent.Subscribe(64)
+	t.Cleanup(func() {
+		sub.Unsubscribe()
+		m.mu.Lock()
+		e := m.byID[id]
+		var cancel context.CancelFunc
+		if e != nil && e.cancel != nil {
+			cancel = e.cancel
+			e.cancel = nil
+		}
+		m.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+		sess.Close()
+	})
+	ticket, err := sess.Loop.Submit(acp.PromptRequest{RunID: runID, Content: "test"})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if ticket.RunID != runID {
+		t.Fatalf("RunID = %q, want %q", ticket.RunID, runID)
+	}
+	waitForRunning(t, sub)
+	m.mu.Lock()
+	e, ok := m.byID[id]
+	if !ok {
+		e = &SessionEntry{
+			Session:       session.NewSession(id),
+			lastTouchedMs: m.nowMs(),
+		}
+		m.byID[id] = e
+		e.idleElem = m.idleOrder.PushFront(id)
+	}
+	e.Acp = sess
+	ctx, cancel := context.WithCancel(context.Background())
+	e.cancel = cancel
+	m.mu.Unlock()
+	go func() {
+		<-ctx.Done()
+		sess.Loop.Close()
+	}()
+	return sess
+}
+
+func TestNewSessionManagerStartsEmpty(t *testing.T) {
 	m := NewSessionManager()
-	if !m.Has(DefaultSessionID) {
-		t.Fatalf("expected Has(%q) true before any CreateOrGet", DefaultSessionID)
+	if m.Has(DefaultSessionID) {
+		t.Fatalf("expected fresh manager to have no entries; got %q pre-registered", DefaultSessionID)
+	}
+	if n := m.Len(); n != 0 {
+		t.Fatalf("Len = %d, want 0", n)
 	}
 }
 
@@ -165,51 +246,47 @@ func TestGetOrCreateEntrySerializes(t *testing.T) {
 			t.Fatalf("goroutine %d got a different entry: %p vs %p", i, results[i], results[0])
 		}
 	}
-	if n := m.Len(); n != 2 {
-		t.Fatalf("Len = %d, want 2 (default + shared)", n)
+	if n := m.Len(); n != 1 {
+		t.Fatalf("Len = %d, want 1 (shared only)", n)
 	}
 }
 
-// TestLRUEvictsIdleOnCap:软上限路径。max 已满时新 id 触发 LRU 驱逐 LRU
-// 尾的 idle entry;active run 不在被驱逐之列。
 func TestLRUEvictsIdleOnCap(t *testing.T) {
 	m, _ := withFakeClock(3, time.Hour)
-	if _, err := m.GetOrCreateEntry("s1"); err != nil {
-		t.Fatalf("seed s1: %v", err)
-	}
-	if _, err := m.GetOrCreateEntry("s2"); err != nil {
-		t.Fatalf("seed s2: %v", err)
+	for _, id := range []string{"s1", "s2", "s3"} {
+		if _, err := m.GetOrCreateEntry(id); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
 	}
 	if n := m.Len(); n != 3 {
 		t.Fatalf("Len before cap-hit = %d, want 3", n)
 	}
-	if _, err := m.GetOrCreateEntry("s3"); err != nil {
-		t.Fatalf("GetOrCreateEntry s3: %v", err)
+	for _, id := range []string{"s2", "s3", "s4"} {
+		if _, err := m.GetOrCreateEntry(id); err != nil {
+			t.Fatalf("touch %s: %v", id, err)
+		}
 	}
 	if n := m.Len(); n != 3 {
 		t.Fatalf("Len after eviction = %d, want 3", n)
 	}
-	if m.Has(DefaultSessionID) {
-		t.Fatalf("expected %q evicted (LRU tail)", DefaultSessionID)
+	if m.Has("s1") {
+		t.Fatalf("s1 must be evicted (LRU tail)")
 	}
-	for _, id := range []string{"s1", "s2", "s3"} {
+	for _, id := range []string{"s2", "s3", "s4"} {
 		if !m.Has(id) {
 			t.Fatalf("expected %q retained", id)
 		}
 	}
 }
 
-// TestActiveRunNotEvicted:核心不变量。default 被钉成 active run 后,新 id
-// 的 LRU 驱逐会跳过它,退而求其次驱逐 s1。
 func TestActiveRunNotEvicted(t *testing.T) {
 	m, _ := withFakeClock(2, time.Hour)
-	def, err := m.GetOrCreateEntry(DefaultSessionID)
-	if err != nil {
-		t.Fatalf("GetOrCreateEntry default: %v", err)
+	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
+		t.Fatalf("seed default: %v", err)
 	}
-	def.activeRun = &activeRunState{runId: "default-run"}
-	// 把 default 挪到 LRU 尾部,这样它就会成为 evictLRULocked 第一个扫到的。
+	installRunningAcp(t, m, DefaultSessionID, "default-run")
 	m.mu.Lock()
+	def := m.byID[DefaultSessionID]
 	if def.idleElem != nil {
 		m.idleOrder.MoveToBack(def.idleElem)
 	}
@@ -232,16 +309,13 @@ func TestActiveRunNotEvicted(t *testing.T) {
 	}
 }
 
-// TestActiveRunOnlyReturnsLimit:全是 active 时 evictLRULocked 找不到候选,
-// 上抛 ErrSessionsLimit 而不是无视 active run 驱逐。
 func TestActiveRunOnlyReturnsLimit(t *testing.T) {
 	m, _ := withFakeClock(2, time.Hour)
 	for _, id := range []string{DefaultSessionID, "s1"} {
-		e, err := m.GetOrCreateEntry(id)
-		if err != nil {
+		if _, err := m.GetOrCreateEntry(id); err != nil {
 			t.Fatalf("seed %s: %v", id, err)
 		}
-		e.activeRun = &activeRunState{runId: id + "-run"}
+		installRunningAcp(t, m, id, id+"-run")
 	}
 	_, err := m.GetOrCreateEntry("s2")
 	if !errors.Is(err, ErrSessionsLimit) {
@@ -249,9 +323,11 @@ func TestActiveRunOnlyReturnsLimit(t *testing.T) {
 	}
 }
 
-// TestReapIdleSessionsRemovesStale:fake clock 驱动 TTL。
 func TestReapIdleSessionsRemovesStale(t *testing.T) {
 	m, clk := withFakeClock(100, 100*time.Millisecond)
+	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
+		t.Fatalf("seed default: %v", err)
+	}
 	if _, err := m.GetOrCreateEntry("fresh"); err != nil {
 		t.Fatalf("seed fresh: %v", err)
 	}
@@ -269,14 +345,12 @@ func TestReapIdleSessionsRemovesStale(t *testing.T) {
 	}
 }
 
-// TestReapIdleSessionsKeepsActive:active run 不被 reap。
 func TestReapIdleSessionsKeepsActive(t *testing.T) {
 	m, clk := withFakeClock(100, 50*time.Millisecond)
-	def, err := m.GetOrCreateEntry(DefaultSessionID)
-	if err != nil {
+	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
-	def.activeRun = &activeRunState{runId: "run-1", cancelRun: func() {}}
+	installRunningAcp(t, m, DefaultSessionID, "run-1")
 	clk.advance(200 * time.Millisecond)
 	m.reapIdleSessions()
 	if !m.Has(DefaultSessionID) {
@@ -284,60 +358,48 @@ func TestReapIdleSessionsKeepsActive(t *testing.T) {
 	}
 }
 
-// TestStopByRunIdMatches:Stop 命中 active run,触发 cancel + 写 stoppedUntil。
 func TestStopByRunIdMatches(t *testing.T) {
 	m, _ := withFakeClock(100, time.Hour)
-	def, err := m.GetOrCreateEntry(DefaultSessionID)
-	if err != nil {
+	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
-	calls := atomic.Int32{}
-	def.activeRun = &activeRunState{
-		runId:     "run-1",
-		startedMs: 1,
-		msgId:     "m-1",
-		cancelRun: func() { calls.Add(1) },
-	}
+	sess := installRunningAcp(t, m, DefaultSessionID, "run-1")
 	if err := m.Stop(DefaultSessionID, "run-1"); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if calls.Load() != 1 {
-		t.Fatalf("cancelRun called %d times, want 1", calls.Load())
-	}
+	waitForCondition(t, func() bool { return sess.Loop.ActiveRunID() == "" })
+	m.mu.Lock()
+	def := m.byID[DefaultSessionID]
+	m.mu.Unlock()
 	if def.stoppedUntilMs <= def.lastTouchedMs {
 		t.Fatalf("stoppedUntilMs (%d) should be > lastTouchedMs (%d)",
 			def.stoppedUntilMs, def.lastTouchedMs)
 	}
 }
 
-// TestStopReturnsNotFoundAndMismatch:Stop 拒绝未匹配的三种情况。
 func TestStopReturnsNotFoundAndMismatch(t *testing.T) {
 	m, _ := withFakeClock(100, time.Hour)
 	if err := m.Stop("nope", "r"); !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("unknown session: err = %v, want ErrSessionNotFound", err)
 	}
-	def, err := m.GetOrCreateEntry(DefaultSessionID)
-	if err != nil {
+	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
 	if err := m.Stop(DefaultSessionID, "r"); !errors.Is(err, ErrRunMismatch) {
-		t.Fatalf("no-run stop: err = %v, want ErrRunMismatch", err)
+		t.Fatalf("no-Acp stop: err = %v, want ErrRunMismatch", err)
 	}
-	def.activeRun = &activeRunState{runId: "actual"}
+	installRunningAcp(t, m, DefaultSessionID, "actual")
 	if err := m.Stop(DefaultSessionID, "stale"); !errors.Is(err, ErrRunMismatch) {
 		t.Fatalf("wrong-id stop: err = %v, want ErrRunMismatch", err)
 	}
 }
 
-// TestStoppedUntilBlocksPrompt:Stop 后的拒绝窗口把同一 session 的下一个 prompt
-// 挡掉;窗口外放行。
 func TestStoppedUntilBlocksPrompt(t *testing.T) {
 	m, clk := withFakeClock(100, time.Hour)
-	def, err := m.GetOrCreateEntry(DefaultSessionID)
-	if err != nil {
+	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
-	def.activeRun = &activeRunState{runId: "run-1", cancelRun: func() {}}
+	installRunningAcp(t, m, DefaultSessionID, "run-1")
 	if err := m.Stop(DefaultSessionID, "run-1"); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
@@ -348,5 +410,140 @@ func TestStoppedUntilBlocksPrompt(t *testing.T) {
 	clk.advance(600 * time.Millisecond)
 	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("past-window prompt returned %v, want nil", err)
+	}
+}
+
+func TestSessionManager_LazyBuildPerSession(t *testing.T) {
+	prov := &blockingProvider{}
+	factory := &acp.AgentFactory{
+		Provider: prov,
+		Store:    store.NewMemoryStore(),
+		Logger:   zap.NewNop(),
+	}
+	m := NewSessionManager(WithAgentFactory(factory))
+	a, err := m.GetOrCreateEntry("a")
+	if err != nil {
+		t.Fatalf("GetOrCreateEntry a: %v", err)
+	}
+	b, err := m.GetOrCreateEntry("b")
+	if err != nil {
+		t.Fatalf("GetOrCreateEntry b: %v", err)
+	}
+	if a.Acp == nil || b.Acp == nil {
+		t.Fatalf("expected both entries to have AcpSession built; got a=%v b=%v", a.Acp, b.Acp)
+	}
+	if a.Acp == b.Acp {
+		t.Fatalf("two ids share the same AcpSession — per-session isolation broken")
+	}
+	if a.Acp.SessionID != "a" || b.Acp.SessionID != "b" {
+		t.Fatalf("AcpSessionID mismatch: a=%q b=%q", a.Acp.SessionID, b.Acp.SessionID)
+	}
+}
+
+func TestSessionManager_StopGoesToPerSessionLoop(t *testing.T) {
+	m := NewSessionManager()
+	sa := installRunningAcp(t, m, "a", "run-a")
+	if _, err := m.GetOrCreateEntry("b"); err != nil {
+		t.Fatalf("GetOrCreateEntry b: %v", err)
+	}
+	sb := installRunningAcp(t, m, "b", "run-b")
+
+	if err := m.Stop("a", "run-a"); err != nil {
+		t.Fatalf("Stop a/run-a: %v", err)
+	}
+	waitForCondition(t, func() bool { return sa.Loop.ActiveRunID() == "" })
+	if got := sb.Loop.ActiveRunID(); got != "run-b" {
+		t.Fatalf("b's loop.ActiveRunID = %q, want %q (must NOT have been cancelled)", got, "run-b")
+	}
+}
+
+func TestSessionManager_EvictClosesAcpSession(t *testing.T) {
+	m, _ := withFakeClock(2, time.Hour)
+	if _, err := m.GetOrCreateEntry("a"); err != nil {
+		t.Fatalf("seed a: %v", err)
+	}
+	sa := installRunningAcp(t, m, "a", "run-a")
+	if err := m.Stop("a", "run-a"); err != nil {
+		t.Fatalf("Stop a: %v", err)
+	}
+	waitForCondition(t, func() bool { return sa.Loop.ActiveRunID() == "" })
+
+	if _, err := m.GetOrCreateEntry("b"); err != nil {
+		t.Fatalf("seed b: %v", err)
+	}
+	if _, err := m.GetOrCreateEntry("c"); err != nil {
+		t.Fatalf("seed c: %v", err)
+	}
+	if m.Has("a") {
+		t.Fatalf("a must be evicted as LRU tail")
+	}
+	waitForCondition(t, func() bool {
+		_, err := sa.Loop.Submit(acp.PromptRequest{Content: "after-evict"})
+		return errors.Is(err, acp.ErrLoopClosed)
+	})
+}
+
+// Provider 故意为 nil 触发 agent.New 的 ErrProviderRequired —— 真实启动
+// 期会遇到的失败(配置错误 / 拿不到 key)比 mock factory 更贴实际。
+func TestSessionManager_LazyBuildFailureRollsBack(t *testing.T) {
+	factory := &acp.AgentFactory{
+		Provider: nil,
+		Logger:   zap.NewNop(),
+	}
+	m := NewSessionManager(WithAgentFactory(factory))
+
+	_, err := m.GetOrCreateEntry("doomed")
+	if !errors.Is(err, agent.ErrProviderRequired) {
+		t.Fatalf("err = %v, want ErrProviderRequired", err)
+	}
+	if m.Has("doomed") {
+		t.Fatalf("failed entry leaked into byID; subsequent GetOrCreateEntry would skip the factory retry")
+	}
+	if n := m.Len(); n != 0 {
+		t.Fatalf("Len = %d, want 0", n)
+	}
+}
+
+// FR-8 阶段 2 回归:renderer 启动期给历史 session 发 subscribe_events 留下
+// 大量 AcpSession=nil 的 entry,首个 prompt 到该 id 时 GetOrCreateEntry 命中
+// "现有 entry"分支,需要补建 AcpSession,不能直接返 CodeNoAcpSession。
+func TestSessionManager_PromptUpgradesEntryCreatedBySubscribe(t *testing.T) {
+	factory := &acp.AgentFactory{
+		Provider: &blockingProvider{},
+		Store:    store.NewMemoryStore(),
+		Logger:   zap.NewNop(),
+	}
+	m := NewSessionManager(WithAgentFactory(factory))
+
+	if _, err := m.EnsureEntry("sub-then-prompt"); err != nil {
+		t.Fatalf("EnsureEntry: %v", err)
+	}
+	m.mu.Lock()
+	empty := m.byID["sub-then-prompt"]
+	m.mu.Unlock()
+	if empty.Acp != nil {
+		t.Fatalf("EnsureEntry leaked AcpSession: %+v", empty)
+	}
+
+	upgraded, err := m.GetOrCreateEntry("sub-then-prompt")
+	if err != nil {
+		t.Fatalf("GetOrCreateEntry upgrade: %v", err)
+	}
+	if upgraded.Acp == nil {
+		t.Fatalf("expected AcpSession built on the upgrade path; got nil")
+	}
+	if upgraded.Acp.SessionID != "sub-then-prompt" {
+		t.Fatalf("AcpSessionID = %q, want %q", upgraded.Acp.SessionID, "sub-then-prompt")
+	}
+	if n := m.Len(); n != 1 {
+		t.Fatalf("Len = %d, want 1 (no leak)", n)
+	}
+
+	second, err := m.GetOrCreateEntry("sub-then-prompt")
+	if err != nil {
+		t.Fatalf("second GetOrCreateEntry: %v", err)
+	}
+	if second.Acp != upgraded.Acp {
+		t.Fatalf("second call must reuse the upgraded AcpSession, not rebuild")
 	}
 }

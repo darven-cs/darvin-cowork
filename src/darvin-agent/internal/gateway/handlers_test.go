@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
@@ -15,33 +16,37 @@ import (
 
 	"darvin-cowork/backend/internal/acp"
 	"darvin-cowork/backend/internal/agent"
+	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/llm"
 	"darvin-cowork/backend/internal/agent/session"
 	"darvin-cowork/backend/internal/agent/store"
 )
 
-// newTestHandler wires a real Agent + acp.Loop + acp.SteerControl on top
-// of a mock provider so handlers run against production code paths. The
-// provider emits one event then blocks — the spawned Run goroutine leaks
-// per test, which is fine because each test exits independently.
+// newTestHandler wires factory + SessionManager + SteerControl so handlers
+// run against production code paths. prompt 路径走 factory 懒建 AcpSession,
+// steer 路径接一个仅供 SteerControl 持有的 steerAgent(spec §1.3 非目标)。
 func newTestHandler(t *testing.T) (*Handler, *client) {
 	t.Helper()
 	prov := &blockingProvider{}
-	sess := session.NewSession(DefaultSessionID)
-	a, err := agent.New(agent.NewAgentConfig{
-		Session:  sess,
+	store := store.NewMemoryStore()
+	factory := &acp.AgentFactory{
 		Provider: prov,
+		Store:    store,
+		Logger:   zap.NewNop(),
+	}
+	steerAgent, err := agent.New(agent.NewAgentConfig{
+		Session:  session.NewSession("steer-placeholder"),
+		Provider: prov,
+		Store:    store,
 	})
 	if err != nil {
-		t.Fatalf("agent.New: %v", err)
+		t.Fatalf("agent.New steer: %v", err)
 	}
-	loop := acp.NewLoop(a)
-	a.AttachMessageIDSrc(loop.CurrentMessageID)
-	steer := acp.NewSteerControl(a)
-	sessions := NewSessionManager()
+	steer := acp.NewSteerControl(steerAgent)
+	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
-	handler := NewHandler(sessions, ledger, loop, steer, nil, nil)
+	handler := NewHandler(sessions, ledger, steer, nil, nil)
 	client := &client{
 		sessions: sessions,
 		ledger:   ledger,
@@ -59,18 +64,22 @@ var idRe21 = regexp.MustCompile(`^[A-Za-z0-9]{21}$`)
 func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionStore, store.MessageStore) {
 	t.Helper()
 	prov := &blockingProvider{}
-	sess := session.NewSession(DefaultSessionID)
-	a, err := agent.New(agent.NewAgentConfig{
-		Session:  sess,
+	memStore := store.NewMemoryStore()
+	factory := &acp.AgentFactory{
 		Provider: prov,
+		Store:    memStore,
+		Logger:   zap.NewNop(),
+	}
+	steerAgent, err := agent.New(agent.NewAgentConfig{
+		Session:  session.NewSession("steer-placeholder"),
+		Provider: prov,
+		Store:    memStore,
 	})
 	if err != nil {
-		t.Fatalf("agent.New: %v", err)
+		t.Fatalf("agent.New steer: %v", err)
 	}
-	loop := acp.NewLoop(a)
-	a.AttachMessageIDSrc(loop.CurrentMessageID)
-	steer := acp.NewSteerControl(a)
-	sessions := NewSessionManager()
+	steer := acp.NewSteerControl(steerAgent)
+	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
 
@@ -85,7 +94,7 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 	sessStore := store.NewSQLiteStore(db)
 	msgStore := store.NewSQLiteMessageStore(db)
 
-	handler := NewHandler(sessions, ledger, loop, steer, sessStore, msgStore)
+	handler := NewHandler(sessions, ledger, steer, sessStore, msgStore)
 	client := &client{
 		sessions: sessions,
 		ledger:   ledger,
@@ -498,6 +507,163 @@ func TestDispatchListGetMessagesNilStores(t *testing.T) {
 	}
 	if res, _ := resp.Result.(GetMessagesResult); res.Messages == nil {
 		t.Error("Messages nil with nil store")
+	}
+}
+
+// TestHandlePrompt_RoutesBySessionID:同 WS 连接上先后给 A、B 发 prompt,
+// 两条 prompt 落到各自 AcpSession.Loop,A/B 的 ActiveRunID 互不干扰。
+func TestHandlePrompt_RoutesBySessionID(t *testing.T) {
+	_, c := newTestHandler(t)
+	respA := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.prompt",
+		Params: json.RawMessage(`{"content":"hi","sessionId":"a"}`),
+	}, c, c.handler)
+	if respA.Error != nil {
+		t.Fatalf("prompt a: %+v", respA.Error)
+	}
+	resA := respA.Result.(PromptResult)
+	if resA.SessionID != "a" {
+		t.Fatalf("a sessionId = %q, want \"a\"", resA.SessionID)
+	}
+
+	respB := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.prompt",
+		Params: json.RawMessage(`{"content":"hi","sessionId":"b"}`),
+	}, c, c.handler)
+	if respB.Error != nil {
+		t.Fatalf("prompt b: %+v", respB.Error)
+	}
+	resB := respB.Result.(PromptResult)
+	if resB.SessionID != "b" {
+		t.Fatalf("b sessionId = %q, want \"b\"", resB.SessionID)
+	}
+
+	entryA, _ := c.sessions.GetOrCreateEntry("a")
+	entryB, _ := c.sessions.GetOrCreateEntry("b")
+	subA := entryA.Acp.Agent.Subscribe(8)
+	subB := entryB.Acp.Agent.Subscribe(8)
+	defer subA.Unsubscribe()
+	defer subB.Unsubscribe()
+	waitForSubEvent(t, subA)
+	waitForSubEvent(t, subB)
+	if got := entryA.Acp.Loop.ActiveRunID(); got == "" {
+		t.Errorf("a ActiveRunID is empty; expected in-flight")
+	}
+	if got := entryB.Acp.Loop.ActiveRunID(); got == "" {
+		t.Errorf("b ActiveRunID is empty; expected in-flight")
+	}
+	if entryA.Acp == entryB.Acp {
+		t.Fatalf("a and b share AcpSession — per-session isolation broken")
+	}
+}
+
+// TestHandleAbort_RoutesBySessionIDAndRunID:abort A 不影响 B。
+func TestHandleAbort_RoutesBySessionIDAndRunID(t *testing.T) {
+	_, c := newTestHandler(t)
+	respA := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.prompt",
+		Params: json.RawMessage(`{"content":"hi","sessionId":"a","runId":"run-a"}`),
+	}, c, c.handler)
+	if respA.Error != nil {
+		t.Fatalf("prompt a: %+v", respA.Error)
+	}
+	respB := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.prompt",
+		Params: json.RawMessage(`{"content":"hi","sessionId":"b","runId":"run-b"}`),
+	}, c, c.handler)
+	if respB.Error != nil {
+		t.Fatalf("prompt b: %+v", respB.Error)
+	}
+
+	entryA, _ := c.sessions.GetOrCreateEntry("a")
+	entryB, _ := c.sessions.GetOrCreateEntry("b")
+	subA := entryA.Acp.Agent.Subscribe(8)
+	subB := entryB.Acp.Agent.Subscribe(8)
+	defer subA.Unsubscribe()
+	defer subB.Unsubscribe()
+	waitForSubEvent(t, subA)
+	waitForSubEvent(t, subB)
+
+	abortResp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"3"`), Method: "agent.abort",
+		Params: json.RawMessage(`{"sessionId":"a","runId":"run-a"}`),
+	}, c, c.handler)
+	if abortResp.Error != nil {
+		t.Fatalf("abort a: %+v", abortResp.Error)
+	}
+
+	waitForCondition(t, func() bool { return entryA.Acp.Loop.ActiveRunID() == "" })
+	if got := entryB.Acp.Loop.ActiveRunID(); got != "run-b" {
+		t.Fatalf("b ActiveRunID = %q, want \"run-b\" (must NOT be cancelled)", got)
+	}
+}
+
+// TestHandlePrompt_QueuedForActiveSession:同 session 在跑时再发 prompt,
+// 第二条进 followUpQueue,响应 Queued=true;第一条完成后第二条起跑。
+func TestHandlePrompt_QueuedForActiveSession(t *testing.T) {
+	_, c := newTestHandler(t)
+	first := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.prompt",
+		Params: json.RawMessage(`{"content":"first","sessionId":"a"}`),
+	}, c, c.handler)
+	if first.Error != nil {
+		t.Fatalf("first prompt: %+v", first.Error)
+	}
+	if first.Result.(PromptResult).Queued {
+		t.Fatalf("first prompt should not be queued")
+	}
+	entryA, _ := c.sessions.GetOrCreateEntry("a")
+	subA := entryA.Acp.Agent.Subscribe(8)
+	defer subA.Unsubscribe()
+	waitForSubEvent(t, subA)
+
+	second := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.prompt",
+		Params: json.RawMessage(`{"content":"second","sessionId":"a"}`),
+	}, c, c.handler)
+	if second.Error != nil {
+		t.Fatalf("second prompt: %+v", second.Error)
+	}
+	if !second.Result.(PromptResult).Queued {
+		t.Fatalf("second prompt must report Queued=true (active run still in flight)")
+	}
+}
+
+// TestHandleSubscribeEvents_BuildsEntryNotAcp:FR-8 两阶段。subscribe
+// 只建 SessionEntry,不触发 AcpSession 懒建 —— 否则 renderer 订历史
+// session 时会拉起 N 个 Agent / Loop / 订阅。检查走 byID 直读而不是
+// GetOrCreateEntry,后者会触发"阶段 2"补建,掩盖 subscribe 自己的行为。
+func TestHandleSubscribeEvents_BuildsEntryNotAcp(t *testing.T) {
+	_, c := newTestHandler(t)
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.subscribe_events",
+		Params: json.RawMessage(`{"sessionId":"never-prompted"}`),
+	}, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("subscribe: %+v", resp.Error)
+	}
+	if !c.sessions.Has("never-prompted") {
+		t.Fatalf("expected SessionEntry created for the unknown id")
+	}
+	c.sessions.mu.Lock()
+	entry := c.sessions.byID["never-prompted"]
+	c.sessions.mu.Unlock()
+	if entry == nil {
+		t.Fatalf("entry vanished from byID")
+	}
+	if entry.Acp != nil {
+		t.Fatalf("subscribe must NOT trigger AcpSession build (FR-8 two-phase); got Acp=%+v", entry.Acp)
+	}
+}
+
+// waitForSubEvent 等订阅拿到任意事件,证明 Loop.run goroutine 已取出
+// 请求并设了 activeRun。
+func waitForSubEvent(t *testing.T, sub *event.Subscription) {
+	t.Helper()
+	select {
+	case <-sub.C():
+	case <-time.After(2 * time.Second):
+		t.Fatal("agent did not start running")
 	}
 }
 

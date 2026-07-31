@@ -23,10 +23,13 @@ type PromptParams struct {
 // PromptResult is the JSON-RPC result for agent.prompt. sessionId and
 // messageId are 21-char nanoids with no prefix (the spec rejected the
 // s-/m- scheme because the WS frame is opaque to the renderer).
+// Queued=true 表示该 turn 落在了同 session 的 followUpQueue,要等上一
+// 条完成才会真正起跑。
 type PromptResult struct {
 	SessionID string `json:"sessionId"`
 	RunID     string `json:"runId"`
 	MessageID string `json:"messageId"`
+	Queued    bool   `json:"queued,omitempty"`
 }
 
 // AbortParams is the JSON-RPC params for agent.abort. Both sessionId and
@@ -110,22 +113,23 @@ type MessageSummary struct {
 // Handler bundles the shared dependencies the JSON-RPC dispatch layer
 // needs. Each per-connection *client carries a reference alongside its
 // own write state; the read loop pulls handler into dispatchRequest.
+//
+// Loop 不再挂在 Handler 上 —— prompt 路径按 sessionID 路由到对应 entry 的
+// per-session Loop(见 handlePrompt)。Steer 仍接全局 Agent(本期不迁,见
+// spec §1.3 非目标)。
 type Handler struct {
 	Sessions     *SessionManager
 	Ledger       *EventLedger
-	Loop         *acp.Loop
 	Steer        acp.SteerControl
 	SessionStore store.SessionStore
 	MessageStore store.MessageStore
 }
 
-// NewHandler wires the six dependencies. main.go passes the singleton
-// SessionManager / EventLedger / acp.Loop / acp.SteerControl instances
-// plus the two stores that back list_sessions / get_messages.
+// NewHandler wires the dependencies. main.go 注入 SessionManager /
+// EventLedger / SteerControl 与两个 store;Loop 不再入参。
 func NewHandler(
 	s *SessionManager,
 	l *EventLedger,
-	loop *acp.Loop,
 	steer acp.SteerControl,
 	sessStore store.SessionStore,
 	msgStore store.MessageStore,
@@ -133,7 +137,6 @@ func NewHandler(
 	return &Handler{
 		Sessions:     s,
 		Ledger:       l,
-		Loop:         loop,
 		Steer:        steer,
 		SessionStore: sessStore,
 		MessageStore: msgStore,
@@ -162,6 +165,11 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 	}
 }
 
+// handlePrompt 把 prompt 路由到 sessionID 对应的 AcpSession.Loop。
+// ErrSessionStalled(Stop 拒绝窗口)返 CodeSessionStalled;factory
+// 构造失败返 CodeAgentInitFailed;handler 测试 stub 场景(entry.Acp
+// 为 nil)返 CodeNoAcpSession。空 sessionId 默认走 DefaultSessionID,
+// 与旧 CreateOrGet 行为一致。
 func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage, c *client, h *Handler) *Response {
 	if len(params) == 0 {
 		return errorResp(id, CodeInvalidParams, "params required", nil)
@@ -173,25 +181,31 @@ func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage,
 	if strings.TrimSpace(p.Content) == "" {
 		return errorResp(id, CodeInvalidParams, "content is required", nil)
 	}
-
-	// Resolve sessionId: empty falls through to the default session in
-	// SessionManager.GetOrCreateEntry. Any other value creates / returns
-	// the matching entry — non-default sessions are first-class now.
-	sess, _, err := c.sessions.CreateOrGet(p.SessionID)
-	if err != nil {
-		return errorResp(id, CodeInternalError, "session get-or-create", err)
+	sessionID := p.SessionID
+	if sessionID == "" {
+		sessionID = DefaultSessionID
 	}
-	// The messageId CreateOrGet returns is discarded: Loop.Submit mints the
-	// id that the run's events actually carry, and the renderer correlates
-	// notifications against that one.
-	ticket, err := h.Loop.Submit(acp.PromptRequest{RunID: p.RunID, Content: p.Content})
+
+	entry, err := c.sessions.GetOrCreateEntry(sessionID)
+	if err != nil {
+		if errors.Is(err, ErrSessionStalled) {
+			return errorResp(id, CodeSessionStalled, "session stalled", err)
+		}
+		return errorResp(id, CodeAgentInitFailed, "get session", err)
+	}
+	if entry.Acp == nil {
+		// handler 测试 stub 没注入 factory 时走这里。
+		return errorResp(id, CodeNoAcpSession, "no AcpSession bound", nil)
+	}
+	ticket, err := entry.Acp.Loop.Submit(acp.PromptRequest{RunID: p.RunID, Content: p.Content})
 	if err != nil {
 		return errorResp(id, CodeInternalError, "loop submit", err)
 	}
 	return successResp(id, PromptResult{
-		SessionID: sess.ID,
+		SessionID: entry.Session.ID,
 		RunID:     ticket.RunID,
 		MessageID: ticket.MessageID,
+		Queued:    ticket.Queued,
 	})
 }
 
@@ -218,6 +232,9 @@ func handleAbort(_ context.Context, id json.RawMessage, params json.RawMessage, 
 	return successResp(id, AbortResult{Aborted: true, SessionID: p.SessionID})
 }
 
+// handleSubscribeEvents 走两阶段(FR-8):EnsureEntry 只建 SessionEntry
+// 不触发 AcpSession 懒建,避免 renderer 订历史 session 时拉起 N 个 Agent /
+// Loop / 订阅。真正的事件源在首个 prompt 到达时才补建。
 func handleSubscribeEvents(_ context.Context, id json.RawMessage, params json.RawMessage, c *client, _ *Handler) *Response {
 	if len(params) == 0 {
 		return errorResp(id, CodeInvalidParams, "params required", nil)
@@ -229,9 +246,7 @@ func handleSubscribeEvents(_ context.Context, id json.RawMessage, params json.Ra
 	if p.SessionID == "" {
 		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
 	}
-	// 与 prompt 路径对齐：main 端先把 UUID 落 SessionStore 再发 subscribe，
-	// 此处尚未见过这个 id，让 SessionManager 自创建 entry 再订阅。
-	if _, _, err := c.sessions.CreateOrGet(p.SessionID); err != nil {
+	if _, err := c.sessions.EnsureEntry(p.SessionID); err != nil {
 		return errorResp(id, CodeInternalError, "subscribe session create", err)
 	}
 	c.ledger.Subscribe(p.SessionID, c)

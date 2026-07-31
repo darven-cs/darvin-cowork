@@ -182,6 +182,33 @@ func TestSubmitHonoursCallerRunID(t *testing.T) {
 	}
 }
 
+// TestLoop_ActiveRunID:idle 返 ""、in-flight 返当前 runID、turn 结束后
+// 重新返 "" —— 严格只反映 in-flight 状态。
+func TestLoop_ActiveRunID(t *testing.T) {
+	a, loop := newLoopForTest(t, &blockingProvider{})
+	sub := a.Subscribe(64)
+	defer sub.Unsubscribe()
+	t.Cleanup(loop.Close)
+
+	if got := loop.ActiveRunID(); got != "" {
+		t.Fatalf("idle ActiveRunID() = %q, want \"\"", got)
+	}
+
+	ticket, err := loop.Submit(PromptRequest{RunID: "live", Content: "hi"})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitRunning(t, sub)
+	if got := loop.ActiveRunID(); got != ticket.RunID {
+		t.Fatalf("in-flight ActiveRunID() = %q, want %q", got, ticket.RunID)
+	}
+
+	if !loop.Stop(ticket.RunID) {
+		t.Fatalf("Stop(%q) must report true", ticket.RunID)
+	}
+	waitFor(t, func() bool { return loop.ActiveRunID() == "" })
+}
+
 func TestLoopAbort(t *testing.T) {
 	a, loop := newLoopForTest(t, &blockingProvider{})
 	sub := a.Subscribe(64)
