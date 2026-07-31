@@ -37,13 +37,15 @@ import { useTheme } from '../../composables/useTheme';
 import IconButton from '../common/IconButton.vue';
 import RuntimeStatusBadge from '../runtime/RuntimeStatusBadge.vue';
 
-defineProps<{ sidePanelOpen: boolean }>();
+const props = defineProps<{ sidePanelOpen: boolean; title?: string }>();
 const emit = defineEmits<{ 'toggle-sidebar': []; 'toggle-side-panel': [] }>();
 
 const session = useSession();
 const theme = useTheme();
 const isDark = computed(() => theme.theme.value === 'dark');
 const title = computed(() => {
+  if (props.title) return props.title;
+  if (session.draftMode.value) return t('app.new_chat');
   const id = session.activeSessionId.value;
   const s = id ? session.sessions.value.find((x) => x.id === id) : undefined;
   return s?.title ?? 'Darvin';

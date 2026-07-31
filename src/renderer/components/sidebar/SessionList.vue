@@ -9,9 +9,11 @@
         :running="runningSessionIds.has(s.id)"
         :unread="unreadSessionIds.has(s.id)"
         @select="emit('select', $event)"
+        @rename="(id, title) => emit('rename', id, title)"
+        @delete="emit('delete', $event)"
       />
     </ul>
-    <p v-else class="px-3 py-4 text-xs text-text-muted">暂无会话</p>
+    <p v-else class="px-3 py-4 text-xs text-text-muted">{{ t('sidebar.session.empty') }}</p>
   </nav>
 </template>
 
@@ -20,9 +22,14 @@ import { computed } from 'vue';
 import type { DarvinSession } from '../../../shared/darvin-api';
 import SessionItem from './SessionItem.vue';
 import { useMessages } from '../../composables/useMessages';
+import { t } from '../../services/i18n';
 
 defineProps<{ sessions: DarvinSession[]; currentId: string }>();
-const emit = defineEmits<{ select: [id: string] }>();
+const emit = defineEmits<{
+  select: [id: string];
+  rename: [id: string, title: string];
+  delete: [id: string];
+}>();
 
 const messages = useMessages();
 const runningSessionIds = computed(() => messages.streamingSessionIds.value);

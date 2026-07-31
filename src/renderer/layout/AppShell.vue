@@ -6,7 +6,7 @@
     <Sidebar v-if="!sidebarCollapsed" class="col-start-1" @navigate="onSidebarNavigate" />
     <component
       :is="currentView"
-      class="col-start-2"
+      class="col-start-2 min-h-0"
       :side-panel-open="sidePanelOpen"
       @toggle-sidebar="sidebar.toggle"
       @toggle-side-panel="sidePanel.toggle"
@@ -24,6 +24,7 @@ import HomeView from '../views/HomeView.vue';
 import ChatView from '../views/ChatView.vue';
 import ExpertSuiteView from '../views/ExpertSuiteView.vue';
 import SettingsView from '../views/SettingsView.vue';
+import SearchView from '../views/SearchView.vue';
 import { useSidebar } from '../composables/useSidebar';
 import { useSidePanel } from '../composables/useSidePanel';
 import { useTheme } from '../composables/useTheme';
@@ -51,13 +52,14 @@ const currentView = computed(() => {
     case 'chat':     return ChatView;
     case 'suite':    return ExpertSuiteView;
     case 'settings': return SettingsView;
+    case 'search':   return SearchView;
     case 'home':
     default:         return HomeView;
   }
 });
 
 function navigateTo(target: string) {
-  if (target === 'home' || target === 'chat' || target === 'suite' || target === 'settings') {
+  if (target === 'home' || target === 'chat' || target === 'suite' || target === 'settings' || target === 'search') {
     viewMode.navigate(target as ViewMode);
   }
 }

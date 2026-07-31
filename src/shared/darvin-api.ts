@@ -106,8 +106,24 @@ export interface DarvinDeleteSessionResponse {
   nextActiveSessionId: string | null;
 }
 
+export interface DarvinRenameSessionResponse {
+  session: DarvinSession;
+}
+
 export interface DarvinActiveSessionResponse {
   sessionId: string | null;
+}
+
+/** 搜索结果里的一条消息命中：携带所属会话信息，供搜索页分组展示。 */
+export interface DarvinSearchHit {
+  sessionId: string;
+  sessionTitle: string;
+  message: DarvinMessage;
+}
+
+export interface DarvinSearchSessionsResponse {
+  sessions: DarvinSession[];
+  messages: DarvinSearchHit[];
 }
 
 export interface DarvinLLMConfig {
@@ -140,7 +156,9 @@ export interface DarvinApi {
   listSessions(): Promise<DarvinListSessionsResponse>;
   switchSession(sessionId: string): Promise<DarvinSwitchSessionResponse>;
   deleteSession(sessionId: string): Promise<DarvinDeleteSessionResponse>;
+  renameSession(sessionId: string, title: string): Promise<DarvinRenameSessionResponse>;
   getActiveSession(): Promise<DarvinActiveSessionResponse>;
+  searchSessions(query: string): Promise<DarvinSearchSessionsResponse>;
   onSessionsChanged(handler: (sessions: DarvinSession[]) => void): () => void;
   onActiveSessionChanged(handler: (sessionId: string | null) => void): () => void;
 

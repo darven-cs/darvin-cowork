@@ -23,7 +23,9 @@ import type {
   DarvinLocaleResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
+  DarvinRenameSessionResponse,
   DarvinRuntimeStatus,
+  DarvinSearchSessionsResponse,
   DarvinSetLLMConfigResponse,
   DarvinSession,
 } from '../shared/darvin-api';
@@ -42,8 +44,14 @@ const api: DarvinApi = {
   async deleteSession(sessionId: string): Promise<DarvinDeleteSessionResponse> {
     return ipcRenderer.invoke('darvin:delete_session', sessionId);
   },
+  async renameSession(sessionId: string, title: string): Promise<DarvinRenameSessionResponse> {
+    return ipcRenderer.invoke('darvin:rename_session', sessionId, title);
+  },
   async getActiveSession(): Promise<DarvinActiveSessionResponse> {
     return ipcRenderer.invoke('darvin:get_active_session');
+  },
+  async searchSessions(query: string): Promise<DarvinSearchSessionsResponse> {
+    return ipcRenderer.invoke('darvin:search_sessions', query);
   },
   onSessionsChanged(handler: (sessions: DarvinSession[]) => void): () => void {
     const wrap = (_e: unknown, sessions: DarvinSession[]) => handler(sessions);

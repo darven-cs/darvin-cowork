@@ -7,7 +7,7 @@
 
 import { ref } from 'vue';
 
-export type ViewMode = 'home' | 'chat' | 'suite' | 'settings';
+export type ViewMode = 'home' | 'chat' | 'suite' | 'settings' | 'search';
 
 const mode = ref<ViewMode>('home');
 
@@ -19,5 +19,6 @@ export function useViewMode() {
   function goChat(): void { mode.value = 'chat'; }
   function goSuite(): void { mode.value = 'suite'; }
   function goSettings(): void { mode.value = 'settings'; }
-  return { mode, navigate, goHome, goChat, goSuite, goSettings };
+  function goSearch(): void { mode.value = 'search'; }
+  return { mode, navigate, goHome, goChat, goSuite, goSettings, goSearch };
 }

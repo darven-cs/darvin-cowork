@@ -1,5 +1,5 @@
 <template>
-  <div ref="scrollRef" class="flex-1 overflow-y-auto px-6 py-8">
+  <div ref="scrollRef" class="min-h-0 flex-1 overflow-y-auto px-6 py-8">
     <div
       v-if="messageList.length === 0"
       class="flex h-full flex-col items-center justify-center gap-2 text-text-muted"

@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type {
   DarvinMessage,
+  DarvinSearchHit,
   DarvinSession,
   DarvinSessionStatus,
 } from '../../shared/darvin-api';
@@ -280,6 +281,37 @@ export class SessionStore {
     if (this.getSession(sessionId) === null) return false;
     this.stmts.updateTitle.run(title, Date.now(), sessionId);
     return true;
+  }
+
+  /** 按标题子串匹配会话，最近更新在前。 */
+  searchSessions(query: string): DarvinSession[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, title, claude_session_id, status, created_at, updated_at
+         FROM sessions WHERE title LIKE ?
+         ORDER BY updated_at DESC`,
+      )
+      .all(`%${query}%`) as SessionRowRaw[];
+    return rows.map(toSession);
+  }
+
+  /** 按消息内容子串匹配，携带所属会话标题供搜索页分组。 */
+  searchMessages(query: string, limit = 100): DarvinSearchHit[] {
+    const rows = this.db
+      .prepare(
+        `SELECT m.id, m.session_id, m.role, m.content, m.done, m.error, m.tool_label,
+                m.created_at, s.title AS session_title
+         FROM messages m JOIN sessions s ON s.id = m.session_id
+         WHERE m.content LIKE ?
+         ORDER BY m.created_at DESC
+         LIMIT ?`,
+      )
+      .all(`%${query}%`, limit) as Array<MessageRowRaw & { session_title: string }>;
+    return rows.map((r) => ({
+      sessionId: r.session_id,
+      sessionTitle: r.session_title,
+      message: toMessage(r),
+    }));
   }
 
   updateClaudeSessionId(sessionId: string, backendKey: string): boolean {

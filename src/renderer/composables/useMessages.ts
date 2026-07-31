@@ -168,6 +168,15 @@ export function useMessages() {
     { immediate: true },
   );
 
+  /** 会话删除后清掉其消息缓存与 streaming/unread 标记，避免残留。 */
+  function removeSession(sessionId: string): void {
+    const bucket = { ...messagesBySessionId.value };
+    delete bucket[sessionId];
+    messagesBySessionId.value = bucket;
+    streamingSessionIds.value = new Set([...streamingSessionIds.value].filter((s) => s !== sessionId));
+    unreadSessionIds.value = new Set([...unreadSessionIds.value].filter((s) => s !== sessionId));
+  }
+
   function reset(): void {
     messagesBySessionId.value = {};
     streamingSessionIds.value = new Set();
@@ -183,6 +192,7 @@ export function useMessages() {
     appendUserMessage,
     startAssistantMessage,
     appendEvent,
+    removeSession,
     reset,
   };
 }

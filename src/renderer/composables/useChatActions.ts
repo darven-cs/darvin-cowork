@@ -17,8 +17,14 @@ export function useChatActions() {
 
   async function send(content: string, busyRef: { value: boolean }): Promise<void> {
     if (!content.trim()) return;
-    const sessId = session.activeSessionId.value;
-    if (sessId === null) return;
+    // compose 态（点过「新建任务」）或没有 active session：先建会话再发。
+    // 用首条消息当标题，避免出现一堆「新建会话」空壳。
+    let sessId = session.activeSessionId.value;
+    if (session.draftMode.value || sessId === null) {
+      const created = await session.createSession(content.trim().slice(0, 30));
+      sessId = created.id;
+      session.draftMode.value = false;
+    }
     busyRef.value = true;
     messages.appendUserMessage(sessId, content);
     try {

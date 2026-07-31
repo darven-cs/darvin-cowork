@@ -12,10 +12,16 @@
  */
 
 import { ref } from 'vue';
-import type { DarvinSession } from '../../shared/darvin-api';
+import type { DarvinDeleteSessionResponse, DarvinSession } from '../../shared/darvin-api';
 
 const sessions = ref<DarvinSession[]>([]);
 const activeSessionId = ref<string | null>(null);
+/**
+ * compose 态：点了「新建任务」但还没发首条消息。此时 main 端没有新
+ * session，active 仍是上一个；UI 侧用该标志隐藏 active 高亮、让 send()
+ * 在发首条消息时再真正建会话。
+ */
+const draftMode = ref(false);
 let initialized = false;
 
 function ensureSubscribed(): void {
@@ -61,15 +67,28 @@ export function useSession() {
     activeSessionId.value = id;
   }
 
-  async function deleteSession(id: string): Promise<void> {
-    await window.darvin.deleteSession(id);
+  async function renameSession(id: string, title: string): Promise<void> {
+    const r = await window.darvin.renameSession(id, title);
+    sessions.value = sessions.value.map((s) => (s.id === id ? r.session : s));
+  }
+
+  async function deleteSession(id: string): Promise<DarvinDeleteSessionResponse> {
+    const r = await window.darvin.deleteSession(id);
+    sessions.value = sessions.value.filter((s) => s.id !== id);
+    activeSessionId.value = r.nextActiveSessionId;
+    return r;
   }
 
   return {
     sessions,
     activeSessionId,
+    draftMode,
     createSession,
     switchSession,
+    renameSession,
     deleteSession,
+    startNewTask: () => {
+      draftMode.value = true;
+    },
   };
 }

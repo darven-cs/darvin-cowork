@@ -6,7 +6,7 @@
       @toggle-side-panel="emit('toggle-side-panel')"
     />
 
-    <div class="flex-1 overflow-y-auto px-6 animate-fade-in">
+    <div class="min-h-0 flex-1 overflow-y-auto px-6 animate-fade-in">
       <div class="mx-auto flex h-full w-full max-w-[760px] flex-col items-center justify-center gap-6 py-10">
         <Mascot :size="96" />
         <HeroGreeting />

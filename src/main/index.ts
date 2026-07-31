@@ -28,6 +28,7 @@ import type {
   DarvinPromptRequest,
   DarvinPromptResponse,
   DarvinRuntimeStatus,
+  DarvinSearchSessionsResponse,
   DarvinSetLLMConfigResponse,
   DarvinSession,
 } from '../shared/darvin-api';
@@ -176,6 +177,26 @@ ipcMain.handle(
     broadcastSessions();
     broadcastActiveSession();
     return r;
+  },
+);
+
+ipcMain.handle(
+  'darvin:rename_session',
+  (_e, sessionId: string, title: string): { session: DarvinSession } => {
+    const safe = title.trim() === '' ? '新建会话' : title.trim();
+    const ok = store.updateTitle(sessionId, safe);
+    if (!ok) throw new Error('session not found');
+    broadcastSessions();
+    return { session: store.getSession(sessionId)! };
+  },
+);
+
+ipcMain.handle(
+  'darvin:search_sessions',
+  (_e, query: string): DarvinSearchSessionsResponse => {
+    const q = (query ?? '').trim();
+    if (!q) return { sessions: [], messages: [] };
+    return { sessions: store.searchSessions(q), messages: store.searchMessages(q) };
   },
 );
 
