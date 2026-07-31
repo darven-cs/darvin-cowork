@@ -99,8 +99,9 @@ go.work
 go.work.sum
 
 # Build artefacts produced by `node scripts/build-go.js`.
-bin/darvin-agent-*
-!bin/.gitkeep
+# 双星前缀覆盖任何深度的 bin/darvin-agent-*（防 `cd src/darvin-agent && go build` 调试残留）
+**/bin/darvin-agent-*
+!**/bin/.gitkeep
 
 # Playwright CLI debug artifacts
 .playwright-cli/

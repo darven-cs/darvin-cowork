@@ -1,5 +1,0 @@
-# SQLite databases produced by `go run ./cmd/app` and friends.
-# data.db is the legacy empty file from early S0/S1 dev runs —
-# sessions.db is the live store wired in S2.
-data.db
-sessions.db
