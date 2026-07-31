@@ -14,6 +14,7 @@
 import { app } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { DarvinLocale } from '../../shared/darvin-api';
 
 export interface UserSettingsLLM {
   api_key?: string;
@@ -22,6 +23,7 @@ export interface UserSettingsLLM {
 
 export interface UserSettings {
   llm?: UserSettingsLLM;
+  locale?: DarvinLocale;
 }
 
 function userSettingsPath(): string {
@@ -67,6 +69,7 @@ export async function writeUserSettingsYAML(patch: UserSettings): Promise<void> 
       api_key: patch.llm?.api_key ?? existing.llm?.api_key,
       base_url: patch.llm?.base_url ?? existing.llm?.base_url,
     },
+    locale: patch.locale ?? existing.locale,
   };
 
   const body =
@@ -75,7 +78,8 @@ export async function writeUserSettingsYAML(patch: UserSettings): Promise<void> 
     `llm:\n` +
     `  provider: anthropic\n` +
     `  api_key: ${yamlQuote(merged.llm?.api_key ?? '')}\n` +
-    `  base_url: ${yamlQuote(merged.llm?.base_url ?? '')}\n`;
+    `  base_url: ${yamlQuote(merged.llm?.base_url ?? '')}\n` +
+    `locale: ${merged.locale ?? 'zh'}\n`;
 
   await fs.writeFile(file, body, { encoding: 'utf8', mode: 0o600 });
 }
@@ -102,6 +106,14 @@ function parseSimpleYaml(src: string): UserSettings {
 
     if (!rawVal && !indented && !key.includes('.')) {
       section = key;
+      continue;
+    }
+    if (key === 'locale' && !indented) {
+      const val =
+        rawVal.startsWith('"') && rawVal.endsWith('"') ? rawVal.slice(1, -1) : rawVal;
+      if (val === 'zh' || val === 'en') {
+        root.locale = val;
+      }
       continue;
     }
     const val =
