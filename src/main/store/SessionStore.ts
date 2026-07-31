@@ -104,6 +104,7 @@ export class SessionStore {
     selectMessages: SqliteStatement;
     updateMessageContent: SqliteStatement;
     markMessageDone: SqliteStatement;
+    markDoneOnly: SqliteStatement;
     markMessageError: SqliteStatement;
     lastUpdatedSession: SqliteStatement;
   };
@@ -146,10 +147,13 @@ export class SessionStore {
          LIMIT ? OFFSET ?`,
       ),
       updateMessageContent: this.db.prepare(
-        `UPDATE messages SET content = ? WHERE id = ?`,
+        `UPDATE messages SET content = content || ? WHERE id = ?`,
       ),
       markMessageDone: this.db.prepare(
         `UPDATE messages SET done = 1, content = ? WHERE id = ?`,
+      ),
+      markDoneOnly: this.db.prepare(
+        `UPDATE messages SET done = 1 WHERE id = ?`,
       ),
       markMessageError: this.db.prepare(
         `UPDATE messages SET done = 1, error = ? WHERE id = ?`,
@@ -243,7 +247,7 @@ export class SessionStore {
 
   /**
    * 累加 assistant message 的 streaming 内容。EventRouter 在收到
-   * text_delta 时调，按 messageId upsert。
+   * text_delta 时调，按 messageId 追加到已有 content 尾部。
    */
   appendMessageDelta(messageId: string, delta: string): void {
     this.stmts.updateMessageContent.run(delta, messageId);
@@ -257,7 +261,9 @@ export class SessionStore {
     if (finalContent !== undefined) {
       this.stmts.markMessageDone.run(finalContent, messageId);
     } else {
-      this.stmts.markMessageDone.run('', messageId);
+      // 不传 finalContent 时只标 done，保留已累加的 streaming content，
+      // 否则 done 事件会把回复内容清空导致历史 reload 后空壳。
+      this.stmts.markDoneOnly.run(messageId);
     }
   }
 

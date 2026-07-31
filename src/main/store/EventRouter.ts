@@ -24,7 +24,8 @@ interface Logger {
 /**
  * 把 darvin event 落库。EventRouter 唯一允许写入 message 表的位置。
  *
- * - `text_delta` / `thinking_delta`：按 messageId 累加 content
+ * - `text_delta`：按 messageId 累加 content（thinking_delta 不落 content，
+ *   保持历史里的 assistant 回复是纯正文）
  * - `done`：标 done=true
  * - `error`：标 done + error 字段
  * - `tool_start` / `tool_end`：不落库（tool label 只在 renderer 端临时展示，刷新即丢）
@@ -33,8 +34,9 @@ interface Logger {
 function applyToStore(store: SessionStore, ev: DarvinEvent): void {
   switch (ev.type) {
     case 'text_delta':
-    case 'thinking_delta':
       store.appendMessageDelta(ev.messageId, ev.delta);
+      return;
+    case 'thinking_delta':
       return;
     case 'done':
       store.markMessageDone(ev.messageId);
