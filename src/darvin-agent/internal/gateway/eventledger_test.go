@@ -78,7 +78,7 @@ func TestMapEventToTSShapes(t *testing.T) {
 // silently breaks the UI: a delta lands on no message, or an error leaves
 // the bubble spinning with no text.
 func TestMapEventToTSCarriesMessageID(t *testing.T) {
-	ec := event.EventBase{EventCommon: event.EventCommon{SessionID: "s1", MessageID: "m1"}}
+	ec := event.EventBase{EventCommon: event.EventCommon{SessionID: "s1", RunID: "r1", MessageID: "m1"}}
 
 	cases := []struct {
 		name string
@@ -88,22 +88,22 @@ func TestMapEventToTSCarriesMessageID(t *testing.T) {
 		{
 			name: "text_delta",
 			ev:   event.TextDeltaEvent{EventBase: ec, Delta: "x"},
-			want: map[string]any{"type": "text_delta", "delta": "x", "messageId": "m1"},
+			want: map[string]any{"type": "text_delta", "sessionId": "s1", "runId": "r1", "delta": "x", "messageId": "m1"},
 		},
 		{
 			name: "thinking_delta",
 			ev:   event.ThinkingDeltaEvent{EventBase: ec, Delta: "t"},
-			want: map[string]any{"type": "thinking_delta", "delta": "t", "messageId": "m1"},
+			want: map[string]any{"type": "thinking_delta", "sessionId": "s1", "runId": "r1", "delta": "t", "messageId": "m1"},
 		},
 		{
 			name: "llm_end maps to done",
 			ev:   event.LLMEndEvent{EventBase: ec},
-			want: map[string]any{"type": "done", "messageId": "m1"},
+			want: map[string]any{"type": "done", "sessionId": "s1", "runId": "r1", "messageId": "m1"},
 		},
 		{
 			name: "agent_error maps to error",
 			ev:   event.AgentErrorEvent{EventBase: ec, Err: errors.New("boom")},
-			want: map[string]any{"type": "error", "messageId": "m1", "message": "boom"},
+			want: map[string]any{"type": "error", "sessionId": "s1", "runId": "r1", "messageId": "m1", "message": "boom"},
 		},
 	}
 
@@ -122,6 +122,21 @@ func TestMapEventToTSCarriesMessageID(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestMapEventToTSOmitsEmptySessionAndRun pins down the contract that
+// empty sessionId / runId fields in EventCommon do NOT show up in the
+// output. Empty Common fields mean "uncorrelated" — the consumer must
+// not pretend they carry meaning.
+func TestMapEventToTSOmitsEmptySessionAndRun(t *testing.T) {
+	ec := event.EventBase{EventCommon: event.EventCommon{MessageID: "m1"}}
+	got := mapEventToTS(event.TextDeltaEvent{EventBase: ec, Delta: "x"}, "").(map[string]any)
+	if _, present := got["sessionId"]; present {
+		t.Errorf("sessionId present for empty EventCommon.SessionID; got %+v", got)
+	}
+	if _, present := got["runId"]; present {
+		t.Errorf("runId present for empty EventCommon.RunID; got %+v", got)
 	}
 }
 

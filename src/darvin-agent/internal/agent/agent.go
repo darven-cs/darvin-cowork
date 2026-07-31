@@ -121,6 +121,12 @@ type Agent struct {
 	// correlate events back to the prompt that produced them.
 	msgIDSrc func() string
 
+	// runIDSrc is wired by the ACP loop via AttachRunIDSrc. The executor
+	// reads it through Deps.CurrentRunID to populate EventCommon.RunID on
+	// every emitted event so the renderer can abort a specific turn and
+	// the renderer store can demultiplex events by turn id.
+	runIDSrc func() string
+
 	assembler        ctxengine.ContextEngine
 	assemblerEnabled bool
 
@@ -287,6 +293,14 @@ func (a *Agent) AttachMessageIDSrc(src func() string) {
 	a.msgIDSrc = src
 }
 
+// AttachRunIDSrc wires the function the executor and dispatcher query
+// (via Deps.CurrentRunID) to read the in-flight runID. main.go passes a
+// method value of acp.Loop.CurrentRunID so every emitted event's
+// EventCommon.RunID matches the prompt that triggered the run.
+func (a *Agent) AttachRunIDSrc(src func() string) {
+	a.runIDSrc = src
+}
+
 // CurrentMessageID satisfies executor.Deps. Returns "" when no messageID
 // source has been wired or when the agent is idle.
 func (a *Agent) CurrentMessageID() string {
@@ -294,4 +308,13 @@ func (a *Agent) CurrentMessageID() string {
 		return ""
 	}
 	return a.msgIDSrc()
+}
+
+// CurrentRunID satisfies executor.Deps. Returns "" when no runID source
+// has been wired or when the agent is idle.
+func (a *Agent) CurrentRunID() string {
+	if a.runIDSrc == nil {
+		return ""
+	}
+	return a.runIDSrc()
 }

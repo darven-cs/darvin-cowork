@@ -86,6 +86,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.bus.Emit(event.AgentEndEvent{
 			EventBase: event.EventBase{EventCommon: event.EventCommon{
 				SessionID: a.session.ID,
+				RunID:     a.CurrentRunID(),
 				MessageID: runMsgID,
 			}},
 			TotalTurns: totalTurns,
@@ -94,7 +95,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}()
 
 	a.bus.Emit(event.RunStartEvent{
-		EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: a.session.ID}},
+		EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: a.session.ID, RunID: a.CurrentRunID()}},
 	})
 
 	for {
@@ -112,6 +113,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.bus.Emit(event.PromptReceivedEvent{
 			EventBase: event.EventBase{EventCommon: event.EventCommon{
 				SessionID: a.session.ID,
+				RunID:     a.CurrentRunID(),
 				MessageID: runMsgID,
 			}},
 			Content: msg.Content,
@@ -145,6 +147,7 @@ func (a *Agent) Run(ctx context.Context) error {
 				a.bus.Emit(event.AgentErrorEvent{
 					EventBase: event.EventBase{EventCommon: event.EventCommon{
 						SessionID: a.session.ID,
+						RunID:     a.CurrentRunID(),
 						MessageID: runMsgID,
 					}},
 					Err: ErrAborted,
@@ -154,6 +157,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			a.bus.Emit(event.AgentErrorEvent{
 				EventBase: event.EventBase{EventCommon: event.EventCommon{
 					SessionID: a.session.ID,
+					RunID:     a.CurrentRunID(),
 					MessageID: runMsgID,
 				}},
 				Err: err,
@@ -161,7 +165,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			return err
 		}
 		a.bus.Emit(event.RunEndEvent{
-			EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: a.session.ID}},
+			EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: a.session.ID, RunID: a.CurrentRunID()}},
 			Turns:     turnsThisRun,
 		})
 

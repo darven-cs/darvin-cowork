@@ -63,6 +63,11 @@ type Deps interface {
 	// every emitted event so downstream consumers (EventLedger, renderer)
 	// can correlate events back to the originating prompt.
 	CurrentMessageID() string
+	// CurrentRunID returns the caller-minted runID the ACP loop assigned
+	// to the prompt that triggered the in-flight run. The executor embeds
+	// it on every emitted event so downstream consumers can abort a
+	// specific turn and demultiplex events by turn id.
+	CurrentRunID() string
 }
 
 // Executor runs one "user message -> possibly many turns -> natural stop"
@@ -89,6 +94,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 	ec := func() event.EventCommon {
 		return event.EventCommon{
 			SessionID: d.Session().ID,
+			RunID:     d.CurrentRunID(),
 			MessageID: d.CurrentMessageID(),
 		}
 	}

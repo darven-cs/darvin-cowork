@@ -80,6 +80,7 @@ type Loop struct {
 	steerQueue    []promptReq
 	followUpQueue []promptReq
 	curMsg        string
+	curRunID      string
 	closed        bool
 
 	idGen func() string
@@ -207,6 +208,16 @@ func (l *Loop) CurrentMessageID() string {
 	return l.curMsg
 }
 
+// CurrentRunID returns the runID of the turn currently running, or of the
+// last one that ran when the session is idle. The executor and
+// dispatcher read this via Deps.CurrentRunID to stamp EventCommon.RunID
+// on every emitted event so the renderer can abort a specific turn.
+func (l *Loop) CurrentRunID() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.curRunID
+}
+
 // run is the single turn-executing goroutine.
 func (l *Loop) run() {
 	defer close(l.done)
@@ -261,6 +272,7 @@ func (l *Loop) executeTurn(req promptReq) {
 	l.mu.Lock()
 	l.activeRun = &activeRunState{runID: req.runID, cancelRun: cancelRun}
 	l.curMsg = req.msgID
+	l.curRunID = req.runID
 	l.mu.Unlock()
 
 	defer func() {

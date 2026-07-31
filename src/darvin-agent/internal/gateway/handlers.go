@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"darvin-cowork/backend/internal/acp"
@@ -11,9 +12,12 @@ import (
 
 // PromptParams is the JSON-RPC params for agent.prompt. sessionId is
 // optional; when omitted the gateway allocates the default session.
+// runId is optional; when omitted the gateway mints one so the result
+// always carries a non-empty correlation token.
 type PromptParams struct {
 	Content   string `json:"content"`
 	SessionID string `json:"sessionId,omitempty"`
+	RunID     string `json:"runId,omitempty"`
 }
 
 // PromptResult is the JSON-RPC result for agent.prompt. sessionId and
@@ -21,12 +25,15 @@ type PromptParams struct {
 // s-/m- scheme because the WS frame is opaque to the renderer).
 type PromptResult struct {
 	SessionID string `json:"sessionId"`
+	RunID     string `json:"runId"`
 	MessageID string `json:"messageId"`
 }
 
-// AbortParams is the JSON-RPC params for agent.abort.
+// AbortParams is the JSON-RPC params for agent.abort. Both sessionId and
+// runId identify the target turn; an unknown pair returns -32602.
 type AbortParams struct {
 	SessionID string `json:"sessionId"`
+	RunID     string `json:"runId"`
 }
 
 // AbortResult is the JSON-RPC result for agent.abort.
@@ -167,33 +174,46 @@ func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage,
 		return errorResp(id, CodeInvalidParams, "content is required", nil)
 	}
 
-	// Single-session guard: only the default session may drive the Agent,
-	// because the Agent is constructed against exactly one session and the
-	// ledger routes events by that session's id. Empty SessionID resolves
-	// to the default inside CreateOrGet; any other value is rejected
-	// before we touch the Loop.
-	if p.SessionID != "" && p.SessionID != c.sessions.DefaultID() {
-		return errorResp(id, CodeInvalidParams, "session not active", nil)
+	// Resolve sessionId: empty falls through to the default session in
+	// SessionManager.GetOrCreateEntry. Any other value creates / returns
+	// the matching entry — non-default sessions are first-class now.
+	sess, _, err := c.sessions.CreateOrGet(p.SessionID)
+	if err != nil {
+		return errorResp(id, CodeInternalError, "session get-or-create", err)
 	}
-
-	sess, _, _ := c.sessions.CreateOrGet(p.SessionID)
 	// The messageId CreateOrGet returns is discarded: Loop.Submit mints the
 	// id that the run's events actually carry, and the renderer correlates
 	// notifications against that one.
-	ticket, err := h.Loop.Submit(acp.PromptRequest{Content: p.Content})
+	ticket, err := h.Loop.Submit(acp.PromptRequest{RunID: p.RunID, Content: p.Content})
 	if err != nil {
 		return errorResp(id, CodeInternalError, "loop submit", err)
 	}
-	return successResp(id, PromptResult{SessionID: sess.ID, MessageID: ticket.MessageID})
+	return successResp(id, PromptResult{
+		SessionID: sess.ID,
+		RunID:     ticket.RunID,
+		MessageID: ticket.MessageID,
+	})
 }
 
-func handleAbort(ctx context.Context, id json.RawMessage, params json.RawMessage, _ *client, h *Handler) *Response {
+func handleAbort(_ context.Context, id json.RawMessage, params json.RawMessage, _ *client, h *Handler) *Response {
 	var p AbortParams
 	if len(params) > 0 {
-		_ = json.Unmarshal(params, &p)
+		if err := json.Unmarshal(params, &p); err != nil {
+			return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+		}
 	}
-	if err := h.Loop.Abort(ctx); err != nil {
-		return errorResp(id, CodeInternalError, "loop abort", err)
+	if p.SessionID == "" || p.RunID == "" {
+		return errorResp(id, CodeInvalidParams, "sessionId and runId are required", nil)
+	}
+	if err := h.Sessions.Stop(p.SessionID, p.RunID); err != nil {
+		switch {
+		case errors.Is(err, ErrSessionNotFound):
+			return errorResp(id, CodeInvalidParams, "unknown sessionId", nil)
+		case errors.Is(err, ErrRunMismatch):
+			return errorResp(id, CodeInvalidParams, "runId does not match the active run", nil)
+		default:
+			return errorResp(id, CodeInternalError, "session stop", err)
+		}
 	}
 	return successResp(id, AbortResult{Aborted: true, SessionID: p.SessionID})
 }

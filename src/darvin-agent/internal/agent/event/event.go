@@ -31,6 +31,7 @@ const (
 // Consumers read it through Event.Common() — no type switch needed.
 type EventCommon struct {
 	SessionID string
+	RunID     string
 	MessageID string
 }
 

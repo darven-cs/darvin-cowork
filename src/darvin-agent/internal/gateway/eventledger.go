@@ -140,29 +140,41 @@ func (l *EventLedger) EmitStub(sessionID, msgID, content string) {
 // shapes; events not matched here fall through to a bare {type, ...}
 // envelope so a new event class can't accidentally disappear.
 //
-// No sessionId is forwarded: the TS contract (src/shared/darvin-api.ts)
-// ties each event to the WS message id, not the session. A client
-// multiplexes sessions over a single WS, so a per-event sessionId would
-// duplicate the routing state already held in the client's own store.
+// sessionId and runId are read from the embedded EventCommon so the
+// renderer store can demultiplex events onto the per-session / per-turn
+// indexes regardless of which WS the notification arrived on. They are
+// omitted from events that don't carry them (e.g. a legacy event with
+// an empty Common) so consumers don't have to special-case missing
+// fields.
 func mapEventToTS(ev event.Event, _ string) any {
+	common := ev.Common()
+	withCommon := func(m map[string]any) map[string]any {
+		if common.SessionID != "" {
+			m["sessionId"] = common.SessionID
+		}
+		if common.RunID != "" {
+			m["runId"] = common.RunID
+		}
+		return m
+	}
 	switch e := ev.(type) {
 	case event.TextDeltaEvent:
-		return map[string]any{
+		return withCommon(map[string]any{
 			"type":      ev.EventName(),
 			"delta":     e.Delta,
 			"messageId": ev.Common().MessageID,
-		}
+		})
 	case event.ThinkingDeltaEvent:
-		return map[string]any{
+		return withCommon(map[string]any{
 			"type":      ev.EventName(),
 			"delta":     e.Delta,
 			"messageId": ev.Common().MessageID,
-		}
+		})
 	case event.LLMEndEvent:
-		out := map[string]any{
+		out := withCommon(map[string]any{
 			"type":      "done",
 			"messageId": ev.Common().MessageID,
-		}
+		})
 		// Surface Usage as an optional `usage` block. Token accounting is
 		// the renderer's hook for displaying cost / progress; the field is
 		// omitted (rather than zero-valued) so consumers that don't care
@@ -177,33 +189,33 @@ func mapEventToTS(ev event.Event, _ string) any {
 		}
 		return out
 	case event.AgentEndEvent:
-		return map[string]any{
+		return withCommon(map[string]any{
 			"type": ev.EventName(),
-		}
+		})
 	case event.ToolStartEvent:
-		return map[string]any{
+		return withCommon(map[string]any{
 			"type":    ev.EventName(),
 			"tool":    e.Name,
 			"input":   e.Arguments,
 			"message": map[string]any{"id": e.CallID},
-		}
+		})
 	case event.ToolEndEvent:
-		return map[string]any{
+		return withCommon(map[string]any{
 			"type":    ev.EventName(),
 			"tool":    e.Result.Content,
 			"message": map[string]any{"id": e.CallID},
-		}
+		})
 	case event.AgentErrorEvent:
 		// Field names match the DarvinEvent 'error' variant in
 		// src/shared/darvin-api.ts: the renderer looks the message up by
 		// messageId and renders `message` on the bubble.
-		return map[string]any{
+		return withCommon(map[string]any{
 			"type":      "error",
 			"messageId": ev.Common().MessageID,
 			"message":   e.Err.Error(),
-		}
+		})
 	default:
-		return map[string]any{"type": ev.EventName()}
+		return withCommon(map[string]any{"type": ev.EventName()})
 	}
 }
 

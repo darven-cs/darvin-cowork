@@ -196,18 +196,44 @@ func TestDispatchPromptThenSubscribeRoutes(t *testing.T) {
 	}
 }
 
-func TestDispatchPromptRejectsUnknownSession(t *testing.T) {
+// TestDispatchPromptAcceptsArbitrarySessionID verifies the handler
+// resolves a non-default sessionId through SessionManager.GetOrCreate
+// (i.e. the session is allocated on first prompt) rather than rejecting
+// it like the previous single-session guard did.
+func TestDispatchPromptAcceptsArbitrarySessionID(t *testing.T) {
 	_, c := newTestHandler(t)
 	req := &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.prompt",
-		Params: json.RawMessage(`{"content":"hi","sessionId":"unknown"}`),
+		Params: json.RawMessage(`{"content":"hi","sessionId":"new-session"}`),
 	}
 	resp := dispatchRequest(context.Background(), req, c, c.handler)
-	if resp.Error == nil || resp.Error.Code != CodeInvalidParams {
-		t.Fatalf("expected invalid params for unknown session, got %+v", resp)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
 	}
-	if resp.Error == nil || resp.Error.Message != "session not active" {
-		t.Fatalf("expected 'session not active' message, got %+v", resp.Error)
+	res := resp.Result.(PromptResult)
+	if res.SessionID != "new-session" {
+		t.Fatalf("sessionId = %q, want %q", res.SessionID, "new-session")
+	}
+	if !c.sessions.Has(res.SessionID) {
+		t.Fatalf("expected session %q to be registered", res.SessionID)
+	}
+}
+
+// TestDispatchPromptHonoursCallerRunID verifies the runId the caller
+// passes back on PromptResult so the renderer can pin aborts to it.
+func TestDispatchPromptHonoursCallerRunID(t *testing.T) {
+	_, c := newTestHandler(t)
+	req := &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.prompt",
+		Params: json.RawMessage(`{"content":"hi","runId":"caller-run"}`),
+	}
+	resp := dispatchRequest(context.Background(), req, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res := resp.Result.(PromptResult)
+	if res.RunID != "caller-run" {
+		t.Fatalf("runId = %q, want %q", res.RunID, "caller-run")
 	}
 }
 
@@ -226,15 +252,36 @@ func TestDispatchAbort(t *testing.T) {
 	_, c := newTestHandler(t)
 	req := &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.abort",
+		Params: json.RawMessage(`{"sessionId":"any","runId":"r1"}`),
+	}
+	resp := dispatchRequest(context.Background(), req, c, c.handler)
+	if resp.Error == nil || resp.Error.Code != CodeInvalidParams {
+		t.Fatalf("expected invalid params for unknown session, got %+v", resp)
+	}
+}
+
+func TestDispatchAbortMissingRunID(t *testing.T) {
+	_, c := newTestHandler(t)
+	req := &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.abort",
 		Params: json.RawMessage(`{"sessionId":"any"}`),
 	}
 	resp := dispatchRequest(context.Background(), req, c, c.handler)
-	if resp.Error != nil {
-		t.Fatalf("unexpected error: %+v", resp.Error)
+	if resp.Error == nil || resp.Error.Code != CodeInvalidParams {
+		t.Fatalf("expected invalid params when runId missing, got %+v", resp)
 	}
-	res, _ := resp.Result.(AbortResult)
-	if !res.Aborted {
-		t.Fatalf("expected aborted=true, got %+v", res)
+}
+
+func TestDispatchAbortKnownSessionMismatch(t *testing.T) {
+	_, c := newTestHandler(t)
+	c.sessions.GetOrCreateEntry("any")
+	req := &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.abort",
+		Params: json.RawMessage(`{"sessionId":"any","runId":"r1"}`),
+	}
+	resp := dispatchRequest(context.Background(), req, c, c.handler)
+	if resp.Error == nil || resp.Error.Code != CodeInvalidParams {
+		t.Fatalf("expected invalid params for run mismatch, got %+v", resp)
 	}
 }
 

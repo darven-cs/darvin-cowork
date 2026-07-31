@@ -158,6 +158,7 @@ func main() {
 
 	loop := acp.NewLoop(a)
 	a.AttachMessageIDSrc(loop.CurrentMessageID)
+	a.AttachRunIDSrc(loop.CurrentRunID)
 	steer := acp.NewSteerControl(a)
 
 	handler := gateway.NewHandler(sessions, ledger, loop, steer, sqliteStore, msgStore)

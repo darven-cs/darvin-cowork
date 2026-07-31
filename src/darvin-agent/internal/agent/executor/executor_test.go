@@ -77,6 +77,9 @@ type fakeDeps struct {
 	// messageID is read via CurrentMessageID; tests inject one to assert
 	// the executor tags every emitted event with the right MessageID.
 	messageID string
+	// runID is read via CurrentRunID; tests inject one to assert the
+	// executor tags every emitted event with the right RunID.
+	runID string
 }
 
 // injectAssembler wires a non-nil ContextEngine into the fakeDeps so the
@@ -103,6 +106,7 @@ func (f *fakeDeps) AssemblerEnabled() bool                    { return f.assembl
 func (f *fakeDeps) RecordUsage(u llm.Usage)                   { f.lastUsage = u }
 func (f *fakeDeps) LastUsage() llm.Usage                      { return f.lastUsage }
 func (f *fakeDeps) CurrentMessageID() string                  { return f.messageID }
+func (f *fakeDeps) CurrentRunID() string                      { return f.runID }
 
 func newFakeDeps(t *testing.T, provider llm.ModelProvider, regs []tool.Tool) *fakeDeps {
 	t.Helper()
