@@ -4,10 +4,6 @@
 //	Server        — binds localhost:0, prints the port on stdout, serves /ws
 //	SessionManager — nanoid session ids, in-memory sessionID → *session.Session
 //	EventLedger   — sessionID → subscribed clients, pushes agent.event notifications
-//
-// The handlers are stubs in S3: they create sessions and emit fake events so
-// the whole Renderer → WS → Gateway → notification loop can be exercised
-// before the ACP loop lands in S4.
 package gateway
 
 import "encoding/json"
@@ -16,7 +12,7 @@ import "encoding/json"
 const JSONRPCVersion = "2.0"
 
 // JSON-RPC 2.0 reserved error codes (spec §5.1). Application-defined codes
-// would live in the -32000..-32099 range; S3 does not need any.
+// would live in the -32000..-32099 range.
 const (
 	CodeParseError     = -32700
 	CodeInvalidRequest = -32600

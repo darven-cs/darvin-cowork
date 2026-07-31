@@ -19,9 +19,8 @@ type Session struct {
 // stable across Go-side renames).
 func (Session) TableName() string { return "sessions" }
 
-// Message is one persisted LLM turn. S2 only creates the table; writes
-// are owned by the ACP loop (S4) which will add SaveMessages /
-// LoadMessages alongside the SessionStore CRUD.
+// Message is one persisted LLM turn. Writes are owned by the ACP loop's
+// MessageStore implementation.
 type Message struct {
 	ID         string `gorm:"primaryKey"`
 	SessionID  string `gorm:"index"`
@@ -51,9 +50,8 @@ type CompactionCheckpoint struct {
 func (CompactionCheckpoint) TableName() string { return "compaction_checkpoints" }
 
 // SkillSnapshot is a row written each time a Skill is materialised into
-// a session's prompt. The Skills system itself is not yet implemented;
-// this table is created now so AutoMigrate covers it and S4+ doesn't
-// need to add a migration.
+// a session's prompt. The table is created now so AutoMigrate covers it
+// ahead of the Skills implementation.
 type SkillSnapshot struct {
 	ID        string    `gorm:"primaryKey"`
 	SessionID string    `gorm:"index"`

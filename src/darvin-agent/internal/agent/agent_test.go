@@ -108,8 +108,6 @@ func (echoAdapter) Execute(_ context.Context, _ map[string]any) tool.Result {
 	return tool.Result{Content: "ok"}
 }
 
-// --- M5: ContextEngine / assembler wiring tests ---
-
 // TestNewAutoConstructsAssembler verifies that when NewAgentConfig.Assembler
 // is nil, New() auto-wires a DefaultAssembler from the Config.* knobs and
 // returns a non-nil assembler on Agent.Assembler(). The engine is always
@@ -189,10 +187,9 @@ func TestConfigForwardsTokenBudget(t *testing.T) {
 	}
 }
 
-// TestAssemblerEnabledTrue_TriggersSeam is the end-to-end M5 happy path:
+// TestAssemblerEnabledTrue_TriggersSeam verifies the end-to-end happy path:
 // when AssemblerEnabled: true, running the agent causes the executor to
-// dispatch prompt construction through the assembler. We assert this by
-// observing the assembler.calls counter after Run completes.
+// dispatch prompt construction through the assembler.
 func TestAssemblerEnabledTrue_TriggersSeam(t *testing.T) {
 	rec := &stubAssembler{}
 	prov := &scriptedProvider{events: []llm.StreamEvent{

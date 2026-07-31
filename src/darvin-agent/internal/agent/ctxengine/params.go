@@ -7,8 +7,6 @@ import (
 	"darvin-cowork/backend/internal/agent/llm"
 )
 
-// --- Lifecycle ---
-
 // BootstrapParams is the input for Bootstrap.
 type BootstrapParams struct {
 	SessionID string
@@ -19,8 +17,6 @@ type BootstrapParams struct {
 type MaintainParams struct {
 	SessionID string
 }
-
-// --- Ingest / IngestBatch / AfterTurn ---
 
 // IngestParams is the input for Ingest.
 type IngestParams struct {
@@ -46,8 +42,6 @@ type AfterTurnParams struct {
 	SessionID string
 	TurnIndex int
 }
-
-// --- Assemble ---
 
 // AssembleParams is the input for Assemble.
 type AssembleParams struct {
@@ -84,8 +78,6 @@ type AssembleStats struct {
 	CompactionTriggered bool
 }
 
-// --- Compact ---
-
 // CompactParams is the input for Compact.
 type CompactParams struct {
 	SessionID  string
@@ -119,8 +111,6 @@ type CheckPoint struct {
 	Snapshot   []llm.Message
 }
 
-// --- SubAgent ---
-
 // SubagentSpawnParams is the input for PrepareSubagentSpawn.
 type SubagentSpawnParams struct {
 	ParentSessionID string
@@ -141,8 +131,6 @@ type SubagentEndedParams struct {
 	FinalMessages     []llm.Message
 	StopReason        llm.FinishReason
 }
-
-// --- Summarizer (used by Compact) ---
 
 // Summarizer produces a textual summary of a span of conversation messages.
 // DefaultSummarizer (in compact.go) uses llm.ModelProvider.Complete.

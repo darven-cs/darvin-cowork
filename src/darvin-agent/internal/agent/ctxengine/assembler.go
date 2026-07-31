@@ -120,5 +120,5 @@ func (a *DefaultAssembler) LastIngestAt(sessionID string) time.Time {
 
 // Info returns the engine's identity metadata.
 func (a *DefaultAssembler) Info() Info {
-	return Info{Name: "default", Version: "v0"}
+	return Info{Name: "default", Version: ""}
 }

@@ -87,27 +87,27 @@ func TestContextEngineInterfaceMethods(t *testing.T) {
 	}
 }
 
-// TestSubAgentReturnsNotImplementedInV0 verifies the SubAgent seams.
-func TestSubAgentReturnsNotImplementedInV0(t *testing.T) {
+// TestSubAgentReturnsNotImplemented verifies the SubAgent seams.
+func TestSubAgentReturnsNotImplemented(t *testing.T) {
 	a := newTestAssembler()
 
 	_, err := a.PrepareSubagentSpawn(context.Background(), SubagentSpawnParams{})
 	if err == nil {
 		t.Fatal("PrepareSubagentSpawn: expected error, got nil")
 	}
-	if !errors.Is(err, ErrNotImplementedInV0) {
-		t.Errorf("PrepareSubagentSpawn: errors.Is(err, ErrNotImplementedInV0) = false; got %v", err)
+	if !errors.Is(err, ErrNotImplemented) {
+		t.Errorf("PrepareSubagentSpawn: errors.Is(err, ErrNotImplemented) = false; got %v", err)
 	}
 	if !errors.Is(err, ErrSubAgentUnsupported) {
 		t.Errorf("PrepareSubagentSpawn: errors.Is(err, ErrSubAgentUnsupported) = false; got %v", err)
 	}
 
-	if err := a.OnSubagentEnded(context.Background(), SubagentEndedParams{}); !errors.Is(err, ErrNotImplementedInV0) {
-		t.Errorf("OnSubagentEnded: errors.Is(err, ErrNotImplementedInV0) = false; got %v", err)
+	if err := a.OnSubagentEnded(context.Background(), SubagentEndedParams{}); !errors.Is(err, ErrNotImplemented) {
+		t.Errorf("OnSubagentEnded: errors.Is(err, ErrNotImplemented) = false; got %v", err)
 	}
 }
 
-// TestLifecycleStubsReturnNil verifies the M1 lifecycle stubs.
+// TestLifecycleStubsReturnNil verifies the lifecycle stubs.
 func TestLifecycleStubsReturnNil(t *testing.T) {
 	a := newTestAssembler()
 
@@ -155,9 +155,8 @@ func TestIngestEmptySessionNoOp(t *testing.T) {
 	}
 }
 
-// TestCompact_RealImpl_NoOpOnSmallInput verifies Compact's M3 implementation
-// returns Success=true with no summarizer call for input within budget.
-// (The old M1 stub test is obsolete since M3 wires the real pipeline.)
+// TestCompact_RealImpl_NoOpOnSmallInput verifies Compact returns Success=true
+// with no summarizer call for input within budget.
 func TestCompact_RealImpl_NoOpOnSmallInput(t *testing.T) {
 	a := newTestAssembler()
 	msgs := []llm.Message{{Role: llm.RoleUser, Content: "hi"}}
@@ -175,15 +174,14 @@ func TestCompact_RealImpl_NoOpOnSmallInput(t *testing.T) {
 	}
 }
 
-// TestInfo verifies the Info metadata.
 func TestInfo(t *testing.T) {
 	a := newTestAssembler()
 	info := a.Info()
 	if info.Name != "default" {
 		t.Errorf("Info.Name = %q, want %q", info.Name, "default")
 	}
-	if info.Version != "v0" {
-		t.Errorf("Info.Version = %q, want %q", info.Version, "v0")
+	if info.Version != "" {
+		t.Errorf("Info.Version = %q, want %q", info.Version, "")
 	}
 }
 

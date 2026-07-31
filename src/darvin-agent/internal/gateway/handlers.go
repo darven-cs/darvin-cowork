@@ -47,8 +47,8 @@ type SubscribeEventsResult struct {
 	Subscribed bool `json:"subscribed"`
 }
 
-// SteerParams is the JSON-RPC params for agent.steer. v0 only exposes
-// Steer (Redirect is reserved for a future spec).
+// SteerParams is the JSON-RPC params for agent.steer. Only Steer is
+// currently exposed (Redirect remains reserved).
 type SteerParams struct {
 	Content string `json:"content"`
 }
@@ -134,8 +134,7 @@ func NewHandler(
 }
 
 // dispatchRequest routes one parsed JSON-RPC request to the matching
-// handler. Nil return signals "notification — do not reply"; v0 accepts
-// no notifications and the switch always returns a value.
+// handler. Nil return signals "notification — do not reply".
 func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *Response {
 	switch req.Method {
 	case "agent.prompt":

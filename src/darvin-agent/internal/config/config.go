@@ -69,8 +69,6 @@ type AgentConfig struct {
 	Model          string   `mapstructure:"model"`
 	Instructions   string   `mapstructure:"instructions"`
 
-	// --- ContextEngine knobs (ctxengine.Config subset; FR-12) ---
-
 	// TokenBudget is the soft cap for prompt assembly. 0 disables the
 	// budget check (assembler still runs, but never triggers Compact).
 	TokenBudget int `mapstructure:"token_budget"`

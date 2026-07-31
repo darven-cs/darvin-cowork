@@ -1,7 +1,7 @@
 // Package acp wraps the agent runtime in a minimal Agent-Client Protocol
 // surface used by the gateway handlers. Loop owns the in-flight
 // messageID; Queue is a thin shim around agent/queue; SteerControl
-// separates Steer (cancel + enqueue) from Redirect (v0 no-op).
+// separates Steer (cancel + enqueue) from Redirect.
 package acp
 
 import (

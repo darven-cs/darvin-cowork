@@ -9,9 +9,7 @@ import (
 	"darvin-cowork/backend/internal/agent/llm"
 )
 
-// Assemble is the M2 implementation: tool truncation + token estimation +
-// system section composition. The budget-triggered Compact step lands in
-// M3 once DefaultSummarizer is in place.
+// Assemble runs the per-turn prompt construction pipeline.
 func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) AssembleResult {
 	if err := ctx.Err(); err != nil {
 		return AssembleResult{Messages: p.Messages, Budget: p.ToolBudget}
@@ -29,7 +27,6 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 		budget = cfg.TokenBudget
 	}
 
-	// step 1: tool result truncation
 	if cfg.ToolResultMaxBytes > 0 {
 		for i, m := range msgs {
 			if m.Role != llm.RoleTool {
@@ -47,10 +44,7 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 		}
 	}
 
-	// step 2: token estimation. Prefer the API-reported prompt token count
-	// from the previous turn (more accurate than the rune/4 estimator); fall
-	// back to the local estimator when the API has not yet reported usage
-	// (very first turn) or when callers explicitly pass a zero Usage.
+	// Token estimation prefers API-reported promptTokens from previous turn; falls back to local estimator when zero.
 	tokensBefore := p.LastUsage.PromptTokens
 	if tokensBefore <= 0 {
 		tokensBefore = 0
@@ -59,7 +53,6 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 		}
 	}
 
-	// step 3: budget-triggered Compact
 	if tokensBefore > budget {
 		compactRes := a.Compact(ctx, CompactParams{
 			SessionID: p.SessionID,
@@ -75,7 +68,6 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 		}
 	}
 
-	// step 4: system section composition
 	sysAddition := a.composeSystemAddition(p.SystemSections)
 
 	return AssembleResult{

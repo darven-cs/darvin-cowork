@@ -121,10 +121,6 @@ type Agent struct {
 	// correlate events back to the prompt that produced them.
 	msgIDSrc func() string
 
-	// Assembler field + Deps satisfaction (spec §4.10 — agent-context-engine).
-	// M4: stubs only, returning nil / false so the executor's fallback path is
-	// exercised unchanged. M5 will populate these from NewAgentConfig and the
-	// cfg.yaml front-end.
 	assembler        ctxengine.ContextEngine
 	assemblerEnabled bool
 
@@ -225,8 +221,6 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 	return a, nil
 }
 
-// --- executor.Deps implementation ---
-
 func (a *Agent) Session() *session.Session   { return a.session }
 func (a *Agent) Tools() *tool.Registry       { return a.tools }
 func (a *Agent) Provider() llm.ModelProvider { return a.provider }
@@ -241,8 +235,6 @@ func (a *Agent) Config() executor.Config {
 }
 func (a *Agent) Logger() *zap.Logger { return a.logger }
 func (a *Agent) Emit(ev event.Event) { a.bus.Emit(ev) }
-
-// --- M4: ContextEngine seam (executor.Deps) — stubs only; M5 wires them. ---
 
 // Assembler returns the ContextEngine wired into the Agent, or nil if none
 // has been configured. Combined with AssemblerEnabled, this lets the
@@ -277,8 +269,6 @@ func (a *Agent) LastUsage() llm.Usage {
 	defer a.lastUsageMu.RUnlock()
 	return a.lastUsage
 }
-
-// --- public API delegates to dispatcher.go ---
 
 // Session returns the agent's session (read-only access pattern; mutators
 // are reserved for the executor).

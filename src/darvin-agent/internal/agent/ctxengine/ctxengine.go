@@ -3,18 +3,6 @@
 // result truncation and LLM-based summarisation when the conversation
 // grows past the budget.
 //
-// Method coverage on *DefaultAssembler (10-method ContextEngine interface):
-//
-//	Info                       ✅ identity
-//	Bootstrap / Maintain       🟡 stub (no-op + nil)
-//	Dispose                    ✅ (releases internal locks / maps)
-//	Ingest / IngestBatch       🟡 stub (records lastIngestAt only)
-//	AfterTurn                  🟡 stub
-//	Assemble                   ✅ full 7-step pipeline
-//	Compact                    ✅ full LLM-based pipeline
-//	PrepareSubagentSpawn       ❌ ErrSubAgentUnsupported
-//	OnSubagentEnded            ❌ ErrSubAgentUnsupported
-//
 // The package avoids importing internal/agent (the root) by accepting a
 // Deps interface; agent.Agent satisfies it implicitly.
 package ctxengine

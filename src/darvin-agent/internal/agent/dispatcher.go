@@ -200,9 +200,7 @@ func (a *Agent) persistUserMessage(ctx context.Context, msgID, content string) {
 
 // persistAssistantMessages is hook 2 of 3. It walks every message
 // appended since `beforeLen` and writes the assistant ones to disk.
-// Each assistant row is keyed by the run's messageID (the dispatcher
-// does not yet mint per-message ids — S6 follows the same single-id-per-
-// turn shape the renderer's `done` notification already consumes).
+// Each assistant row is keyed by the run's messageID.
 // ToolCalls are JSON-encoded into the ToolCalls column.
 func (a *Agent) persistAssistantMessages(ctx context.Context, msgID string, beforeLen int) {
 	if a.msgStore == nil || msgID == "" {

@@ -98,11 +98,6 @@ func main() {
 	sqliteStore := store.NewSQLiteStore(database.Get())
 	msgStore := store.NewSQLiteMessageStore(database.Get())
 
-	// --- Agent wiring (M7: config + cmd sync) -------------------------
-	// Build the LLM provider from cfg.LLM. The provider name must match
-	// a registered factory (currently only "anthropic"); an unknown name
-	// surfaces as llm.ErrUnknownProvider. Logger is left nil —
-	// llm.NewHTTPClient accepts nil and silently skips per-call logging.
 	provider, err := llm.NewProvider(rootCtx, cfg.LLM.Provider, llm.ProviderConfig{
 		APIKey:  cfg.LLM.APIKey,
 		BaseURL: cfg.LLM.BaseURL,
@@ -112,10 +107,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Translate cfg.Agent (config.AgentConfig) → agent.Config. The only
-	// non-trivial conversion is ToolTimeoutMS → time.Duration. Defaults
-	// for MaxTurns / ToolTimeout / EventBuffer are applied inside
-	// agent.New when zero, so we forward the YAML values verbatim.
 	agentCfg := agent.Config{
 		MaxTurns:             cfg.Agent.MaxTurns,
 		ToolTimeout:          time.Duration(cfg.Agent.ToolTimeoutMS) * time.Millisecond,
@@ -153,16 +144,9 @@ func main() {
 		zap.Int("token_budget", cfg.Agent.TokenBudget),
 	)
 
-	// --- Gateway (S3) -------------------------------------------------
-	// Sessions and the event ledger are process-local; the ledger will
-	// subscribe to the agent's event bus via AttachSubscription below.
 	sessions := gateway.NewSessionManager()
 	ledger := gateway.NewEventLedger(log.Logger)
 
-	// --- ACP loop (S4) ------------------------------------------------
-	// The loop wraps the Agent with prompt/abort plumbing. main.go wires
-	// Loop.CurrentMessageID into the Agent so every event the executor
-	// emits carries EventCommon.MessageID.
 	loop := acp.NewLoop(a)
 	a.AttachMessageIDSrc(loop.CurrentMessageID)
 	steer := acp.NewSteerControl(a)
@@ -174,9 +158,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- EventLedger → agent bus subscription --------------------------
-	// After this point every event the executor emits is routed to WS
-	// subscribers of its EventCommon.SessionID.
 	sub := a.Subscribe(64)
 	ledger.AttachSubscription(sub)
 
@@ -191,24 +172,16 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	// step 1: WS server refuses new connections and waits for in-flight
-	// requests to drain.
 	if err := gs.Shutdown(shutdownCtx); err != nil {
 		log.Error("gateway shutdown", zap.Error(err))
 	}
 
-	// step 2: cancel any in-flight Agent run via its cancelFn so the
-	// executor can emit its terminal TurnEnd + AgentEnd events.
 	if err := a.Abort(context.Background()); err != nil {
 		log.Error("agent abort", zap.Error(err))
 	}
 
-	// step 3: close the bus subscription channel so AttachSubscription's
-	// goroutine in the ledger exits cleanly.
 	sub.Unsubscribe()
 
-	// step 4: release the SQLite fd. Must come last so in-flight saves
-	// from steps 1–3 are not racing a closed pool.
 	if err := sqliteStore.Close(); err != nil {
 		log.Error("sqlite close", zap.Error(err))
 	}

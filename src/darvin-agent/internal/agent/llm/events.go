@@ -32,8 +32,7 @@ type TextDeltaEvent struct {
 
 // ThinkingDeltaEvent carries an incremental chunk of the model's
 // extended-thinking output, kept separate from TextDeltaEvent so the UI
-// can render it in a collapsed panel. Providers do not emit it yet — the
-// anthropic parser grows the thinking branch in S4.
+// can render it in a collapsed panel. Providers do not emit it yet.
 type ThinkingDeltaEvent struct {
 	Delta string
 }

@@ -316,8 +316,6 @@ func (b *blockingProvider) Stream(ctx context.Context, _ *llm.CompletionRequest)
 	return llm.NewStreamingResponse(ch, nil), nil
 }
 
-// --- M4: seam + API-token accounting tests ---
-
 // recordingAssembler is a fake ContextEngine that records every Assemble
 // call and returns the input messages verbatim (so the executor's downstream
 // LLM call still gets data). It lets the test inspect AssembleParams without
@@ -468,7 +466,7 @@ func TestCumulativeUsageAccumulates(t *testing.T) {
 
 // TestAssemblerFallback_Disabled verifies that when AssemblerEnabled=false,
 // the executor takes the legacy d.Session().Messages() path and never calls
-// the assembler (preserves pre-M4 behaviour).
+// the assembler.
 func TestAssemblerFallback_Disabled(t *testing.T) {
 	rec := &recordingAssembler{}
 	d := newFakeDeps(t, &scriptedProvider{script: [][]llm.StreamEvent{

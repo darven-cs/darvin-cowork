@@ -15,8 +15,7 @@ import (
 )
 
 // upgrader is shared across connections. CheckOrigin always returns
-// true: S3 binds localhost only, and v0 has no auth layer; tightening
-// this is an S5+ concern (alongside Bearer-token auth).
+// true: the gateway binds localhost only and currently has no auth layer.
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
@@ -54,7 +53,7 @@ func NewServer(h *Handler, log *zap.Logger) *Server {
 // non-blocking: control returns once the port is bound.
 //
 // stdout contract: a single line of the form `<port>NNNNN</port>\n`,
-// followed by os.Stdout.Sync(). The Electron RuntimeMgr (S5) reads
+// followed by os.Stdout.Sync(). The Electron RuntimeMgr reads
 // this exact line — any extra stdout noise will break the parser, so
 // every other log line in the package targets stderr.
 func (s *Server) Start(ctx context.Context) error {

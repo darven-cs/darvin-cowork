@@ -12,19 +12,6 @@ import (
 
 // Compact runs the LLM-based compaction pipeline. It never mutates
 // p.Messages — the caller adopts RetainedMessages only on Success.
-//
-// Pipeline:
-//  1. Snapshot p.Messages into a CheckPoint (caller's pointer kept, ID
-//     preserved; Snapshot field overwritten).
-//  2. No-op when tokensBefore <= Budget and !Force (return Success=true).
-//  3. Split p.Messages into span[:len-tail] + tail[]. If span is empty,
-//     fall through with Success=false.
-//  4. Call Summarizer.Summarize(span). On error, return Success=false
-//     with original messages.
-//  5. Compose [summary_msg] + tail[] as newMessages; re-estimate tokens.
-//  6. If tokensAfter > Budget, retry-half: halve span, re-summarise,
-//     rebuild newMessages. Bounded by Config.CompactMaxRetries.
-//  7. If still over Budget, return Success=false with original messages.
 func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) CompactResult {
 	if err := ctx.Err(); err != nil {
 		return CompactResult{
@@ -42,7 +29,6 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 	}
 	a.mu.RUnlock()
 
-	// step 1: snapshot
 	snap := p.Checkpoint
 	if snap == nil {
 		snap = &CheckPoint{
@@ -54,16 +40,11 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		snap.Snapshot = cloneMessages(p.Messages)
 	}
 
-	// step 1.5: pick tokensBefore. Prefer the API-reported LastUsage
-	// (more accurate than the rune/4 estimator); fall back to the
-	// estimator when no API data is available (Force=true callers
-	// still respect the local estimate as a sanity floor).
 	tokensBefore := p.LastUsage.PromptTokens
 	if tokensBefore <= 0 {
 		tokensBefore = estimateMessages(p.Messages)
 	}
 
-	// step 2: no-op
 	if !p.Force && tokensBefore <= p.Budget {
 		return CompactResult{
 			Success:          true,
@@ -84,7 +65,6 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		}
 	}
 
-	// step 3: tail / span split
 	tail := cfg.CompactTailKeep
 	if tail <= 0 {
 		tail = 6
@@ -106,7 +86,6 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		}
 	}
 
-	// step 4: first summarizer call
 	summaryText, err := summarizer.Summarize(ctx, SummarizeRequest{
 		Model:     modelName,
 		Messages:  span,
@@ -132,7 +111,6 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 	newMessages := append([]llm.Message{summaryMsg}, p.Messages[len(p.Messages)-tail:]...)
 	tokensAfter := estimateMessages(newMessages)
 
-	// step 5: retry-half loop
 	retries := 0
 	for tokensAfter > p.Budget && retries < cfg.CompactMaxRetries {
 		half := len(span) / 2

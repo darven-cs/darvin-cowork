@@ -117,7 +117,7 @@ func TestCompact_Force_EvenBelowBudget(t *testing.T) {
 // tokens > budget triggers summarizer; after compact, summary + tail fits
 // within budget and Success=true is returned.
 //
-// Token math (M3 marker overhead is ~28 tokens; per "msg N" message is
+// Token math (summary marker overhead is ~28 tokens; per "msg N" message is
 // ~2 tokens): 18 × 2 = 36 tokens before; budget=35 triggers; after compact
 // summary (~28) + tail 3 × 2 = 34 ≤ 35.
 func TestCompact_AboveBudget_CallsSummarizer(t *testing.T) {

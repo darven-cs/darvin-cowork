@@ -131,7 +131,7 @@ func TestSQLiteStoreSaveNil(t *testing.T) {
 
 // TestSQLiteStoreSaveDoesNotPersistMessages nails down the P1-1
 // contract: SQLiteStore only persists session metadata; messages
-// are intentionally dropped on the floor. S4 will add a MessageStore.
+// are intentionally dropped on the floor (MessageStore will own them).
 func TestSQLiteStoreSaveDoesNotPersistMessages(t *testing.T) {
 	ctx := context.Background()
 	store := newTestSQLiteStore(t)

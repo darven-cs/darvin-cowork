@@ -95,9 +95,8 @@ func (l *EventLedger) AttachSubscription(sub *event.Subscription) {
 //
 // Drop semantics: writes are best-effort. If a client is wedged, the
 // goroutine blocks in SendNotification until its write timeout / ctx
-// expires; ledger-level fanout does not itself drop. (event.Bus.Emit, on
-// the S4 path, drops-oldest on a full subscription channel — that's a
-// different layer.)
+// expires; ledger-level fanout does not itself drop. (event.Bus.Emit
+// drops-oldest on a full subscription channel — that's a different layer.)
 func (l *EventLedger) publishLocked(sessionID string, ev event.Event) {
 	l.mu.RLock()
 	set := l.bySession[sessionID]
@@ -113,7 +112,7 @@ func (l *EventLedger) publishLocked(sessionID string, ev event.Event) {
 	}
 }
 
-// EmitStub is the S3-only fake event source: a goroutine that pushes a
+// EmitStub is a fake event source: a goroutine that pushes a
 // text_delta followed by an agent_end to the session's subscribers.
 //
 // The initial fakeDelay is intentional: the spec's flow is

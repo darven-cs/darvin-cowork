@@ -5,14 +5,12 @@ import (
 	"fmt"
 )
 
-// ErrNotImplementedInV0 is returned by ContextEngine methods that are
-// exposed as interface seams but have no implementation yet (so the
-// interface signature stays stable across spec iterations).
-var ErrNotImplementedInV0 = errors.New("ctxengine: not implemented (TODO seam)")
+// ErrNotImplemented is returned by ContextEngine methods that are exposed as interface seams but have no implementation yet.
+var ErrNotImplemented = errors.New("ctxengine: not implemented (TODO seam)")
 
-// ErrSubAgentUnsupported wraps ErrNotImplementedInV0 with a sub-agent tag
+// ErrSubAgentUnsupported wraps ErrNotImplemented with a sub-agent tag
 // so callers can disambiguate via errors.Is.
-var ErrSubAgentUnsupported = fmt.Errorf("%w (sub-agent)", ErrNotImplementedInV0)
+var ErrSubAgentUnsupported = fmt.Errorf("%w (sub-agent)", ErrNotImplemented)
 
 // ErrAssemblerNotConfigured is returned by the agent layer when no
 // assembler is wired into Agent.New and cfg.AssemblerEnabled is true.

@@ -7,21 +7,20 @@ import (
 	"darvin-cowork/backend/internal/agent"
 )
 
-// ErrSteerNotImplemented is returned by SteerControl.Redirect in v0.
-// Redirect needs real abort-and-redirect plumbing that the v0 single-
-// session model doesn't carry; the S5 steer RPC exposes only Steer.
-var ErrSteerNotImplemented = errors.New("acp: Redirect not implemented in v0")
+// ErrSteerNotImplemented is returned by SteerControl.Redirect. Redirect
+// needs real abort-and-redirect plumbing not yet wired into the single-
+// session model.
+var ErrSteerNotImplemented = errors.New("acp: Redirect not implemented")
 
-// SteerControl re-prioritises or redirects mid-run. v0 is partial:
-// Steer delegates to agent.Steer; Redirect returns ErrSteerNotImplemented.
+// SteerControl re-prioritises or redirects mid-run. Steer delegates to
+// agent.Steer; Redirect returns ErrSteerNotImplemented.
 type SteerControl interface {
 	Steer(ctx context.Context, content string) error
 	Redirect(ctx context.Context, content string) error
 }
 
-// NewSteerControl constructs the v0 SteerControl implementation. The
-// returned value satisfies SteerControl but Redirect will reject every
-// call until the v0 single-session limit is lifted.
+// NewSteerControl constructs the partial SteerControl implementation.
+// Redirect rejects every call until the single-session limit is lifted.
 func NewSteerControl(a *agent.Agent) SteerControl {
 	return &steerControl{agent: a}
 }
