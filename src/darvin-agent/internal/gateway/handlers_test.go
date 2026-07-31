@@ -285,15 +285,25 @@ func TestDispatchAbortKnownSessionMismatch(t *testing.T) {
 	}
 }
 
-func TestDispatchSubscribeEventsUnknownSession(t *testing.T) {
+// TestDispatchSubscribeEventsCreatesUnknownSession 覆盖 main 端的真实路径：
+// SessionStore 先落 UUID 再发 subscribe_events；此时 SessionManager 还没见
+// 过这个 id，subscribe 应自创建 entry 而不是拒绝。
+func TestDispatchSubscribeEventsCreatesUnknownSession(t *testing.T) {
 	_, c := newTestHandler(t)
 	req := &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.subscribe_events",
-		Params: json.RawMessage(`{"sessionId":"nope"}`),
+		Params: json.RawMessage(`{"sessionId":"main-minted-uuid"}`),
 	}
 	resp := dispatchRequest(context.Background(), req, c, c.handler)
-	if resp.Error == nil || resp.Error.Code != CodeInvalidParams {
-		t.Fatalf("expected invalid params for unknown session, got %+v", resp)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res, _ := resp.Result.(SubscribeEventsResult)
+	if !res.Subscribed {
+		t.Fatalf("expected subscribed=true, got %+v", res)
+	}
+	if !c.sessions.Has("main-minted-uuid") {
+		t.Fatalf("subscribe should auto-register the previously-unknown session")
 	}
 }
 

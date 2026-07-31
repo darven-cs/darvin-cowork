@@ -229,8 +229,10 @@ func handleSubscribeEvents(_ context.Context, id json.RawMessage, params json.Ra
 	if p.SessionID == "" {
 		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
 	}
-	if !c.sessions.Has(p.SessionID) {
-		return errorResp(id, CodeInvalidParams, "unknown sessionId", nil)
+	// 与 prompt 路径对齐：main 端先把 UUID 落 SessionStore 再发 subscribe，
+	// 此处尚未见过这个 id，让 SessionManager 自创建 entry 再订阅。
+	if _, _, err := c.sessions.CreateOrGet(p.SessionID); err != nil {
+		return errorResp(id, CodeInternalError, "subscribe session create", err)
 	}
 	c.ledger.Subscribe(p.SessionID, c)
 	return successResp(id, SubscribeEventsResult{Subscribed: true})
