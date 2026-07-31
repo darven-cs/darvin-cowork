@@ -21,7 +21,7 @@ import type { DarvinSession } from '../../../shared/darvin-api';
 import SessionItem from './SessionItem.vue';
 import { useMessages } from '../../composables/useMessages';
 
-const props = defineProps<{ sessions: DarvinSession[]; currentId: string }>();
+defineProps<{ sessions: DarvinSession[]; currentId: string }>();
 const emit = defineEmits<{ select: [id: string] }>();
 
 const messages = useMessages();
