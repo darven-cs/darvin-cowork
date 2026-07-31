@@ -50,14 +50,19 @@ export interface DarvinUsage {
   totalTokens: number;
 }
 
+/**
+ * 每条事件携带 sessionId + runId，让 renderer 端按 session 路由、上层
+ * 派生 running / unread 状态。本期先标 optional（PR 4 起 Go 开始注入，
+ * PR 6 起转强类型）——加 optional 不破坏现有可选字段的 union 收紧规则。
+ */
 export type DarvinEvent =
-  | { type: 'text_delta'; messageId: string; delta: string }
-  | { type: 'thinking_delta'; messageId: string; delta: string }
-  | { type: 'tool_start'; messageId: string; tool: string; input: unknown }
-  | { type: 'tool_end'; messageId: string; tool: string; output: unknown }
-  | { type: 'done'; messageId: string; usage?: DarvinUsage }
-  | { type: 'error'; messageId: string; message: string }
-  | { type: 'agent_end' };
+  | { type: 'text_delta'; sessionId?: string; runId?: string; messageId: string; delta: string }
+  | { type: 'thinking_delta'; sessionId?: string; runId?: string; messageId: string; delta: string }
+  | { type: 'tool_start'; sessionId?: string; runId?: string; messageId: string; tool: string; input: unknown }
+  | { type: 'tool_end'; sessionId?: string; runId?: string; messageId: string; tool: string; output: unknown }
+  | { type: 'done'; sessionId?: string; runId?: string; messageId: string; usage?: DarvinUsage }
+  | { type: 'error'; sessionId?: string; runId?: string; messageId: string; message: string }
+  | { type: 'agent_end'; sessionId?: string; runId?: string };
 
 export interface DarvinPromptRequest {
   content: string;
@@ -67,6 +72,8 @@ export interface DarvinPromptRequest {
 export interface DarvinPromptResponse {
   sessionId: string;
   messageId: string;
+  /** 本次 prompt 在 main 端生成的 runId（UUIDv4），abort / 事件路由用 */
+  runId?: string;
 }
 
 export interface DarvinAbortResponse {
