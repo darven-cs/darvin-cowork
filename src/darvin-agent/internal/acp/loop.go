@@ -1,20 +1,23 @@
 // Package acp wraps the agent runtime in a minimal Agent-Client Protocol
-// surface used by the gateway handlers. Loop owns the in-flight
-// messageID; Queue is a thin shim around agent/queue; SteerControl
-// separates Steer (cancel + enqueue) from Redirect.
+// surface used by the gateway handlers. Loop owns one session's turn
+// queue and the in-flight messageID; Queue is a thin shim around
+// agent/queue; SteerControl separates Steer (cancel + enqueue) from
+// Redirect.
 package acp
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/jaevor/go-nanoid"
 
 	"darvin-cowork/backend/internal/agent"
+	"darvin-cowork/backend/internal/agent/event"
 )
 
 const (
-	// messageIDLen is the length of message ids Loop generates per Prompt.
+	// messageIDLen is the length of message ids Loop generates per turn.
 	// Same length as the gateway's session ids; the alphabet is the same
 	// 62-char [A-Za-z0-9] table for URL/JSON-friendliness.
 	messageIDLen = 21
@@ -23,66 +26,262 @@ const (
 	messageAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 
-// ErrAgentBusy is the sentinel Loop.Prompt propagates when the
-// underlying Agent is already running. It aliases agent.ErrAgentBusy so
-// callers can match on it without importing the agent package.
-var ErrAgentBusy = agent.ErrAgentBusy
+// ErrLoopClosed is returned by Submit / Steer after Close: the run
+// goroutine is gone, so a queued turn would never be executed.
+var ErrLoopClosed = errors.New("acp: loop closed")
 
-// Loop wraps a single *agent.Agent with prompt/abort plumbing. v0 is
-// single-session: only the agent's own session.ID is the live one. The
-// gateway enforces that via SessionManager.DefaultID().
-type Loop struct {
-	agent  *agent.Agent
-	mu     sync.Mutex
-	curMsg string
-	msgGen func() string
+// PromptRequest is one turn's input. RunID lets the caller name the turn
+// up front so a later Stop can target exactly it; an empty RunID makes
+// Loop mint one.
+type PromptRequest struct {
+	RunID   string
+	Content string
 }
 
-// NewLoop builds a Loop whose messageID generator is a 21-char nanoid
-// using the same alphabet the gateway uses for session ids.
-func NewLoop(a *agent.Agent) *Loop {
-	return &Loop{
-		agent:  a,
-		msgGen: nanoid.MustCustomASCII(messageAlphabet, messageIDLen),
-	}
+// RunTicket correlates a submitted turn with the events it will emit.
+// Queued reports that the turn is parked behind an in-flight run instead
+// of having started immediately.
+type RunTicket struct {
+	RunID     string
+	MessageID string
+	Queued    bool
 }
 
-// Prompt assigns a fresh messageID, enqueues content, and spawns the
-// Agent's Run goroutine. The handler returns the messageID to the
-// caller before Run finishes; events emitted by the run all carry it via
-// EventCommon.MessageID. Returns ErrAgentBusy when the Agent rejects the
-// Prompt because a Run is already in progress.
+// promptReq is a submitted turn plus the messageID Loop minted for it.
+type promptReq struct {
+	runID   string
+	content string
+	msgID   string
+}
+
+// activeRunState is the in-flight turn; cancelRun cuts the LLM stream.
+type activeRunState struct {
+	runID     string
+	cancelRun context.CancelFunc
+}
+
+// Loop drives one *agent.Agent's turns strictly one at a time. A single
+// goroutine consumes the two queues, which is what keeps the Agent's own
+// state machine free of concurrent Run calls.
 //
-// curMsg is published only after the enqueue succeeds. A rejected Prompt
-// must leave the previous id intact, otherwise the run that caused the
-// rejection would emit its remaining events with a cleared messageID.
-func (l *Loop) Prompt(ctx context.Context, content string) (string, error) {
-	msgID := l.msgGen()
-	if err := l.agent.Prompt(ctx, content); err != nil {
-		return "", err
+// Submit appends to followUpQueue; Steer appends to steerQueue and
+// cancels the in-flight turn so its content is what runs next. Requests
+// within one queue keep submission order.
+type Loop struct {
+	agent *agent.Agent
+
+	// wake tells the run goroutine that a queue grew. Capacity 1 collapses
+	// bursts: the goroutine drains both queues under the lock anyway, so a
+	// dropped token can never hide a queued request.
+	wake chan struct{}
+
+	mu            sync.Mutex
+	activeRun     *activeRunState
+	steerQueue    []promptReq
+	followUpQueue []promptReq
+	curMsg        string
+	closed        bool
+
+	idGen func() string
+
+	ctx  context.Context
+	stop context.CancelFunc
+	done chan struct{}
+}
+
+// NewLoop builds a Loop and starts its run goroutine. Ids are 21-char
+// nanoids using the same alphabet the gateway uses for session ids.
+//
+// The Loop context is background-rooted on purpose: a handler returning
+// or a WS client disconnecting must not cancel a run other subscribers
+// are still watching. Cancellation goes through Stop / Abort / Close.
+func NewLoop(a *agent.Agent) *Loop {
+	ctx, stop := context.WithCancel(context.Background())
+	l := &Loop{
+		agent: a,
+		wake:  make(chan struct{}, 1),
+		idGen: nanoid.MustCustomASCII(messageAlphabet, messageIDLen),
+		ctx:   ctx,
+		stop:  stop,
+		done:  make(chan struct{}),
 	}
+	go l.run()
+	return l
+}
+
+// Submit queues content as a new turn. It starts as soon as the session
+// goes idle; anything already queued runs first.
+func (l *Loop) Submit(req PromptRequest) (RunTicket, error) {
+	return l.admit(req, false)
+}
+
+// Steer queues content ahead of the parked follow-ups and cancels the
+// in-flight turn so the new content is what runs next. On an idle
+// session Steer behaves like Submit.
+func (l *Loop) Steer(req PromptRequest) (RunTicket, error) {
+	return l.admit(req, true)
+}
+
+// admit is the shared entry for Submit / Steer. jumpQueue selects
+// steerQueue over followUpQueue and additionally cancels the in-flight
+// turn so the run goroutine reaches the new request immediately.
+func (l *Loop) admit(req PromptRequest, jumpQueue bool) (RunTicket, error) {
+	p := promptReq{runID: req.RunID, content: req.Content, msgID: l.idGen()}
+	if p.runID == "" {
+		p.runID = l.idGen()
+	}
+
 	l.mu.Lock()
-	l.curMsg = msgID
+	if l.closed {
+		l.mu.Unlock()
+		return RunTicket{}, ErrLoopClosed
+	}
+	if jumpQueue {
+		l.steerQueue = append(l.steerQueue, p)
+	} else {
+		l.followUpQueue = append(l.followUpQueue, p)
+	}
+	active := l.activeRun
 	l.mu.Unlock()
 
-	go func() {
-		// background ctx: handler / WS disconnect must NOT cancel the run
-		// (other clients may still be subscribed). Cancellation goes
-		// through Agent.Abort.
-		_ = l.agent.Run(context.Background())
-	}()
-	return msgID, nil
+	select {
+	case l.wake <- struct{}{}:
+	default:
+	}
+	if jumpQueue && active != nil {
+		active.cancelRun()
+	}
+	return RunTicket{RunID: p.runID, MessageID: p.msgID, Queued: active != nil}, nil
 }
 
-// Abort cancels the in-flight Run via Agent.Abort.
-func (l *Loop) Abort(ctx context.Context) error { return l.agent.Abort(ctx) }
+// Stop cancels the in-flight turn when it is the one named by runID and
+// drops every request parked behind it. Reports whether a turn was
+// actually cancelled — a stale runID is a no-op.
+func (l *Loop) Stop(runID string) bool {
+	l.mu.Lock()
+	active := l.activeRun
+	if active == nil || active.runID != runID {
+		l.mu.Unlock()
+		return false
+	}
+	l.steerQueue, l.followUpQueue = nil, nil
+	l.mu.Unlock()
+	active.cancelRun()
+	return true
+}
 
-// CurrentMessageID returns the messageID Loop assigned to the most
-// recent Prompt that wasn't rejected with ErrAgentBusy. Returns "" when
-// no Prompt is in flight. The executor reads this via Deps.CurrentMessageID
-// to embed EventCommon.MessageID on every emitted event.
+// Abort cancels whatever turn is in flight regardless of its runID and
+// drops the parked queues. No-op on an idle session.
+func (l *Loop) Abort(context.Context) error {
+	l.mu.Lock()
+	active := l.activeRun
+	l.steerQueue, l.followUpQueue = nil, nil
+	l.mu.Unlock()
+	if active != nil {
+		active.cancelRun()
+	}
+	return nil
+}
+
+// Close cancels the in-flight turn, rejects further Submit / Steer and
+// waits for the run goroutine to exit. Safe to call more than once.
+func (l *Loop) Close() {
+	l.mu.Lock()
+	alreadyClosed := l.closed
+	l.closed = true
+	l.steerQueue, l.followUpQueue = nil, nil
+	l.mu.Unlock()
+	if !alreadyClosed {
+		l.stop()
+	}
+	<-l.done
+}
+
+// CurrentMessageID returns the messageID of the turn currently running,
+// or of the last one that ran when the session is idle. The executor
+// reads this via Deps.CurrentMessageID to stamp EventCommon.MessageID on
+// every emitted event.
 func (l *Loop) CurrentMessageID() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.curMsg
+}
+
+// run is the single turn-executing goroutine.
+func (l *Loop) run() {
+	defer close(l.done)
+	for {
+		req, ok := l.next()
+		if !ok {
+			return
+		}
+		l.executeTurn(req)
+	}
+}
+
+// next takes the next request, steer queue first, and blocks on wake
+// while both queues are empty. Reports false once the Loop context is
+// cancelled.
+func (l *Loop) next() (promptReq, bool) {
+	for {
+		l.mu.Lock()
+		req, ok := l.popLocked()
+		l.mu.Unlock()
+		if ok {
+			return req, true
+		}
+		select {
+		case <-l.ctx.Done():
+			return promptReq{}, false
+		case <-l.wake:
+		}
+	}
+}
+
+// popLocked removes the head of steerQueue, else of followUpQueue.
+func (l *Loop) popLocked() (promptReq, bool) {
+	if len(l.steerQueue) > 0 {
+		req := l.steerQueue[0]
+		l.steerQueue = l.steerQueue[1:]
+		return req, true
+	}
+	if len(l.followUpQueue) > 0 {
+		req := l.followUpQueue[0]
+		l.followUpQueue = l.followUpQueue[1:]
+		return req, true
+	}
+	return promptReq{}, false
+}
+
+// executeTurn registers req as the active run and drives the Agent
+// through it. curMsg is published here rather than in admit so a parked
+// request cannot steal the messageID of the turn still emitting events.
+func (l *Loop) executeTurn(req promptReq) {
+	runCtx, cancelRun := context.WithCancel(l.ctx)
+	l.mu.Lock()
+	l.activeRun = &activeRunState{runID: req.runID, cancelRun: cancelRun}
+	l.curMsg = req.msgID
+	l.mu.Unlock()
+
+	defer func() {
+		l.mu.Lock()
+		l.activeRun = nil
+		l.mu.Unlock()
+		cancelRun()
+	}()
+
+	if err := l.agent.Prompt(runCtx, req.content); err != nil {
+		// The Agent rejected the enqueue, so no run will emit an error
+		// for this messageID. Surface it here or the renderer's bubble
+		// stays stuck in a streaming state.
+		l.agent.Emit(event.AgentErrorEvent{
+			EventBase: event.EventBase{EventCommon: event.EventCommon{
+				SessionID: l.agent.Session().ID,
+				MessageID: req.msgID,
+			}},
+			Err: err,
+		})
+		return
+	}
+	_ = l.agent.Run(runCtx)
 }

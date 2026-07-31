@@ -177,14 +177,14 @@ func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage,
 	}
 
 	sess, _, _ := c.sessions.CreateOrGet(p.SessionID)
-	// The messageId CreateOrGet returns is discarded: Loop.Prompt mints the
+	// The messageId CreateOrGet returns is discarded: Loop.Submit mints the
 	// id that the run's events actually carry, and the renderer correlates
 	// notifications against that one.
-	msgID, err := h.Loop.Prompt(context.Background(), p.Content)
+	ticket, err := h.Loop.Submit(acp.PromptRequest{Content: p.Content})
 	if err != nil {
-		return errorResp(id, CodeInternalError, "loop prompt", err)
+		return errorResp(id, CodeInternalError, "loop submit", err)
 	}
-	return successResp(id, PromptResult{SessionID: sess.ID, MessageID: msgID})
+	return successResp(id, PromptResult{SessionID: sess.ID, MessageID: ticket.MessageID})
 }
 
 func handleAbort(ctx context.Context, id json.RawMessage, params json.RawMessage, _ *client, h *Handler) *Response {
