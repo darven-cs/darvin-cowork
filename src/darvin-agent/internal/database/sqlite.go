@@ -11,8 +11,10 @@ import (
 
 var globalDB *gorm.DB
 
-// Config holds the database connection settings. SessionsDSN is the
-// path passed to the SQLite driver (relative to the Go agent's cwd).
+// Config holds the database connection settings. SessionsDSN must be
+// an absolute path; main.go resolves the raw `database.sessions_dsn`
+// value (which may be empty / relative) via
+// config.ResolveSessionsDSN before constructing this struct.
 type Config struct {
 	SessionsDSN string
 }

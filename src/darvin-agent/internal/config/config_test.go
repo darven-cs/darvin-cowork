@@ -202,7 +202,7 @@ llm:
 	// Place user-level config at the location os.UserConfigDir returns.
 	home := filepath.Join(dir, "home")
 	xdg := filepath.Join(home, ".config")
-	userCfgDir := filepath.Join(xdg, "darvin-cowork")
+	userCfgDir := filepath.Join(xdg, "darvin-cowork", "darvin-agent")
 	if err := os.MkdirAll(userCfgDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll user cfg dir: %v", err)
 	}
@@ -260,7 +260,8 @@ llm:
 
 // TestUserConfigPathIsOSAware makes sure the helper returns a path
 // under os.UserConfigDir() — the exact platform location is exercised
-// by the os package itself.
+// by the os package itself. The leaf path mirrors the Electron side:
+// .../darvin-cowork/darvin-agent/config.yaml.
 func TestUserConfigPathIsOSAware(t *testing.T) {
 	path, err := UserConfigPath()
 	if err != nil {
@@ -269,8 +270,11 @@ func TestUserConfigPathIsOSAware(t *testing.T) {
 	if filepath.Base(path) != "config.yaml" {
 		t.Errorf("file name = %q, want config.yaml", filepath.Base(path))
 	}
-	if filepath.Base(filepath.Dir(path)) != "darvin-cowork" {
-		t.Errorf("dir name = %q, want darvin-cowork", filepath.Base(filepath.Dir(path)))
+	if filepath.Base(filepath.Dir(path)) != "darvin-agent" {
+		t.Errorf("dir name = %q, want darvin-agent", filepath.Base(filepath.Dir(path)))
+	}
+	if filepath.Base(filepath.Dir(filepath.Dir(path))) != "darvin-cowork" {
+		t.Errorf("parent dir = %q, want darvin-cowork", filepath.Base(filepath.Dir(filepath.Dir(path))))
 	}
 }
 
@@ -333,5 +337,64 @@ llm:
 	}
 	if cfg.LLM.Provider != "anthropic" {
 		t.Errorf("LLM.Provider = %q, want anthropic", cfg.LLM.Provider)
+	}
+}
+
+// TestResolveSessionsDSN_EmptyDefaultsToUserDataDir covers the
+// empty-value branch: ResolveSessionsDSN should return
+// <UserConfigDir>/darvin-cowork/darvin-agent/sessions.db regardless of
+// cwd so Electron + Go land on the same absolute path.
+func TestResolveSessionsDSN_EmptyDefaultsToUserDataDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	t.Setenv("APPDATA", "")
+
+	got, err := ResolveSessionsDSN("")
+	if err != nil {
+		t.Fatalf("ResolveSessionsDSN empty: %v", err)
+	}
+	want := filepath.Join(dir, ".config", "darvin-cowork", "darvin-agent", "sessions.db")
+	if got != want {
+		t.Errorf("ResolveSessionsDSN(\"\") = %q, want %q", got, want)
+	}
+}
+
+// TestResolveSessionsDSN_AbsolutePassthrough covers the absolute
+// branch: Electron injects DARVIN_SESSIONS_DSN, which viper's
+// BindEnv surface eventually hands to ResolveSessionsDSN already as
+// an absolute path; it must be returned verbatim.
+func TestResolveSessionsDSN_AbsolutePassthrough(t *testing.T) {
+	abs := "/var/lib/darvin-cowork/sessions.db"
+	got, err := ResolveSessionsDSN(abs)
+	if err != nil {
+		t.Fatalf("ResolveSessionsDSN abs: %v", err)
+	}
+	if got != abs {
+		t.Errorf("ResolveSessionsDSN(%q) = %q, want verbatim", abs, got)
+	}
+}
+
+// TestResolveSessionsDSN_RelativeExpandsFromCwd covers the
+// relative-path branch preserved for `go run` and test fixtures.
+// The result must be <cwd>/<dsn> and must change with cwd.
+func TestResolveSessionsDSN_RelativeExpandsFromCwd(t *testing.T) {
+	dir := t.TempDir()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	got, err := ResolveSessionsDSN("./sessions.db")
+	if err != nil {
+		t.Fatalf("ResolveSessionsDSN rel: %v", err)
+	}
+	want := filepath.Join(dir, "sessions.db")
+	if got != want {
+		t.Errorf("ResolveSessionsDSN(./sessions.db) = %q, want %q", got, want)
 	}
 }

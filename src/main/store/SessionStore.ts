@@ -109,7 +109,7 @@ export class SessionStore {
   };
 
   constructor(dbPath: string) {
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
@@ -293,10 +293,3 @@ export class SessionStore {
   }
 }
 
-/**
- * 默认 db 路径：`app.getPath('userData') / darvin-cowork.sqlite`。
- * 调用方在 main 启动时把 app 准备好后调一次拿实例。
- */
-export function defaultSessionStorePath(userDataDir: string): string {
-  return path.join(userDataDir, 'darvin-cowork.sqlite');
-}

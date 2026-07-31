@@ -106,16 +106,57 @@ var globalConfig *Config
 // directory may not exist yet — Load creates it lazily so a fresh
 // install without an `api_key` written by the Settings UI still works.
 //
-// Linux:   $XDG_CONFIG_HOME/darvin-cowork/config.yaml
-//          or ~/.config/darvin-cowork/config.yaml
-// macOS:   ~/Library/Application Support/darvin-cowork/config.yaml
-// Windows: %APPDATA%\darvin-cowork\config.yaml
+// Linux:   $XDG_CONFIG_HOME/darvin-cowork/darvin-agent/config.yaml
+//          or ~/.config/darvin-cowork/darvin-agent/config.yaml
+// macOS:   ~/Library/Application Support/darvin-cowork/darvin-agent/config.yaml
+// Windows: %APPDATA%\darvin-cowork\darvin-agent\config.yaml
 func UserConfigPath() (string, error) {
+	dir, err := UserDataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.yaml"), nil
+}
+
+// UserDataDir returns the OS-aware user-level data directory shared
+// with the Electron main process (matches app.getPath('userData') +
+// "darvin-agent"). Both sides land on the same absolute path so the
+// SQLite files and config.yaml stay together, while Electron's own
+// Chromium cache lives one level up in the parent darvin-cowork/.
+func UserDataDir() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "darvin-cowork", "config.yaml"), nil
+	return filepath.Join(base, "darvin-cowork", "darvin-agent"), nil
+}
+
+// ResolveSessionsDSN maps the raw `database.sessions_dsn` value to an
+// absolute path the SQLite driver can open:
+//
+//   - empty   -> <UserDataDir>/sessions.db (default; same dir as config.yaml)
+//   - absolute -> returned verbatim (Electron injects this form via
+//     DARVIN_SESSIONS_DSN so the Electron side decides the location)
+//   - relative -> resolved against the process cwd (preserved for tests
+//     and explicit overrides; `go run` and the test suite both use this)
+//
+// Returning an absolute path keeps database.Init free of path logic.
+func ResolveSessionsDSN(dsn string) (string, error) {
+	if dsn == "" {
+		dir, err := UserDataDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve default sessions dir: %w", err)
+		}
+		return filepath.Join(dir, "sessions.db"), nil
+	}
+	if filepath.IsAbs(dsn) {
+		return dsn, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve cwd for relative dsn: %w", err)
+	}
+	return filepath.Join(cwd, dsn), nil
 }
 
 // Load reads the bundled config first, then merges any user-level
@@ -137,6 +178,9 @@ func Load(configPath string) (*Config, error) {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	if err := viper.BindEnv("llm.api_key", "LLM_API_KEY"); err != nil {
 		return nil, fmt.Errorf("bind LLM_API_KEY: %w", err)
+	}
+	if err := viper.BindEnv("database.sessions_dsn", "DARVIN_SESSIONS_DSN"); err != nil {
+		return nil, fmt.Errorf("bind DARVIN_SESSIONS_DSN: %w", err)
 	}
 
 	if err := viper.ReadInConfig(); err != nil {

@@ -11,10 +11,10 @@
  * 双方解析后的对象一致。
  */
 
-import { app } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { DarvinLocale } from '../../shared/darvin-api';
+import { userSettingsPath } from './user-paths';
 
 export interface UserSettingsLLM {
   api_key?: string;
@@ -24,16 +24,6 @@ export interface UserSettingsLLM {
 export interface UserSettings {
   llm?: UserSettingsLLM;
   locale?: DarvinLocale;
-}
-
-function userSettingsPath(): string {
-  // 与 Go 侧 config.UserConfigPath() 对齐：appData + 'darvin-cowork'。
-  // 不能用 userData —— app.setName('Darvin') 把 Electron 的 userData 路径
-  // 偏到 ~/.config/Darvin/，而 Go 永远读 ~/.config/darvin-cowork/。
-  // appData 才是 XDG_CONFIG_HOME / ~/Library/Application Support / %APPDATA%
-  // 这一层，与 os.UserConfigDir() 跨平台语义完全一致。
-  const base = app.getPath('appData');
-  return path.join(base, 'darvin-cowork', 'config.yaml');
 }
 
 /**

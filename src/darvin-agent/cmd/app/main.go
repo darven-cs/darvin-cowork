@@ -75,14 +75,23 @@ func main() {
 
 	log.Info("starting application", zap.String("name", cfg.App.Name), zap.String("env", cfg.App.Env))
 
+	dsn, err := config.ResolveSessionsDSN(cfg.Database.SessionsDSN)
+	if err != nil {
+		log.Error("failed to resolve sessions dsn", zap.Error(err))
+		os.Exit(1)
+	}
+	if err := os.MkdirAll(filepath.Dir(dsn), 0o700); err != nil {
+		log.Error("failed to create sessions dir", zap.Error(err))
+		os.Exit(1)
+	}
 	dbCfg := &database.Config{
-		SessionsDSN: cfg.Database.SessionsDSN,
+		SessionsDSN: dsn,
 	}
 	if err := database.Init(dbCfg); err != nil {
 		log.Error("failed to init database", zap.Error(err))
 		os.Exit(1)
 	}
-	log.Info("database initialized", zap.String("sessions_dsn", cfg.Database.SessionsDSN))
+	log.Info("database initialized", zap.String("sessions_dsn", dsn))
 
 	if err := database.AutoMigrate(
 		&store.Session{},

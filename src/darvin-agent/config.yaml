@@ -3,7 +3,17 @@ app:
   env: development
 
 database:
-  sessions_dsn: ./sessions.db
+  # Empty (default) puts the sessions.db in the same user-level directory
+  # as config.yaml, aligned with the Electron main process's SessionStore:
+  #   Windows %APPDATA%\darvin-cowork\darvin-agent\sessions.db
+  #   macOS   ~/Library/Application Support/darvin-cowork/darvin-agent/sessions.db
+  #   Linux   ~/.config/darvin-cowork/darvin-agent/sessions.db
+  # The Electron main process also injects DARVIN_SESSIONS_DSN (absolute
+  # path) into the agent's environment so the path is owned by the
+  # launcher even if this value is left empty. An absolute path here wins
+  # over the env var, and a relative path is resolved against the
+  # process cwd (handy for `go run`/test fixtures).
+  sessions_dsn: ""
 
 log:
   level: info

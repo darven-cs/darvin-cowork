@@ -17,7 +17,8 @@ import { readUserSettingsYAML, writeUserSettingsYAML } from './libs/user-setting
 import { installAppMenu } from './menu';
 import { RuntimeMgr, resolveAgentBinaryPath } from './runtime/manager';
 import { AgentClient, BACKEND_DEFAULT_SESSION_ID } from './runtime/client';
-import { SessionStore, defaultSessionStorePath } from './store/SessionStore';
+import { SessionStore } from './store/SessionStore';
+import { sessionStorePath } from './libs/user-paths';
 import { EventRouter } from './store/EventRouter';
 import type {
   DarvinLLMConfig,
@@ -38,7 +39,7 @@ if (require('electron-squirrel-startup')) {
   app.quit();
 }
 
-app.setName('Darvin-Cowork');
+app.setName('darvin-cowork');
 
 if (!app.isPackaged) {
   app.commandLine.appendSwitch('remote-debugging-port', '9222')
@@ -48,7 +49,7 @@ if (!app.isPackaged) {
 
 const mgr = new RuntimeMgr();
 const client = new AgentClient({ logger: console });
-const store = new SessionStore(defaultSessionStorePath(app.getPath('userData')));
+const store = new SessionStore(sessionStorePath());
 const eventRouter = new EventRouter({
   store,
   client,
