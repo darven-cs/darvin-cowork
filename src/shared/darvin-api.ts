@@ -122,6 +122,17 @@ export interface DarvinSetLLMConfigResponse {
   restarted: boolean;
 }
 
+// ── locale（renderer i18n 语言选择）──────────────────────────────────
+//
+// 持久化到与 LLM 配置同一个用户级 yaml；主进程只管存 / 取，不做重启。
+// renderer 拿到值后调 `setLang()`，组件因 `currentLang` 是 Vue ref
+// 自动 re-render，无需 reload。
+export type DarvinLocale = 'zh' | 'en';
+
+export interface DarvinLocaleResponse {
+  locale: DarvinLocale;
+}
+
 // ── main → renderer push 事件名 ───────────────────────────────────────
 //
 // main 用 `webContents.send` 单向下推，renderer 用 `onSessionsChanged`
@@ -159,6 +170,12 @@ export interface DarvinApi {
   getLLMConfig(): Promise<DarvinLLMConfig>;
   /** 写入用户级 yaml + 重启 Go 子进程，subprocess 重启后才会用到新 key。 */
   setLLMConfig(req: { apiKey: string; baseUrl?: string }): Promise<DarvinSetLLMConfigResponse>;
+
+  // locale
+  /** 读取持久化的 UI 语言；首次启动或未写入时回落到 'zh'。 */
+  getLocale(): Promise<DarvinLocaleResponse>;
+  /** 写入用户级 yaml；renderer 收到返回值后再 `setLang()`，组件因 ref 自动 re-render。 */
+  setLocale(req: { locale: DarvinLocale }): Promise<void>;
 
   // 运行时状态
   /** 走 IPC 异步查询：sendSync 会阻塞 renderer 线程，不用。 */
