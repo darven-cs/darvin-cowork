@@ -103,5 +103,9 @@ go.work.sum
 **/bin/darvin-agent-*
 !**/bin/.gitkeep
 
+# `cd src/darvin-agent && go build ./cmd/app` 的调试残留：二进制名是包名 `app`，
+# 落在模块根目录而不是 bin/ 下，单独忽略。
+**/darvin-agent/app
+
 # Playwright CLI debug artifacts
 .playwright-cli/
