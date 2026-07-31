@@ -6,6 +6,8 @@
         :key="s.id"
         :session="s"
         :active="s.id === currentId"
+        :running="runningSessionIds.has(s.id)"
+        :unread="unreadSessionIds.has(s.id)"
         @select="emit('select', $event)"
       />
     </ul>
@@ -14,9 +16,15 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { DarvinSession } from '../../../shared/darvin-api';
 import SessionItem from './SessionItem.vue';
+import { useMessages } from '../../composables/useMessages';
 
-defineProps<{ sessions: DarvinSession[]; currentId: string }>();
+const props = defineProps<{ sessions: DarvinSession[]; currentId: string }>();
 const emit = defineEmits<{ select: [id: string] }>();
+
+const messages = useMessages();
+const runningSessionIds = computed(() => messages.streamingSessionIds.value);
+const unreadSessionIds = computed(() => messages.unreadSessionIds.value);
 </script>

@@ -17,7 +17,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted } from 'vue';
 import Sidebar from '../components/sidebar/Sidebar.vue';
 import SidePanel from '../components/side-panel/SidePanel.vue';
 import HomeView from '../views/HomeView.vue';
@@ -28,14 +28,13 @@ import { useSidebar } from '../composables/useSidebar';
 import { useSidePanel } from '../composables/useSidePanel';
 import { useTheme } from '../composables/useTheme';
 import { useMessages } from '../composables/useMessages';
-import { useSession } from '../composables/useSession';
 import { useViewMode, type ViewMode } from '../composables/useViewMode';
 
 const sidebar = useSidebar();
 const sidePanel = useSidePanel();
 useTheme();
-const messages = useMessages();
-const session = useSession();
+// 触发 useMessages 内部 watch（首次 active 拉历史、后续切 session 拉历史）
+useMessages();
 const viewMode = useViewMode();
 
 const sidebarCollapsed = computed(() => sidebar.collapsed.value);
@@ -67,19 +66,8 @@ function onSidebarNavigate(target: string) {
   navigateTo(target);
 }
 
-watch(
-  () => session.activeSessionId.value,
-  (id) => {
-    if (id === null) {
-      messages.reset();
-      return;
-    }
-    void messages.loadMessages(id);
-  },
-  { immediate: true },
-);
-
 onMounted(() => {
+  const messages = useMessages();
   window.darvin.onEvent((e) => messages.appendEvent(e));
 });
 </script>

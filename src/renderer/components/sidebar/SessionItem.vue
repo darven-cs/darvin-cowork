@@ -8,8 +8,23 @@
         : 'text-text-muted hover:bg-surface-hover hover:text-text'"
       @click="emit('select', session.id)"
     >
-      <Icon name="message-square" :size="12" class="shrink-0 text-text-subtle" />
+      <span
+        v-if="running"
+        class="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent"
+        aria-label="运行中"
+      />
+      <Icon
+        v-else
+        name="message-square"
+        :size="12"
+        class="shrink-0 text-text-subtle"
+      />
       <span class="flex-1 truncate">{{ session.title }}</span>
+      <span
+        v-if="unread"
+        class="h-1.5 w-1.5 shrink-0 rounded-full bg-error"
+        aria-label="未读"
+      />
       <span class="shrink-0 font-mono text-[10px] text-text-subtle">{{ relTime }}</span>
     </button>
   </li>
@@ -20,7 +35,12 @@ import { computed } from 'vue';
 import type { DarvinSession } from '../../../shared/darvin-api';
 import Icon from '../common/Icon.vue';
 
-const props = defineProps<{ session: DarvinSession; active: boolean }>();
+const props = defineProps<{
+  session: DarvinSession;
+  active: boolean;
+  running: boolean;
+  unread: boolean;
+}>();
 const emit = defineEmits<{ select: [id: string] }>();
 
 const relTime = computed(() => {

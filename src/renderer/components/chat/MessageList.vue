@@ -24,7 +24,7 @@ import { useMessages } from '../../composables/useMessages';
 import { t } from '../../services/i18n';
 
 const messages = useMessages();
-const messageList = computed(() => messages.list.value);
+const messageList = computed(() => messages.currentMessages.value);
 const scrollRef = ref<HTMLDivElement | null>(null);
 
 watch(
