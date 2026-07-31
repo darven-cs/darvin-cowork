@@ -19,7 +19,7 @@ import (
 // capture. The port line must be the only line on stdout.
 func TestServerStartPrintsPort(t *testing.T) {
 	h, _ := newTestHandler(t)
-	gs := NewServer(h, zap.NewNop())
+	gs := NewServer(h, zap.NewNop(), WithPort(0))
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -67,7 +67,7 @@ func TestServerStartPrintsPort(t *testing.T) {
 // used by main.go's signal handler.
 func TestServerShutdownReturnsCleanly(t *testing.T) {
 	h, _ := newTestHandler(t)
-	gs := NewServer(h, zap.NewNop())
+	gs := NewServer(h, zap.NewNop(), WithPort(0))
 	if err := gs.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestServerShutdownReturnsCleanly(t *testing.T) {
 func TestServerWSAcceptsConnections(t *testing.T) {
 	h, _ := newTestHandler(t)
 	h.Ledger.fakeDelay = 5 * time.Millisecond
-	gs := NewServer(h, zap.NewNop())
+	gs := NewServer(h, zap.NewNop(), WithPort(0))
 
 	// Capture stdout so the test doesn't pollute the test runner's output.
 	r, w, _ := os.Pipe()

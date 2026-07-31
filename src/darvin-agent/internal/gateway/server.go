@@ -14,6 +14,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// DefaultPort is the fixed gateway port. Electron's RuntimeMgr connects
+// here, so it must stay in sync with any client-side config that expects
+// this port.
+const DefaultPort = 28999
+
 // upgrader is shared across connections. CheckOrigin always returns
 // true: the gateway binds localhost only and currently has no auth layer.
 var upgrader = websocket.Upgrader{
@@ -36,16 +41,33 @@ type Server struct {
 	started  bool
 }
 
+// ServerOption mutates the Server before Start. NewServer applies
+// options in order after setting defaults.
+type ServerOption func(*Server)
+
+// WithPort overrides the listen port. Tests pass 0 to get an
+// OS-assigned port and avoid conflicts when tests run in parallel.
+func WithPort(port int) ServerOption {
+	return func(s *Server) {
+		s.addr = fmt.Sprintf("localhost:%d", port)
+	}
+}
+
 // NewServer wires the *Handler (which carries the SessionManager /
 // EventLedger / acp.Loop / acp.SteerControl dependencies) and the
-// server-local zap logger. addr is "localhost:0" so the OS picks a free
-// port; the actual port is reported via the stdout contract below.
-func NewServer(h *Handler, log *zap.Logger) *Server {
-	return &Server{
-		addr:    "localhost:0",
+// server-local zap logger. By default the gateway binds the fixed
+// DefaultPort; pass WithPort(0) for an OS-assigned port (tests). The
+// actual port is reported via the stdout contract below.
+func NewServer(h *Handler, log *zap.Logger, opts ...ServerOption) *Server {
+	s := &Server{
+		addr:    fmt.Sprintf("localhost:%d", DefaultPort),
 		handler: h,
 		log:     log,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Start binds the listener, prints the single-line port announcement on
