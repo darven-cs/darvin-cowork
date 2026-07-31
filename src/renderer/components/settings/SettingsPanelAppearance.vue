@@ -53,7 +53,7 @@
 
 <script setup lang="ts">
 import { useTheme } from '../../composables/useTheme';
-import { getLang, setLang } from '../../services/i18n';
+import { getLang, setLang, t } from '../../services/i18n';
 
 const { theme, apply: applyTheme } = useTheme();
 
