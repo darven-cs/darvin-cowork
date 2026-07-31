@@ -247,7 +247,6 @@ export class SessionStore {
    */
   appendMessageDelta(messageId: string, delta: string): void {
     this.stmts.updateMessageContent.run(delta, messageId);
-    // 找到对应 session 以便 touch updated_at
     const row = this.db
       .prepare(`SELECT session_id FROM messages WHERE id = ?`)
       .get(messageId) as { session_id: string } | undefined;

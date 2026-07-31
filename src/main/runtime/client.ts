@@ -1,7 +1,7 @@
 /**
  * 与 darvin-agent 子进程的 WebSocket JSON-RPC 2.0 客户端。
  *
- * 协议（S3 gateway）：
+ * 协议（gateway）：
  * - request：`{jsonrpc:"2.0", id, method:"agent.prompt"|..., params}`
  * - response：`{jsonrpc:"2.0", id, result}` 或 `{jsonrpc:"2.0", id, error:{code,message}}`
  * - notification：`{jsonrpc:"2.0", method:"agent.event", params:{type,...}}`

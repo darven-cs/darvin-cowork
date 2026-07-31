@@ -41,9 +41,8 @@ if (require('electron-squirrel-startup')) {
 app.setName('Darvin-Cowork');
 
 if (!app.isPackaged) {
-  // 固定调试端口 9222
   app.commandLine.appendSwitch('remote-debugging-port', '9222')
-  // 允许任意客户端跨域连接调试端口（必须加，否则 Playwright 连不上）
+  // 必须放开跨域，否则 Playwright 连不上调试端口
   app.commandLine.appendSwitch('remote-allow-origins', '*')
 }
 
@@ -106,7 +105,6 @@ ipcMain.handle(
   'darvin:create_session',
   (_e, req?: { title?: string }): { session: DarvinSession } => {
     const session = store.createSession(req?.title);
-    // 新创建的 session 自动成为 active，避免 renderer 多走一步
     store.setActive(session.id);
     broadcastSessions();
     broadcastActiveSession();
@@ -240,8 +238,6 @@ mgr.on('exit', ({ code, signal }: { code: number | null; signal: string | null }
 
 /**
  * 重启 Go 子进程：用于 set_llm_config 等需要冷启动以加载新配置的场景。
- * 顺序：client.disconnect → mgr.stop → mgr.start → client.connect →
- *        subscribe_events → eventRouter.start。
  *
  * 返回值表示是否真的拉起了一个新子进程。binary 缺失或 restart 失败
  * 时返 false，caller 决定如何 surface 给 UI（toast 即可，不阻塞写盘）。

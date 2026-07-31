@@ -1,7 +1,7 @@
 /**
  * darvin-agent 子进程的生命周期管理。
  *
- * 契约（S3 gateway/server.go）：子进程启动后向 stdout 写唯一一行
+ * 契约（gateway/server.go）：子进程启动后向 stdout 写唯一一行
  * `<port>NNNNN</port>\n`，随后 WS 服务在 `ws://localhost:{port}/ws` 就绪。
  * `RuntimeMgr.start()` 解析这行拿到端口，`AgentClient` 负责建连。
  */
@@ -129,7 +129,6 @@ export class RuntimeMgr extends EventEmitter {
       });
 
       proc.on('exit', (code, signal) => {
-        // 还没 resolve 就退了 → 算启动失败
         this.settleStart(new Error(`启动失败 exit=${code} signal=${signal}`));
         this.proc = undefined;
         this.resolvedPort = undefined;

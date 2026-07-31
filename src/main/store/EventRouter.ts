@@ -79,7 +79,7 @@ export class EventRouter {
   handle(ev: DarvinEvent): void {
     const active = this.store.getActive();
     if (active === null) {
-      // 没有 active session 时不路由（renderer 端没视图能接这些事件）
+      // renderer 端没有视图能接这些事件
       return;
     }
     applyToStore(this.store, ev);
