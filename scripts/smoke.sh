@@ -30,7 +30,8 @@ export DARVIN_CONFIG="$CONFIG_PATH"
 
 # 1b. 用户级 config（如果不存在）：smoke 只需要 binary 起来即可，
 #     placeholder api_key 让 llm.NewProvider 走通。真要测流式响应
-#     走 e2e（real-llm）项目，那里把 ANTHROPIC_API_KEY 通过设置面板灌入。
+#     走 playwright-cli（dev 手动，详见 AGENTS.md），那里把
+#     ANTHROPIC_API_KEY 通过设置面板灌入。
 USER_CONFIG_DIR=""
 case "$(uname -s)" in
   Darwin) USER_CONFIG_DIR="$HOME/Library/Application Support/darvin-cowork" ;;

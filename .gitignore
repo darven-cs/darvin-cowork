@@ -104,7 +104,3 @@ bin/darvin-agent-*
 
 # Playwright CLI debug artifacts
 .playwright-cli/
-# Playwright test outputs (spec FR-6)
-test-results/
-playwright-report/
-playwright/.cache/
