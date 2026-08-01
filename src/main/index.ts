@@ -26,6 +26,9 @@ import { readWorkspaceTextFile, resolveWorkspacePath, walkWorkspace } from './li
 import { artifactPreviewServer } from './services/artifact-preview-server';
 import type {
   DarvinActiveSessionResponse,
+  DarvinAppInfo,
+  DarvinAppPreferences,
+  DarvinAppPreferencesPatch,
   DarvinCompactContextResponse,
   DarvinCreateArtifactPreviewSessionResponse,
   DarvinCreateSessionResponse,
@@ -592,10 +595,23 @@ ipcMain.handle('darvin:status', (): DarvinRuntimeStatus => {
 
 ipcMain.handle('darvin:get_llm_config', async (): Promise<DarvinLLMConfig> => {
   const cfg = await readUserSettingsYAML();
+  const providers: DarvinLLMConfig['providers'] = {};
+  for (const [name, entry] of Object.entries(cfg?.providers ?? {})) {
+    providers[name] = {
+      apiKey: entry?.api_key ?? '',
+      baseUrl: entry?.base_url ?? '',
+      defaultModel: entry?.default_model ?? '',
+    };
+  }
+  const activeProvider = cfg?.llm?.provider ?? 'anthropic';
+  const active = providers[activeProvider];
   return {
-    provider: 'anthropic',
-    apiKey: cfg?.llm?.api_key ?? '',
-    baseUrl: cfg?.llm?.base_url ?? '',
+    provider: activeProvider,
+    activeProvider,
+    apiKey: active?.apiKey ?? cfg?.llm?.api_key ?? '',
+    baseUrl: active?.baseUrl ?? cfg?.llm?.base_url ?? '',
+    defaultModel: active?.defaultModel ?? cfg?.llm?.default_model ?? '',
+    providers,
   };
 });
 
@@ -603,13 +619,78 @@ ipcMain.handle(
   'darvin:set_llm_config',
   async (
     _e,
-    req: { apiKey: string; baseUrl?: string },
+    req: { provider: string; apiKey: string; baseUrl?: string; defaultModel?: string },
   ): Promise<DarvinSetLLMConfigResponse> => {
-    await writeUserSettingsYAML({ llm: { api_key: req.apiKey, base_url: req.baseUrl ?? '' } });
-    const restarted = await restartGoSubprocess();
-    return { saved: true, restarted };
+    if (req.provider === 'anthropic') {
+      // anthropic 是 Go 唯一注册的 provider：写进 llm 块并重启使新 key 生效。
+      await writeUserSettingsYAML({
+        llm: {
+          provider: 'anthropic',
+          api_key: req.apiKey,
+          base_url: req.baseUrl ?? '',
+          default_model: req.defaultModel ?? '',
+        },
+      });
+      const restarted = await restartGoSubprocess();
+      return { saved: true, restarted };
+    }
+    // openai / custom：Go 尚未接入，只把凭据存进 providers 块（不重启、不激活），
+    // 避免下一轮启动时 Go 因未知 provider 直接 os.Exit(1)。
+    await writeUserSettingsYAML({
+      providers: {
+        [req.provider]: {
+          api_key: req.apiKey,
+          base_url: req.baseUrl ?? '',
+          default_model: req.defaultModel ?? '',
+        },
+      },
+    });
+    return { saved: true, restarted: false };
   },
 );
+
+ipcMain.handle('darvin:get_app_preferences', async (): Promise<DarvinAppPreferences> => {
+  const cfg = await readUserSettingsYAML();
+  return {
+    autoLaunch: app.getLoginItemSettings().openAtLogin,
+    notifications: cfg?.app?.notifications ?? true,
+    proxy: cfg?.app?.proxy ?? '',
+    memory: {
+      enabled: cfg?.memory?.enabled ?? false,
+      embeddingProvider: cfg?.memory?.embedding_provider ?? 'openai',
+      apiKey: cfg?.memory?.api_key ?? '',
+    },
+  };
+});
+
+ipcMain.handle(
+  'darvin:set_app_preferences',
+  async (_e, patch: DarvinAppPreferencesPatch): Promise<void> => {
+    if (patch.autoLaunch !== undefined) {
+      app.setLoginItemSettings({ openAtLogin: patch.autoLaunch });
+    }
+    await writeUserSettingsYAML({
+      app: {
+        notifications: patch.notifications,
+        proxy: patch.proxy,
+      },
+      memory: {
+        enabled: patch.memory?.enabled,
+        embedding_provider: patch.memory?.embeddingProvider,
+        api_key: patch.memory?.apiKey,
+      },
+    });
+  },
+);
+
+ipcMain.handle('darvin:get_app_info', async (): Promise<DarvinAppInfo> => {
+  return {
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    platform: process.platform,
+    arch: process.arch,
+  };
+});
 
 ipcMain.handle(
   'darvin:get_locale',

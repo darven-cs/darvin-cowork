@@ -101,12 +101,23 @@ export const ModelProvider = {
 
 ## 6. 验收
 
-- [ ] 7 个 tab 全部有内容（不再是空态）
-- [ ] 字号滑块 / 主题色 radio 实时生效
-- [ ] 模型 tab 支持至少 2 个 provider
-- [ ] 快捷键 tab 显示实际生效的快捷键（与 06 同步）
-- [ ] 关于 tab 显示压缩次数
-- [ ] tab 切换支持深链
+- [x] 7 个 tab 全部有内容（general / appearance / shortcuts / models / memory / runtime / about）
+- [x] 字号滑块 / 主题色 radio 实时生效
+- [x] 模型 tab 支持至少 2 个 provider
+- [x] 快捷键 tab 显示实际生效的快捷键（与 06 同步）
+- [x] 关于 tab 显示压缩次数
+- [x] tab 切换支持深链
+
+### 落地补充（实现期决议）
+
+- **tab 注册表抽独立模块**：`settings-sections.ts` 导出 `SettingsSections` 常量数组 + `SettingsSectionId` 类型 + `isSettingsSectionId` 校验（`<script setup>` 不能导出运行时函数）；`SettingsSubNav` / `SettingsView` 共用。**account tab 移除**（spec 非目标：不做账号/登出，7 tab 对齐设计 doc §4.1 注册表）。
+- **G1 通用**：autoLaunch 走真实 OS 开关（`app.getLoginItemSettings()` / `setLoginItemSettings({ openAtLogin })`），notifications / proxy 持久化到用户 yaml `app` 块。新 IPC `get_app_preferences` / `set_app_preferences`。
+- **G2 外观**：新建 `useAppearance`（localStorage 持久化），按 LobsterAI `applyTypographyPreferences` 同款——`uiFontSize/14` 比例整体缩放 `--text-xs..2xl`（body + markdown 消费），code 字号单独写 `--text-code`（新增 `@theme` token，CodeBlock 的 `text-[13px]` 改 `text-code`），主题色写 `html[data-accent]` → theme.css 里 `html[data-accent=blue|green]` 覆盖 `--color-primary` 家族（放 dark 块后，light/dark 都生效）。
+- **G3 模型**：`DarvinLLMConfig` 扩展 `provider` / `activeProvider` / `defaultModel` / `providers` 块。**后端约束**：Go 只注册 anthropic（`llm.NewProvider` 对未知名直接报错 + `main.go` `os.Exit(1)`），所以非 anthropic 保存只写 yaml `providers.<name>` 块、不重启、不激活（避免下次启动 agent 崩溃）；pending note 提示「Go 接入前仍用 Anthropic」。anthropic 保存走原重启路径。`user-settings.ts` yaml 解析/写入扩展 `llm.provider/default_model` + `app.*` + `memory.*` + `providers.*` 两级嵌套。
+- **G4 快捷键**：替换虚构的 ⌘N/⌘F/⌘D/⌘,/⌘J，改为真实绑定——`Ctrl/Cmd+1-5`（06 useShortcuts）+ `Enter` 发送 / `Shift+Enter` 换行 / `Ctrl/Cmd+Enter` 强制发送（Composer / PromptDock）+ `Esc` 关浮层（useFloatingPanel）。
+- **G5 记忆**：Go 侧 `sections.go` 明确 "no memory system wired"，设置面板落地 + 持久化到 yaml `memory` 块（enabled / embedding_provider / api_key），hint 标注「记忆运行时尚未在 darvin-agent 接入」。
+- **G6 关于**：版本走新 IPC `get_app_info`（`app.getVersion()` + `process.versions.electron` + platform/arch），替换硬编码 v0.1.0；压缩次数聚合 `useMessages.compactionsBySessionId`（跨 session 求和 + 最近时间 Intl 格式化）；导出日志 = 复制诊断信息（版本/平台/压缩次数）到剪贴板 + toast。
+- **G7 深链**：`SettingsView` onMounted 读 `?tab=` query 校验后设初始 active，tab 切换 `history.replaceState` 更新 query（不刷新）。
 
 ## 7. 依赖
 

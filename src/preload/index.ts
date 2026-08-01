@@ -108,6 +108,16 @@ const api: DarvinApi = {
     return ipcRenderer.invoke('darvin:set_llm_config', req);
   },
 
+  async getAppPreferences() {
+    return ipcRenderer.invoke('darvin:get_app_preferences');
+  },
+  async setAppPreferences(patch) {
+    return ipcRenderer.invoke('darvin:set_app_preferences', patch);
+  },
+  async getAppInfo() {
+    return ipcRenderer.invoke('darvin:get_app_info');
+  },
+
   async getLocale(): Promise<DarvinLocaleResponse> {
     return ipcRenderer.invoke('darvin:get_locale');
   },

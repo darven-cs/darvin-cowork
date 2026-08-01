@@ -1,5 +1,5 @@
 <template>
-  <section class="flex flex-col gap-4">
+  <section class="flex flex-col gap-4" data-testid="settings-about">
     <div class="flex flex-col gap-2">
       <h3 class="font-sans text-[15px] font-semibold text-text">{{ t('settings.about.title') }}</h3>
       <p class="font-sans text-[12.5px] text-text-muted">{{ t('settings.about.desc') }}</p>
@@ -8,7 +8,7 @@
     <div class="flex flex-col gap-1.5 rounded-md border border-border bg-surface px-3 py-2.5">
       <div class="flex items-center justify-between">
         <span class="font-sans text-[12.5px] text-text-muted">{{ t('settings.about.version') }}</span>
-        <span class="font-mono text-[12.5px] text-text">v0.1.0</span>
+        <span class="font-mono text-[12.5px] text-text">{{ version || '—' }}</span>
       </div>
       <div class="flex items-center justify-between">
         <span class="font-sans text-[12.5px] text-text-muted">{{ t('settings.about.runtime') }}</span>
@@ -16,19 +16,46 @@
       </div>
       <div class="flex items-center justify-between">
         <span class="font-sans text-[12.5px] text-text-muted">{{ t('settings.about.electron') }}</span>
-        <span class="font-mono text-[12.5px] text-text">43.2.0</span>
+        <span class="font-mono text-[12.5px] text-text">{{ electron || '—' }}</span>
       </div>
+      <div class="flex items-center justify-between">
+        <span class="font-sans text-[12.5px] text-text-muted">{{ t('settings.about.platform') }}</span>
+        <span class="font-mono text-[12.5px] text-text">{{ platformLabel }}</span>
+      </div>
+    </div>
+
+    <div class="flex flex-col gap-1.5">
+      <h4 class="font-sans text-[13px] font-medium text-text">{{ t('settings.about.compaction_title') }}</h4>
+      <div class="flex flex-col gap-1.5 rounded-md border border-border bg-surface px-3 py-2.5">
+        <div class="flex items-center justify-between">
+          <span class="font-sans text-[12.5px] text-text-muted">{{ t('settings.about.compaction_count') }}</span>
+          <span class="font-mono text-[12.5px] text-text">{{ compactionCount }}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="font-sans text-[12.5px] text-text-muted">{{ t('settings.about.compaction_latest') }}</span>
+          <span class="font-mono text-[12.5px] text-text">{{ latestCompactionLabel }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex flex-col gap-1.5">
+      <h4 class="font-sans text-[13px] font-medium text-text">{{ t('settings.about.logs_title') }}</h4>
+      <p class="font-sans text-[12.5px] text-text-muted">{{ t('settings.about.logs_desc') }}</p>
+      <button
+        type="button"
+        class="self-start rounded-md border border-border px-3 py-1.5 font-sans text-[13px] text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+        data-testid="settings-about-export-logs"
+        @click="onExport"
+      >
+        {{ t('settings.about.export_logs') }}
+      </button>
     </div>
 
     <div class="flex flex-col gap-1.5">
       <h4 class="font-sans text-[13px] font-medium text-text">{{ t('settings.about.arch_title') }}</h4>
       <p class="font-sans text-[12.5px] leading-[1.6] text-text-muted">
-        Electron 渲染层（Vue 3 + Tailwind v4）通过 contextBridge 调 Go agent 子进程，
-        Go 端负责 agent 循环、工具调用、记忆、上下文压缩、模型切换等业务逻辑。
+        {{ t('settings.about.arch_desc') }}
       </p>
-      <a class="font-mono text-[12px] text-primary hover:underline" href="#" @click.prevent>
-        docs/系统架构.md →
-      </a>
     </div>
 
     <div class="flex flex-col gap-1.5">
@@ -44,5 +71,73 @@
 </template>
 
 <script setup lang="ts">
-import { t } from '../../services/i18n';
+import { computed, onMounted, ref } from 'vue';
+import { useMessages } from '../../composables/useMessages';
+import { getLang, t } from '../../services/i18n';
+import { showToast } from '../../services/toast';
+
+const { compactionsBySessionId } = useMessages();
+
+const version = ref('');
+const electron = ref('');
+const platform = ref('');
+const arch = ref('');
+
+const platformLabel = computed(() => {
+  if (!platform.value) return '—';
+  return `${platform.value} ${arch.value}`;
+});
+
+const compactionCount = computed(() => {
+  let total = 0;
+  for (const markers of Object.values(compactionsBySessionId.value)) {
+    total += markers.length;
+  }
+  return total;
+});
+
+const latestCompactionLabel = computed(() => {
+  let latest = 0;
+  for (const markers of Object.values(compactionsBySessionId.value)) {
+    for (const m of markers) {
+      if (m.createdAt > latest) latest = m.createdAt;
+    }
+  }
+  if (!latest) return '—';
+  return new Intl.DateTimeFormat(getLang() === 'zh' ? 'zh-CN' : 'en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(latest);
+});
+
+async function onExport() {
+  const lines = [
+    `darvin-cowork v${version.value || '?'}`,
+    `Electron ${electron.value || '?'}`,
+    `Platform ${platformLabel.value}`,
+    `Compactions ${compactionCount.value}`,
+    `Locale ${getLang()}`,
+  ];
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    showToast(t('settings.about.logs_copied'), 'success');
+  } catch {
+    showToast(t('settings.about.logs_copy_failed'), 'error');
+  }
+}
+
+onMounted(async () => {
+  try {
+    const info = await window.darvin.getAppInfo();
+    version.value = info.version;
+    electron.value = info.electron;
+    platform.value = info.platform;
+    arch.value = info.arch;
+  } catch {
+    /* IPC 失败则保持占位 */
+  }
+});
 </script>

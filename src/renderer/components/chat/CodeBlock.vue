@@ -13,7 +13,7 @@
       </button>
     </div>
     <!-- eslint-disable-next-line vue/no-v-html --><!-- highlightedHtml 来自 shiki codeToHtml（可信库输出） -->
-    <pre class="max-h-[480px] overflow-auto p-3"><code class="block font-mono text-[13px] leading-relaxed" v-html="highlightedHtml" /></pre>
+    <pre class="max-h-[480px] overflow-auto p-3"><code class="block font-mono text-code leading-relaxed" v-html="highlightedHtml" /></pre>
   </div>
 </template>
 

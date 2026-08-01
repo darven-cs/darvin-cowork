@@ -34,6 +34,11 @@
   --color-accent-hover:    var(--color-primary-hover);
   --color-accent-soft:     var(--color-primary-muted);
 
+  /* 主题色选项 swatch（spec 07 G2 外观 tab 三选一） */
+  --color-accent-orange:   #FF5722;
+  --color-accent-blue:     #2563EB;
+  --color-accent-green:    #16A34A;
+
   /* 语义状态 */
   --color-success:         #10B981;
   --color-danger:          #EF4444;
@@ -91,6 +96,7 @@
   --text-lg:   18px;
   --text-xl:   24px;
   --text-2xl:  32px;
+  --text-code: 13px;
 
   /* 阴影 */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
@@ -166,6 +172,23 @@
     margin: 0;
     -webkit-font-smoothing: antialiased;
     transition: background-color 200ms ease, color 200ms ease;
+  }
+
+  /* 主题色（spec 07 G2）：html[data-accent] 覆盖 --color-primary 家族。
+     放在 dark 块之后，light/dark 下都生效（默认橙色由 :root 提供）。 */
+  html[data-accent="blue"] {
+    --color-primary:       #2563EB;
+    --color-primary-hover: #1D4ED8;
+    --color-primary-muted: rgba(37, 99, 235, 0.10);
+    --color-primary-soft:  rgba(37, 99, 235, 0.06);
+    --shadow-primary:      0 4px 12px rgba(37, 99, 235, 0.32);
+  }
+  html[data-accent="green"] {
+    --color-primary:       #16A34A;
+    --color-primary-hover: #15803D;
+    --color-primary-muted: rgba(22, 163, 74, 0.10);
+    --color-primary-soft:  rgba(22, 163, 74, 0.06);
+    --shadow-primary:      0 4px 12px rgba(22, 163, 74, 0.32);
   }
 
   * {

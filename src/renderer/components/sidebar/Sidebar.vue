@@ -11,7 +11,7 @@
       @navigate="onNavigate"
     />
 
-    <SidebarAgentCard v-if="!collapsed" class="shrink-0" />
+    <SidebarAgentCard v-if="!collapsed" :collapsed="collapsed" class="shrink-0" />
 
     <div v-if="!collapsed" class="flex min-h-0 flex-1 flex-col">
       <div class="px-4 pt-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-subtle">

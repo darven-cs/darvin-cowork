@@ -289,16 +289,52 @@ export interface DarvinSearchSessionsResponse {
   messages: DarvinSearchHit[];
 }
 
+/** 设置面板可编辑的 LLM provider。runtime 是否可用取决于 Go 侧注册情况。 */
+export type DarvinModelProvider = 'anthropic' | 'openai' | 'custom';
+
 export interface DarvinLLMConfig {
-  provider: 'anthropic';
+  /** UI 当前编辑的 provider（不一定 runtime active）。 */
+  provider: DarvinModelProvider;
+  /** 当前运行时实际生效的 provider（Go 只注册了 anthropic）。 */
+  activeProvider: string;
   apiKey: string;
   baseUrl: string;
+  defaultModel: string;
+  /** 各 provider 的独立凭据（openai / custom 预先存好，待 Go 接入后激活）。 */
+  providers: Record<string, { apiKey: string; baseUrl: string; defaultModel: string }>;
 }
 
 // 重启 Go 子进程的反馈：UI 端用它判定是否要切到 "Restarting…"
 export interface DarvinSetLLMConfigResponse {
   saved: boolean;
   restarted: boolean;
+}
+
+/** 通用设置：自动启动（OS 级）+ 通知 / 代理 + 记忆偏好（用户级 yaml）。 */
+export interface DarvinAppPreferences {
+  autoLaunch: boolean;
+  notifications: boolean;
+  proxy: string;
+  memory: {
+    enabled: boolean;
+    embeddingProvider: string;
+    apiKey: string;
+  };
+}
+
+export type DarvinAppPreferencesPatch = Partial<{
+  autoLaunch: boolean;
+  notifications: boolean;
+  proxy: string;
+  memory: Partial<DarvinAppPreferences['memory']>;
+}>;
+
+/** 关于 tab 的运行时信息（版本 / 架构）。 */
+export interface DarvinAppInfo {
+  version: string;
+  electron: string;
+  platform: string;
+  arch: string;
 }
 
 export type DarvinLocale = 'zh' | 'en';
@@ -414,8 +450,16 @@ export interface DarvinApi {
 
   /** 返回当前生效的 LLM 配置（来自用户级 yaml，未配置时 apiKey 为空串）。 */
   getLLMConfig(): Promise<DarvinLLMConfig>;
-  /** 写入用户级 yaml + 重启 Go 子进程，subprocess 重启后才会用到新 key。 */
-  setLLMConfig(req: { apiKey: string; baseUrl?: string }): Promise<DarvinSetLLMConfigResponse>;
+  /** 写入用户级 yaml；anthropic 会重启 Go 子进程，openai/custom 仅存 providers 块（Go 未接入）。 */
+  setLLMConfig(req: { provider: string; apiKey: string; baseUrl?: string; defaultModel?: string }): Promise<DarvinSetLLMConfigResponse>;
+
+  /** 读取通用偏好（自动启动来自 OS，通知 / 代理 / 记忆来自用户级 yaml）。 */
+  getAppPreferences(): Promise<DarvinAppPreferences>;
+  /** 写入通用偏好 patch：autoLaunch 走 app.setLoginItemSettings，其余写用户级 yaml。 */
+  setAppPreferences(patch: DarvinAppPreferencesPatch): Promise<void>;
+
+  /** 读取关于页的版本 / Electron / 平台 / 架构信息。 */
+  getAppInfo(): Promise<DarvinAppInfo>;
 
   /** 读取持久化的 UI 语言；首次启动或未写入时回落到 'zh'。 */
   getLocale(): Promise<DarvinLocaleResponse>;

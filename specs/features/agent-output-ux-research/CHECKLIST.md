@@ -10,7 +10,7 @@
 
 ## 当前进度
 
-**已完成 9 / 11（含 2 份补充）。下一个该做的：07（settings-expansion）。**
+**已完成 10 / 11（含 2 份补充）。下一个该做的：08（i18n-enhancement）。**
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
@@ -21,7 +21,7 @@
 | 04 | [context-compaction-ui](./../context-compaction-ui/2026-08-01-context-compaction-ui-design.md) | ✅ 完成 | 6/6 | 依赖 00 + 03 |
 | 05 | [artifact-panel](./../artifact-panel/2026-08-01-artifact-panel-design.md) | ✅ 完成 | 7/7 | 依赖 00 |
 | 06 | [sidebar-upgrade](./../sidebar-upgrade/2026-08-01-sidebar-upgrade-design.md) | ✅ 完成 | 7/7 | 无前置 |
-| 07 | [settings-expansion](./../settings-expansion/2026-08-01-settings-expansion-design.md) | ⬜ 未启动 | 0/6 | 依赖 04 |
+| 07 | [settings-expansion](./../settings-expansion/2026-08-01-settings-expansion-design.md) | ✅ 完成 | 6/6 | 依赖 04 |
 | 08 | [i18n-enhancement](./../i18n-enhancement/2026-08-01-i18n-enhancement-design.md) | ⬜ 未启动 | 0/6 | 无前置 |
 | 09 | [composer-composition（补充）](./2026-08-01-composer-composition-design.md) | ✅ 完成 | 7/7 | 依赖 04；纯渲染重组 |
 | 10 | [session-workspace-usage（补充）](./2026-08-01-session-workspace-usage-design.md) | ✅ 完成 | 6/6 | live bug 修复；**提前做，先于 05-08** |
@@ -150,13 +150,13 @@
 
 > 设置面板广度扩展：7 tab 拆分。
 
-- [ ] 7 个 tab 全部有内容（不再是空态）
-- [ ] 外观 tab：UI 字号 11-16 滑块 + 代码字号 8-24 滑块 + 主题色 3 选 1
-- [ ] 模型 tab：至少 2 个 provider（Anthropic / OpenAI）
-- [ ] 快捷键 tab：与 06 同步实际绑定
-- [ ] 关于 tab：显示压缩次数 + 最近压缩时间
-- [ ] tab 切换支持深链（`?tab=models`）
-- [ ] 状态：**⬜ 未启动**
+- [x] 7 个 tab 全部有内容（general / appearance / shortcuts / models / memory / runtime / about）
+- [x] 外观 tab：UI 字号 11-16 滑块 + 代码字号 8-24 滑块 + 主题色 3 选 1
+- [x] 模型 tab：至少 2 个 provider（Anthropic / OpenAI / Custom）
+- [x] 快捷键 tab：与 06 同步实际绑定
+- [x] 关于 tab：显示压缩次数 + 最近压缩时间
+- [x] tab 切换支持深链（`?tab=models`）
+- [x] 状态：**✅ 完成**
 
 ### 08 · i18n-enhancement
 
@@ -214,3 +214,4 @@
 - 2026-08-01 · 05 artifact-panel · 🚧 6/7 落地。**状态机 `useArtifacts.ts`**：`artifactsBySession` / `previewTabsBySession` / `activeTabIdBySession` / `isPanelOpenBySession` / `panelWidth`(180-1000) + `ArtifactSpecialTab`(fileList/browser/subagents) + `ArtifactContentView`(preview/code)，`addArtifact` id 去重 + 内容更新，切 active session 才自动弹开侧栏/切外层 tab。**10 渲染器**（`components/side-panel/renderers/`）：HtmlRenderer（srcdoc + `sandbox="allow-scripts"` 不加 same-origin + hash-nav 拦截器 `services/artifactHtml.ts`）、SvgRenderer（DOMPurify svg profile + srcdoc）、Image/Video（data/URL）、MermaidRenderer（`securityLevel:'strict'` + offscreen DOM 提取 + DOMPurify 二次净化）、CodeRenderer（复用 `services/highlight` Shiki，name 推导语言）、MarkdownRenderer（复用 MarkdownContent）、TextRenderer、DocumentRenderer（office 非目标 → 占位）、LocalServiceRenderer（URL + 新窗口打开 + iframe）。**面板**：`ArtifactPanel.vue`（内层特殊 tab + per-artifact 预览 tab + preview/code 切换 + 关闭），`SidePanelContent` artifact tab 渲染 panel（按 sessionId key 重挂载），`SidePanel.vue` 左边沿拖拽 handle 调 `setPanelWidth`，`AppShell` grid 右列跟随 panelWidth + dragging 时关过渡。**useMessages 接入**：`artifact` 事件 → `artifacts.addArtifact`（不落消息 bucket，后台 session 仍 unread），`removeSession` 清 artifacts。i18n 新增 13 key（zh/en 对齐）。**live 验证（合成 artifact 事件注入 + playwright）**：(1) 注入 html → 面板自动弹开 + 外层切 Artifact + iframe `sandbox="allow-scripts"` 渲染；(2) mermaid SVG 渲染且无 `<script>` 注入（strict+DOMPurify）；(3) code Shiki 高亮 `<span class="line">`；(4) markdown h1/table / text / local-service URL+打开链接+iframe / svg 全过；(5) 预览↔代码视图切换、关闭 tab、特殊 tab 占位均正常；(6) 拖拽 560→360→clamp 1000→clamp 180；(7) 切换 session B 面板空态、切回 A 6 个 tab 恢复（会话隔离）。lint / test（95 用例，新增 useArtifacts 9 例 + artifact 事件路由 2 例）/ renderer vite build 全绿（mermaid 新增依赖）。**待办**：file-based HTML 本地服务（协议无 filePath 字段 + Go 不产 artifact 事件 → 暂缓，见 spec §4.3 落地补充）。
 - 2026-08-02 · 06 sidebar-upgrade · ✅ 7/7 落地。**useSidebar**：新增 `width`（220-420 clamp，localStorage 持久化，`--sidebar-width` 写 documentElement）+ `dragging`；collapsed 不再摘除 Sidebar，而是 220px→56px 图标 rail（Brand/Nav/AgentCard/Bottom 收 collapsed prop，session 列表折叠时隐藏）。**useViewMode** 增 `scheduled`/`skills`/`mcp` 三 mode；新建 `PlaceholderView.vue` 承载三个 nav 空态面板，`AppShell` 全 nav 路由不再 warn。**useShortcuts**：`Cmd/Ctrl+1-5` 映射 home/search/scheduled/suite/skills，可编辑元素聚焦跳过。**useSession**：`pinnedSessionIds`（localStorage）+ `togglePin` + deleteSession 清理。**useMessages**：`sessionStatusBySessionId`（流式→running / done→completed / error→error / agent_end→completed）+ 纯函数 `deriveSessionStatusFromMessages` + loadMessages 派生。**SessionList/Item**：置顶排序 + `status` 多态图标（running 脉冲 / error 红叹 / completed 灰勾 / idle message-square）+ pin 徽标 + 下拉置顶/取消置顶。i18n 新增 13 key（zh/en 对齐）+ `pin.svg`。lint / test（118 用例，新增 sessionStatus 3 例）/ renderer+main+preload vite build 全绿。**live 验证**（playwright）：拖拽 244→324→420 clamp + 持久化；6 nav 全可点（定时任务/技能/MCP 空态面板、专家套件真实页）；Cmd+1→home / Cmd+2→search / Cmd+3→scheduled / Cmd+4→suite / Cmd+5→skills / Ctrl+3 同效；折叠→56px icon rail、展开回 420；会话项 error/completed 状态图标 + pin 徽标 + 置顶/取消置顶 + localStorage `[]` 恢复。**已知边界**：G5 多 Agent 树未做（darvin 无子代理体系，见 spec 落地补充）；settings 不占 1-5。
 - 2026-08-01 · 05 artifact-panel · **file-based HTML 补全 → ✅ 7/7**。协议 `artifact` 事件加 `filePath?`（相对 workspace 根）+ `DarvinApi` 增 `createArtifactPreviewSession` / `destroyArtifactPreviewSession`（IPC `darvin:artifact:create_preview_session` / `destroy_preview_session`，preload 转发）。**main 本地预览服务** `src/main/services/artifact-preview-server.ts`：`127.0.0.1` 静态 HTTP 服务器（懒启动、无会话时整体关闭），每个预览会话随机 sessionId，entry 所在目录作 URL 挂载根（相对资源 css/js/img 按此解析），解析结果越出 workspace 根返回 403，纯函数 `resolveWithinRoot` 单测覆盖（sibling 允许 / `../` 越界 null）。`HtmlRenderer`：有 `filePath` 时走预览会话 `iframe[src]` + `sandbox="allow-scripts"`，卸载销毁会话；错误信息净化（不把绝对路径透传 renderer）。i18n 增 `artifact.render.loadFailed`（zh/en）。**live 验证**：workspace 内写 `preview.html` + `style.css` + `app.js`，注入 `{kind:'html', filePath:'preview.html'}` → iframe src = `http://127.0.0.1:<port>/<uuid>/preview.html`，sandbox=`allow-scripts`，服务端 fetch 确认 html/css/js 全部正确返回（相对资源解析 OK）；关闭 tab → 会话销毁 → 端口整体关闭（ECONNREFUSED）。lint / test（99 用例，新增 resolveWithinRoot 4 例）/ renderer + main vite build 全绿。
+- 2026-08-02 · 07 settings-expansion · ✅ 6/6 落地。**7 tab 拆分**：`settings-sections.ts` 抽 tab 注册表（`SettingsSections` + `SettingsSectionId` + `isSettingsSectionId`），`SettingsSubNav` / `SettingsView` 共用；account tab 移除（spec 非目标）。**G1 通用**：autoLaunch 真实 OS 开关（`app.getLoginItemSettings/setLoginItemSettings`）+ notifications / proxy 持久化 yaml `app` 块；新 IPC `get_app_preferences` / `set_app_preferences`。**G2 外观**：新建 `useAppearance`（localStorage + CSS var 驱动）——`uiFontSize/14` 比例缩放 `--text-*` token、`--text-code` 单独控制代码字号、`html[data-accent]` 驱动 `--color-primary` 家族三选一；theme.css 加 `--text-code` token + `html[data-accent=blue|green]` 覆盖块；CodeBlock `text-[13px]`→`text-code`。**G3 模型**：`DarvinLLMConfig` 扩 `provider/activeProvider/defaultModel/providers`，UI 三 provider（anthropic 立即生效重启，openai/custom 存 `providers` 块不激活——Go 只注册 anthropic，避免未知 provider 启动崩溃）；`user-settings.ts` yaml 解析/写入扩展 llm.provider/default_model + app/memory/providers 两级嵌套。**G4 快捷键**：替换虚构 ⌘N/⌘F/⌘D/⌘,/⌘J 为真实绑定（Ctrl/Cmd+1-5 + Enter/Shift+Enter/Ctrl+Enter + Esc）。**G5 记忆**：Go 无 memory 系统（sections.go），设置面板落地 + 持久化 yaml `memory` 块，hint 标注 gap。**G6 关于**：新 IPC `get_app_info`（app.getVersion/process.versions.electron/platform/arch）替换硬编码；压缩次数聚合 `useMessages.compactionsBySessionId`；导出日志=复制诊断信息到剪贴板+toast。**G7 深链**：SettingsView onMounted 读 `?tab=` + `history.replaceState` 同步。**顺带修 spec 06 遗留**：Sidebar 渲染 SidebarAgentCard 未传必填 `collapsed` prop（Vue warn），补 `:collapsed`。**live 验证**（playwright）：7 tab 全有 h3 内容；`?tab=models` 打开+进入 settings → 模型 tab 高亮；UI 字号 14→16 → `--text-base` 16px + `--text-sm` 15px 等比缩放 + localStorage 持久化；代码字号→20 → `--text-code` 20px；主题色 blue → data-accent + `--color-primary` #2563EB + 还原；模型 dropdown 3 provider + OpenAI 显示 pending note；快捷键 9 条真实绑定；通用 autoLaunch=false / notifications=true；运行时「引擎状态在线」绿点；关于 v1.0.0 / Electron 43.2.0 / linux x64 / 压缩次数 0 / 导出日志复制成功 toast。console 0 error（仅剩打包后消失的 CSP dev 警告）。lint / test（124 用例，新增 user-settings 3 + useAppearance 3）/ renderer+main+preload vite build 全绿。**已知 gap**：OpenAI/Custom 运行时不可用（Go 未注册 provider，仅凭据存储）；memory 运行时未接入 Go；压缩计数来自 live compaction 事件（历史不持久化）。

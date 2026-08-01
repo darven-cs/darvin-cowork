@@ -1,5 +1,5 @@
 <template>
-  <section class="flex flex-col gap-3">
+  <section class="flex flex-col gap-3" data-testid="settings-appearance">
     <h3 class="font-sans text-[15px] font-semibold text-text">{{ t('settings.appearance.title') }}</h3>
     <p class="font-sans text-[12.5px] text-text-muted">{{ t('settings.appearance.desc') }}</p>
 
@@ -25,10 +25,69 @@
       </label>
     </div>
 
-    <h3 class="mt-6 font-sans text-[15px] font-semibold text-text">{{ t('settings.appearance.language') }}</h3>
+    <h3 class="mt-4 font-sans text-[15px] font-semibold text-text">{{ t('settings.appearance.accent') }}</h3>
+    <p class="font-sans text-[12.5px] text-text-muted">{{ t('settings.appearance.accent_desc') }}</p>
+
+    <div class="flex flex-col gap-2">
+      <label
+        v-for="opt in accentOptions"
+        :key="opt.id"
+        class="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-surface px-3 py-2.5 transition-colors hover:border-border-strong"
+        :class="opt.id === accentColor ? 'border-primary bg-primary-soft' : ''"
+      >
+        <input
+          type="radio"
+          name="accent"
+          :value="opt.id"
+          :checked="opt.id === accentColor"
+          class="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
+          @change="applyAccent(opt.id)"
+        />
+        <span class="flex items-center gap-2">
+          <span class="h-4 w-4 rounded-full" :class="`bg-accent-${opt.id}`" />
+          <span class="font-sans text-[13px] font-medium text-text">{{ opt.label }}</span>
+        </span>
+      </label>
+    </div>
+
+    <h3 class="mt-4 font-sans text-[15px] font-semibold text-text">{{ t('settings.appearance.font_size') }}</h3>
+    <p class="font-sans text-[12.5px] text-text-muted">{{ t('settings.appearance.font_size_desc') }}</p>
+
+    <div class="mt-1 flex flex-col gap-3 rounded-md border border-border bg-surface px-3 py-2.5">
+      <label class="flex items-center justify-between gap-3">
+        <span class="font-sans text-[13px] text-text">{{ t('settings.appearance.ui_font') }}</span>
+        <span class="font-mono text-[12.5px] text-text-muted">{{ uiFontSize }}px</span>
+      </label>
+      <input
+        type="range"
+        :value="uiFontSize"
+        min="11"
+        max="16"
+        step="1"
+        class="w-full cursor-pointer accent-primary"
+        data-testid="settings-appearance-ui-font"
+        @input="onUiFont"
+      />
+      <label class="flex items-center justify-between gap-3">
+        <span class="font-sans text-[13px] text-text">{{ t('settings.appearance.code_font') }}</span>
+        <span class="font-mono text-[12.5px] text-text-muted">{{ codeFontSize }}px</span>
+      </label>
+      <input
+        type="range"
+        :value="codeFontSize"
+        min="8"
+        max="24"
+        step="1"
+        class="w-full cursor-pointer accent-primary"
+        data-testid="settings-appearance-code-font"
+        @input="onCodeFont"
+      />
+    </div>
+
+    <h3 class="mt-4 font-sans text-[15px] font-semibold text-text">{{ t('settings.appearance.language') }}</h3>
     <p class="font-sans text-[12.5px] text-text-muted">{{ t('settings.appearance.language_desc') }}</p>
 
-    <div class="mt-2 flex flex-col gap-2">
+    <div class="flex flex-col gap-2">
       <label
         v-for="opt in langOptions"
         :key="opt.id"
@@ -52,22 +111,42 @@
 </template>
 
 <script setup lang="ts">
+import { useAppearance, type AccentColor } from '../../composables/useAppearance';
 import { useTheme } from '../../composables/useTheme';
 import { getLang, setLang, t } from '../../services/i18n';
 
 const { theme, apply: applyTheme } = useTheme();
+const { uiFontSize, codeFontSize, accentColor, setUiFontSize, setCodeFontSize, setAccent } = useAppearance();
 
 const lang = getLang();
 
 const themeOptions: { id: 'light' | 'dark'; label: string; desc: string }[] = [
-  { id: 'light', label: '浅色', desc: '默认白底 + 红色龙虾品牌色' },
-  { id: 'dark',  label: '深色', desc: '深底 + 亮色龙虾品牌色' },
+  { id: 'light', label: '浅色', desc: '默认白底 + 品牌色' },
+  { id: 'dark',  label: '深色', desc: '深底 + 亮色品牌色' },
+];
+
+const accentOptions: { id: AccentColor; label: string }[] = [
+  { id: 'orange', label: '橙（默认）' },
+  { id: 'blue',   label: '蓝' },
+  { id: 'green',  label: '绿' },
 ];
 
 const langOptions: { id: 'zh' | 'en'; label: string }[] = [
   { id: 'zh', label: '中文' },
   { id: 'en', label: 'English' },
 ];
+
+function onUiFont(e: Event) {
+  setUiFontSize(Number((e.target as HTMLInputElement).value));
+}
+
+function onCodeFont(e: Event) {
+  setCodeFontSize(Number((e.target as HTMLInputElement).value));
+}
+
+function applyAccent(id: AccentColor) {
+  setAccent(id);
+}
 
 async function applyLang(id: 'zh' | 'en') {
   if (id === lang) return;

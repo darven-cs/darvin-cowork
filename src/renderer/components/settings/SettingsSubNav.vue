@@ -19,14 +19,15 @@
 
 <script setup lang="ts">
 import { t } from '../../services/i18n';
-
-export type SettingsSectionId = 'account' | 'appearance' | 'shortcuts' | 'models' | 'about';
+import type { SettingsSectionId } from './settings-sections';
 
 const items: { id: SettingsSectionId; labelKey: string }[] = [
-  { id: 'account',    labelKey: 'settings.account.title' },
+  { id: 'general',    labelKey: 'settings.general.title' },
   { id: 'appearance', labelKey: 'settings.appearance.title' },
   { id: 'shortcuts',  labelKey: 'settings.shortcuts.title' },
   { id: 'models',     labelKey: 'settings.models.title' },
+  { id: 'memory',     labelKey: 'settings.memory.title' },
+  { id: 'runtime',    labelKey: 'settings.runtime.title' },
   { id: 'about',      labelKey: 'settings.about.title' },
 ];
 
