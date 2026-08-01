@@ -108,12 +108,12 @@
 
 ## 6. 验收
 
-- [ ] 单条 assistant 消息 hover 显示 token 三元组
-- [ ] chat header 圆环随 `context_usage` 事件实时更新
-- [ ] 5 个状态颜色 + 动画正确
-- [ ] tooltip 显示数字 + 上下文窗口大小
-- [ ] 圆环可点击（手动压缩入口由 04 spec 实现，本 spec 只占位回调）
-- [ ] `useMessages.contextUsageBySessionId` 单测覆盖
+- [x] 单条 assistant 消息 hover 显示 token 三元组
+- [x] chat header 圆环随 `context_usage` 事件实时更新
+- [x] 5 个状态颜色 + 动画正确
+- [x] tooltip 显示数字 + 上下文窗口大小
+- [x] 圆环可点击（手动压缩入口由 04 spec 实现，本 spec 只占位回调）
+- [x] `useMessages.contextUsageBySessionId` 单测覆盖
 
 ## 7. 依赖
 

@@ -95,11 +95,11 @@
 | 事件 | `done` 携带 `usage?`；`context_usage` 事件已进 union（spec 00） | `done` 携带 `usage` + 额外 push `CoworkContextUsage` |
 | 上下文容量 | ❌ 无 | ✅ `CoworkContextUsage { usedTokens, contextTokens, percent, compactionCount, status, latestCompactionCheckpointId, latestCompactionReason, latestCompactionCreatedAt, model, updatedAt }` |
 | 状态机 | ❌ 无 | ✅ `status: 'unknown' \| 'normal' \| 'warning' \| 'danger' \| 'compacting'` |
-| 圆环可视化 | ❌ 无 | ✅ `ContextUsageIndicator` SVG 圆环（`RADIUS=7, CIRCUMFERENCE=43.96`），12 点方向起笔 |
-| 颜色 | ❌ 无 | ✅ 状态映射颜色（normal/warning/danger/compacting） |
-| 数字展示 | ❌ 无 | ✅ tooltip 显示 `coworkContextUsagePercent` + `coworkContextUsageTokens` |
-| 手动压缩 | ❌ 无 | ✅ 圆环点击 → `onCompact()` |
-| 自动压缩 | ❌ 无 | ✅ 状态 `compacting` 时圆环持续旋转动画 |
+| 圆环可视化 | ✅ 已落地（03）`ContextUsageIndicator.vue` 28×28 SVG 圆环（`RADIUS=7`），12 点方向起笔 | ✅ `ContextUsageIndicator` SVG 圆环（`RADIUS=7, CIRCUMFERENCE=43.96`），12 点方向起笔 |
+| 颜色 | ✅ 已落地（03）5 态颜色（unknown/normal/warning/danger/compacting，compacting 旋转） | ✅ 状态映射颜色（normal/warning/danger/compacting） |
+| 数字展示 | ✅ 已落地（03）tooltip 显示百分比 + 已用/上下文窗口数字 + 接近上限提示；TurnMeta hover 显示 token 三元组 | ✅ tooltip 显示 `coworkContextUsagePercent` + `coworkContextUsageTokens` |
+| 手动压缩 | 🔶 占位（03 点击 emit compact，IPC 由 04 落地） | ✅ 圆环点击 → `onCompact()` |
+| 自动压缩 | 🔶 占位（03 compacting 旋转已实现，压缩完成回退由 04 落地） | ✅ 状态 `compacting` 时圆环持续旋转动画 |
 | 压缩历史 | ❌ 无 | ✅ `compactionCount` + `latestCompaction*` 字段 |
 | 压缩边界可视化 | ❌ 无 | ✅ `ContextCompactionDivider`（`AssistantTurnBlock.tsx` 内部） |
 | 压缩后 i18n | ❌ 无 | ✅ `coworkContextCompacting / AutoCompacted / ManualCompacted / CompactionFailed` |
@@ -263,7 +263,7 @@ darvin-cowork 的 `DarvinEvent` 在 `darvin-api.ts` 定义 `tool_start` / `tool_
 | 00 | [darvin-api-extension](../darvin-api-extension/2026-08-01-darvin-api-extension-design.md) | ✅ 已完成：扩 `DarvinMessage` 为 discriminated union + 新增 `compaction` / `context_usage` / `artifact` 事件 + 补 cache / toolUseId / isError | — | **P0（前置）** |
 | 01 | [agent-output-rendering](../agent-output-rendering/2026-08-01-agent-output-rendering-design.md) | ✅ 已完成：Markdown（markdown-it+KaTeX） / Shiki 代码块 / ThinkingBlock / turn 模型 / hover 元信息 / 大文档截断 / 图片附件 | 00 | P1 |
 | 02 | [tool-result-rendering](../tool-result-rendering/2026-08-01-tool-result-rendering-design.md) | ✅ 已完成：`ToolCallGroup` + Bash 仿终端 / TodoWrite checkbox / Edit DiffView / 状态点 4 色 / 折叠 / 大文本截断 / 工具归一化 | 00 | P1 |
-| 03 | [token-context-usage](../token-context-usage/2026-08-01-token-context-usage-design.md) | 单条消息 token 展示 + chat header 圆环可视化 + 5 态颜色 + tooltip | 00 | P1 |
+| 03 | [token-context-usage](../token-context-usage/2026-08-01-token-context-usage-design.md) | ✅ 已完成：TurnMeta token 三元组 + `ContextUsageIndicator` 圆环 + 5 态颜色 + tooltip + `contextUsageBySessionId` | 00 | P1 |
 | 04 | [context-compaction-ui](../context-compaction-ui/2026-08-01-context-compaction-ui-design.md) | 手动压缩入口 + 自动压缩动画 + `ContextCompactionDivider` + 失败回退 | 00 + 03 | P1 |
 | 05 | [artifact-panel](../artifact-panel/2026-08-01-artifact-panel-design.md) | 状态机重做 + 10 种 artifact 渲染器 + iframe sandbox + 面板宽度拖拽 | 00 | P2 |
 | 06 | [sidebar-upgrade](../sidebar-upgrade/2026-08-01-sidebar-upgrade-design.md) | 树形 Agent / 220-420px 拖拽 / 5 tab 真实入口 / `Cmd+1-5` 快捷键 / session 5 态 status | — | P2 |

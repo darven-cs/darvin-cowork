@@ -12,6 +12,7 @@
       <h1 class="truncate text-[15px] font-medium text-text">{{ title }}</h1>
     </div>
     <div class="flex items-center gap-2">
+      <ContextUsageIndicator :session-id="session.activeSessionId.value" @compact="handleCompact" />
       <RuntimeStatusBadge />
       <IconButton
         variant="ghost"
@@ -36,6 +37,7 @@ import { useSession } from '../../composables/useSession';
 import { useTheme } from '../../composables/useTheme';
 import IconButton from '../common/IconButton.vue';
 import RuntimeStatusBadge from '../runtime/RuntimeStatusBadge.vue';
+import ContextUsageIndicator from './ContextUsageIndicator.vue';
 
 const props = defineProps<{ sidePanelOpen: boolean; title?: string }>();
 const emit = defineEmits<{ 'toggle-sidebar': []; 'toggle-side-panel': [] }>();
@@ -50,4 +52,7 @@ const title = computed(() => {
   const s = id ? session.sessions.value.find((x) => x.id === id) : undefined;
   return s?.title ?? 'Darvin';
 });
+
+// spec 03 占位回调：手动压缩 IPC 由 04 spec 落地，这里只接受点击不做事。
+function handleCompact() {}
 </script>

@@ -15,7 +15,7 @@
  */
 
 import { computed, ref, watch } from 'vue';
-import type { DarvinAttachment, DarvinEvent, DarvinMessage, DarvinToolKind } from '../../shared/darvin-api';
+import type { DarvinAttachment, DarvinContextUsage, DarvinEvent, DarvinMessage, DarvinToolKind, DarvinUsage } from '../../shared/darvin-api';
 import { assertNever } from '../../shared/darvin-api';
 import { useSession } from './useSession';
 import { getToolKind } from '../services/toolDisplay';
@@ -31,6 +31,7 @@ export interface Message {
   toolLabel?: string;
   attachments?: DarvinAttachment[];
   model?: string;
+  usage?: DarvinUsage;
   createdAt: number;
   // spec 02 — 工具调用条目（tool_use / tool_result）
   kind?: 'tool_use' | 'tool_result';
@@ -114,6 +115,8 @@ export function buildConversationTurns(messages: Message[]): ConversationTurn[] 
 const messagesBySessionId = ref<Record<string, Message[]>>({});
 const streamingSessionIds = ref<Set<string>>(new Set());
 const unreadSessionIds = ref<Set<string>>(new Set());
+/** spec 03 — 每 session 上下文用量快照，来自 Go 的 `context_usage` 事件。 */
+const contextUsageBySessionId = ref<Record<string, DarvinContextUsage>>({});
 
 const session = useSession();
 
@@ -206,6 +209,7 @@ function toMessage(m: DarvinMessage): Message {
         error: m.error,
         toolLabel: m.toolLabel,
         model: m.model,
+        usage: m.usage,
         createdAt: m.createdAt,
       };
     case 'tool_use':
@@ -287,7 +291,11 @@ function appendToBucket(list: Message[], sid: string, ev: DarvinEvent): void {
     if (msg) msg.thinking = (msg.thinking ?? '') + ev.delta;
   } else if (ev.type === 'done') {
     const msg = list.find((m) => m.id === ev.messageId);
-    if (msg) msg.done = true;
+    if (msg) {
+      msg.done = true;
+      // spec 03 — done 事件带 usage（in/out/cache），TurnMeta hover 消费
+      if (ev.usage) msg.usage = ev.usage;
+    }
   } else if (ev.type === 'error') {
     const msg = list.find((m) => m.id === ev.messageId);
     if (msg) {
@@ -368,6 +376,13 @@ export function useMessages() {
   }
 
   function appendEventFor(sid: string, ev: DarvinEvent): void {
+    // spec 03 — context_usage 是 session 级快照，不落消息 bucket，
+    // 单独维护 contextUsageBySessionId 给 chat header 圆环消费。
+    if (ev.type === 'context_usage') {
+      const key = ev.usage.sessionId || sid;
+      contextUsageBySessionId.value = { ...contextUsageBySessionId.value, [key]: ev.usage };
+    }
+
     const bucket = messagesBySessionId.value[sid] ?? [];
     appendToBucket(bucket, sid, ev);
     messagesBySessionId.value = { ...messagesBySessionId.value, [sid]: bucket };
@@ -384,32 +399,38 @@ export function useMessages() {
       streamingSessionIds.value = next;
     }
 
-    // 后台 session 的非 lifecycle 事件 → unread 红点。agent_end 自身不
-    // 触发 unread，避免 sidebar 在 stream 收尾时闪一下。
-    if (!isCurrent && ev.type !== 'agent_end') {
+    // 后台 session 的非 lifecycle 事件 → unread 红点。agent_end / context_usage
+    // 不触发：前者避免 sidebar 在 stream 收尾时闪一下，后者是纯用量快照，
+    // 不该因为后台 token 数字跳动而点亮红点。
+    if (!isCurrent && ev.type !== 'agent_end' && ev.type !== 'context_usage') {
       unreadSessionIds.value = new Set([...unreadSessionIds.value, sid]);
     }
   }
 
-  /** 会话删除后清掉其消息缓存与 streaming/unread 标记，避免残留。 */
+  /** 会话删除后清掉其消息缓存与 streaming/unread/context 标记，避免残留。 */
   function removeSession(sessionId: string): void {
     const bucket = { ...messagesBySessionId.value };
     delete bucket[sessionId];
     messagesBySessionId.value = bucket;
     streamingSessionIds.value = new Set([...streamingSessionIds.value].filter((s) => s !== sessionId));
     unreadSessionIds.value = new Set([...unreadSessionIds.value].filter((s) => s !== sessionId));
+    const cu = { ...contextUsageBySessionId.value };
+    delete cu[sessionId];
+    contextUsageBySessionId.value = cu;
   }
 
   function reset(): void {
     messagesBySessionId.value = {};
     streamingSessionIds.value = new Set();
     unreadSessionIds.value = new Set();
+    contextUsageBySessionId.value = {};
   }
 
   return {
     messagesBySessionId,
     streamingSessionIds,
     unreadSessionIds,
+    contextUsageBySessionId,
     currentMessages,
     loadMessages,
     appendUserMessage,

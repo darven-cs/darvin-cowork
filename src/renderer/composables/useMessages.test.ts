@@ -104,3 +104,81 @@ describe('useMessages tool event pairing', () => {
     expect(g2.toolUse.tool).toBe('Read');
   });
 });
+
+describe('useMessages context usage (spec 03)', () => {
+  it('records context_usage event into contextUsageBySessionId', () => {
+    messages.appendEvent({
+      type: 'context_usage',
+      sessionId: 's1',
+      usage: {
+        sessionId: 's1',
+        usedTokens: 45_000,
+        contextTokens: 100_000,
+        percent: 45,
+        status: 'normal',
+        updatedAt: 1,
+      },
+    });
+    const cu = messages.contextUsageBySessionId.value.s1;
+    expect(cu).toBeDefined();
+    expect(cu.percent).toBe(45);
+    expect(cu.status).toBe('normal');
+  });
+
+  it('keys by usage.sessionId when present, falling back to event sessionId', () => {
+    messages.appendEvent({
+      type: 'context_usage',
+      sessionId: 's2',
+      usage: { sessionId: 's2', status: 'warning', percent: 70, updatedAt: 1 },
+    });
+    messages.appendEvent({
+      type: 'context_usage',
+      sessionId: 's3',
+      usage: { status: 'danger', percent: 92, updatedAt: 1 },
+    });
+    expect(messages.contextUsageBySessionId.value.s2.status).toBe('warning');
+    expect(messages.contextUsageBySessionId.value.s3.status).toBe('danger');
+  });
+
+  it('overwrites previous usage snapshot for the same session', () => {
+    messages.appendEvent({ type: 'context_usage', sessionId: 's1', usage: { sessionId: 's1', status: 'normal', percent: 30, updatedAt: 1 } });
+    messages.appendEvent({ type: 'context_usage', sessionId: 's1', usage: { sessionId: 's1', status: 'compacting', percent: 100, updatedAt: 2 } });
+    expect(messages.contextUsageBySessionId.value.s1.status).toBe('compacting');
+    expect(messages.contextUsageBySessionId.value.s1.percent).toBe(100);
+  });
+
+  it('does not mark session as unread on context_usage', () => {
+    messages.appendEvent({ type: 'context_usage', sessionId: 's9', usage: { sessionId: 's9', status: 'normal', percent: 10, updatedAt: 1 } });
+    expect(messages.unreadSessionIds.value.has('s9')).toBe(false);
+  });
+
+  it('clears context usage on removeSession and reset', () => {
+    messages.appendEvent({ type: 'context_usage', sessionId: 's1', usage: { sessionId: 's1', status: 'normal', percent: 40, updatedAt: 1 } });
+    messages.removeSession('s1');
+    expect(messages.contextUsageBySessionId.value.s1).toBeUndefined();
+
+    messages.appendEvent({ type: 'context_usage', sessionId: 's2', usage: { sessionId: 's2', status: 'normal', percent: 40, updatedAt: 1 } });
+    messages.reset();
+    expect(messages.contextUsageBySessionId.value.s2).toBeUndefined();
+  });
+
+  it('writes usage onto the message from done event', () => {
+    messages.startAssistantMessage('s1', 'm1');
+    messages.appendEvent({
+      type: 'done',
+      sessionId: 's1',
+      messageId: 'm1',
+      usage: { inputTokens: 1200, outputTokens: 300, cacheReadTokens: 500, totalTokens: 2000 },
+    });
+    const msg = messages.messagesBySessionId.value.s1[0];
+    expect(msg.done).toBe(true);
+    expect(msg.usage?.inputTokens).toBe(1200);
+    expect(msg.usage?.cacheReadTokens).toBe(500);
+  });
+
+  it('leaves usage undefined when done event has no usage', () => {
+    messages.startAssistantMessage('s1', 'm1');
+    messages.appendEvent({ type: 'done', sessionId: 's1', messageId: 'm1' });
+    expect(messages.messagesBySessionId.value.s1[0].usage).toBeUndefined();
+  });
+});
