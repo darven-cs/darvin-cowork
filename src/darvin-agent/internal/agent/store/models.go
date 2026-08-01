@@ -11,10 +11,10 @@ import "time"
 // domain model. SQLiteStore.Save preserves them from the existing row so
 // a prompt's metadata save never clobbers a user rename.
 type Session struct {
-	ID              string    `gorm:"primaryKey"`
-	Key             string    `gorm:"index"`
-	AgentID         string    `gorm:"index"`
-	Title           string    `gorm:"default:'新建会话'"`
+	ID              string `gorm:"primaryKey"`
+	Key             string `gorm:"index"`
+	AgentID         string `gorm:"index"`
+	Title           string `gorm:"default:'新建会话'"`
 	ClaudeSessionID *string
 	Status          string    `gorm:"default:active"`
 	CreatedAt       time.Time `gorm:"autoCreateTime"`
@@ -40,7 +40,7 @@ type Message struct {
 	// Done / Error / ToolLabel 是 renderer 依赖的"封口"字段：Done 把
 	// streaming→done 状态切开、Error 画错误泡、ToolLabel 画工具标签。
 	// 由 dispatcher 的 MarkDone / MarkError 和 get_messages 落 / 读。
-	Done      bool     `gorm:"default:false"`
+	Done      bool `gorm:"default:false"`
 	Error     *string
 	ToolLabel *string
 }
@@ -84,3 +84,20 @@ type AppState struct {
 }
 
 func (AppState) TableName() string { return "app_state" }
+
+// ImportedFile is one file the user imported into a session's workspace.
+// The row tracks only the workspace-relative path (never the user's source
+// path) so the agent can address the file but never learns where it came
+// from. RelativePath is unique per session.
+type ImportedFile struct {
+	ID           string `gorm:"primaryKey"`
+	SessionID    string `gorm:"index;not null;uniqueIndex:idx_session_relpath"`
+	OriginalName string `gorm:"not null"` // basename only
+	RelativePath string `gorm:"not null;uniqueIndex:idx_session_relpath"`
+	Size         int64  `gorm:"not null"`
+	MimeType     *string
+	Sha256       string    `gorm:"not null"`
+	ImportedAt   time.Time `gorm:"autoCreateTime"`
+}
+
+func (ImportedFile) TableName() string { return "imported_files" }
