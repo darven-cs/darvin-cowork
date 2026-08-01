@@ -184,8 +184,8 @@ export function darvinMessageContent(m: DarvinMessage): string {
 export type DarvinEvent =
   | { type: 'text_delta'; sessionId?: string; runId?: string; messageId: string; delta: string }
   | { type: 'thinking_delta'; sessionId?: string; runId?: string; messageId: string; delta: string }
-  | { type: 'tool_start'; sessionId?: string; runId?: string; messageId: string; tool: string; input: unknown }
-  | { type: 'tool_end'; sessionId?: string; runId?: string; messageId: string; tool: string; output: unknown }
+  | { type: 'tool_start'; sessionId?: string; runId?: string; messageId: string; toolUseId?: string; tool: string; input: unknown }
+  | { type: 'tool_end'; sessionId?: string; runId?: string; messageId: string; toolUseId?: string; tool: string; output: unknown }
   | { type: 'done'; sessionId?: string; runId?: string; messageId: string; usage?: DarvinUsage }
   | { type: 'error'; sessionId?: string; runId?: string; messageId: string; message: string }
   | { type: 'agent_end'; sessionId?: string; runId?: string }

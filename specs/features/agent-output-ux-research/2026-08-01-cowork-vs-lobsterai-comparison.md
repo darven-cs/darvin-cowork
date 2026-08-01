@@ -240,9 +240,9 @@
 
 darvin-cowork 的 `DarvinEvent` 在 `darvin-api.ts` 定义 `tool_start` / `tool_end`，逐项 gap 状态如下：
 
-1. **`messageId ↔ toolUseId` 关联** ⚠️ 部分：spec 00 已给 `tool_use` / `tool_result` **消息类型**补 `toolUseId`，但 `tool_start` / `tool_end` **事件**仍不带；由 spec 02 §4.5 在 `parseDarvinEvent` 从 `message.id` 提升。
-2. **tool 类型** ⚠️ 部分：spec 00 新增 `DarvinToolKind`（消息类型用）；事件侧仍是裸 `tool: string`。
-3. **`isError` 字段** ⚠️ 部分：spec 00 已给 `tool_result` 消息类型补 `isError`；`tool_end` 事件仍只有 `output`。
+1. **`messageId ↔ toolUseId` 关联** ✅ 已落地（spec 02 §4.5）：`parseDarvinEvent` 从 Go 的 `message.id` 提升出 `toolUseId`，`useMessages` 按它配对 `tool_use → tool_result`。
+2. **tool 类型** ✅ 已落地（渲染层）：spec 00 提供 `DarvinToolKind`；spec 02 `getToolKind()` 把事件侧裸 `tool: string` 归一化成 kind 分发（`Exec/Shell → bash` 等）。Go 事件仍发裸 string，但渲染层已收敛。
+3. **`isError` 字段** ✅ 已落地（spec 02）：`tool_result` 消息类型带 `isError`；`tool_end` 事件渲染层从 output 推断（`inferToolEndError`：error 字段 / 非零 exitCode / stderr / `<tool_use_error>` 标签）。
 4. **cache token** ✅ 已落地：`DarvinUsage` 已补 `cacheReadTokens` / `cacheWriteTokens`。
 5. **compaction 事件** ✅ 已落地：`DarvinEvent.compaction` 正式成员 + `client.ts` 不再静默丢弃。
 6. **`contextUsage` push** ✅ 已落地（协议层）：`DarvinEvent.context_usage` 成员 + `DarvinContextUsage` 类型。
@@ -262,7 +262,7 @@ darvin-cowork 的 `DarvinEvent` 在 `darvin-api.ts` 定义 `tool_start` / `tool_
 |---|------|-----------|------|--------|
 | 00 | [darvin-api-extension](../darvin-api-extension/2026-08-01-darvin-api-extension-design.md) | ✅ 已完成：扩 `DarvinMessage` 为 discriminated union + 新增 `compaction` / `context_usage` / `artifact` 事件 + 补 cache / toolUseId / isError | — | **P0（前置）** |
 | 01 | [agent-output-rendering](../agent-output-rendering/2026-08-01-agent-output-rendering-design.md) | ✅ 已完成：Markdown（markdown-it+KaTeX） / Shiki 代码块 / ThinkingBlock / turn 模型 / hover 元信息 / 大文档截断 / 图片附件 | 00 | P1 |
-| 02 | [tool-result-rendering](../tool-result-rendering/2026-08-01-tool-result-rendering-design.md) | `ToolCallGroup` + Bash 仿终端 / TodoWrite checkbox / Edit DiffView / 状态点 / 折叠 / 大文本截断 / 工具归一化 | 00 | P1 |
+| 02 | [tool-result-rendering](../tool-result-rendering/2026-08-01-tool-result-rendering-design.md) | ✅ 已完成：`ToolCallGroup` + Bash 仿终端 / TodoWrite checkbox / Edit DiffView / 状态点 4 色 / 折叠 / 大文本截断 / 工具归一化 | 00 | P1 |
 | 03 | [token-context-usage](../token-context-usage/2026-08-01-token-context-usage-design.md) | 单条消息 token 展示 + chat header 圆环可视化 + 5 态颜色 + tooltip | 00 | P1 |
 | 04 | [context-compaction-ui](../context-compaction-ui/2026-08-01-context-compaction-ui-design.md) | 手动压缩入口 + 自动压缩动画 + `ContextCompactionDivider` + 失败回退 | 00 + 03 | P1 |
 | 05 | [artifact-panel](../artifact-panel/2026-08-01-artifact-panel-design.md) | 状态机重做 + 10 种 artifact 渲染器 + iframe sandbox + 面板宽度拖拽 | 00 | P2 |

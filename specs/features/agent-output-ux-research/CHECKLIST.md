@@ -10,13 +10,13 @@
 
 ## 当前进度
 
-**已完成 2 / 9。下一个该做的：02（tool-result-rendering）。**
+**已完成 3 / 9。下一个该做的：03（token-context-usage）。**
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
 | 00 | [darvin-api-extension](./../darvin-api-extension/2026-08-01-darvin-api-extension-design.md) | ✅ 完成 | 9/9 | 协议先行 |
 | 01 | [agent-output-rendering](./../agent-output-rendering/2026-08-01-agent-output-rendering-design.md) | ✅ 完成 | 9/9 | 依赖 00 |
-| 02 | [tool-result-rendering](./../tool-result-rendering/2026-08-01-tool-result-rendering-design.md) | ⬜ 未启动 | 0/7 | 依赖 00 |
+| 02 | [tool-result-rendering](./../tool-result-rendering/2026-08-01-tool-result-rendering-design.md) | ✅ 完成 | 7/7 | 依赖 00 |
 | 03 | [token-context-usage](./../token-context-usage/2026-08-01-token-context-usage-design.md) | ⬜ 未启动 | 0/6 | 依赖 00 |
 | 04 | [context-compaction-ui](./../context-compaction-ui/2026-08-01-context-compaction-ui-design.md) | ⬜ 未启动 | 0/6 | 依赖 00 + 03 |
 | 05 | [artifact-panel](./../artifact-panel/2026-08-01-artifact-panel-design.md) | ⬜ 未启动 | 0/7 | 依赖 00 |
@@ -83,14 +83,14 @@
 
 > 工具结果落地：`ToolCallGroup` + Bash/TodoWrite/Edit 专门渲染。
 
-- [ ] 6 个内置 kind 全部有专门渲染器（bash / read / write / edit / todowrite / web_search）
-- [ ] 默认折叠 + 用户展开 / 折叠状态记忆
-- [ ] 大文本（>4KB）截断预览 + KB/MB 大小摘要 + 「展开」按钮
-- [ ] 状态点 4 色（蓝脉冲 / 蓝实心 / 绿 / 红）
-- [ ] `getToolDisplayName` 归一化单测（Read/ReadFile → Read 等）
-- [ ] `useMessages` 接管 `tool_start` / `tool_end`，按 `toolUseId` 配对，单测覆盖
-- [ ] 错误展示：红色 + `tool.error.noDetail` 兜底
-- [ ] 状态：**⬜ 未启动**
+- [x] 6 个内置 kind 全部有专门渲染器（bash / read / write / edit / todowrite / web_search）
+- [x] 默认折叠 + 用户展开 / 折叠状态记忆
+- [x] 大文本（>4KB）截断预览 + KB/MB 大小摘要 + 「展开」按钮
+- [x] 状态点 4 色（蓝脉冲 / 蓝实心 / 绿 / 红）
+- [x] `getToolDisplayName` 归一化单测（Read/ReadFile → Read 等）
+- [x] `useMessages` 接管 `tool_start` / `tool_end`，按 `toolUseId` 配对，单测覆盖
+- [x] 错误展示：红色 + `tool.error.noDetail` 兜底
+- [x] 状态：**✅ 完成**
 
 ### 03 · token-context-usage
 
@@ -175,3 +175,5 @@
 - 2026-08-01 · 00 darvin-api-extension · 协议层完成：`DarvinMessage` union 化（5 态）+ `DarvinToolKind` / `DarvinContextUsage` / `DarvinAttachment` + `DarvinEvent` 新增 compaction / context_usage / artifact + `client.ts` 移除 compaction 静默丢弃 + `assertNever` 兜底。lint / test 通过；⏳ 待人工 `npm start` 验证现有会话 / 历史消息渲染行为不变。
 - 2026-08-01 · 01 agent-output-rendering · 8/9 落地：`MarkdownContent`（markdown-it 15 + Shiki v4 core 按需 19 语言 + KaTeX + DOMPurify）+ `CodeBlock`（Shiki 高亮 + 复制）+ `ThinkingBlock`（流式自动展开 / 蓝色脉冲 / 手动折叠）+ `TurnMeta` hover 4 操作 + turn 建模（`buildConversationTurns`）+ 大文档截断（>8KB 头 4KB + 尾 8KB）+ user 图片附件 chip + `useChatActions.copy/regenerate`。新依赖：markdown-it / markdown-it-task-lists / markdown-it-mark / @vscode/markdown-it-katex / katex / shiki / dompurify。lint / test（24 用例）/ vite build 通过。
 - 2026-08-01 · 01 agent-output-rendering · **人工验证 + 修复 2 bug → ✅ 9/9**。playwright 驱动 Electron 实测：markdown 标题/加粗/列表/表格/KaTeX 内联+块级矩阵/任务清单/代码块 Shiki 高亮/复制按钮（剪贴板确认）/TurnMeta hover/ThinkingBlock 流式自动展开+蓝色脉冲/实时流式全部正常，console 0 错误。修复：(1) `TurnMeta.vue` 漏 import `IconButton`（非全局注册组件）→ hover 按钮全灭；(2) **流式消息被覆盖**——`useMessages` 7+ 调用点各建一个 immediate watch，组件在 active 已设后挂载即触发 `loadMessages` 覆盖正在流式的 bucket（debug 实证 `startAssistantMessage bucketLen=18` → 事件 `found=false listLen=17`），修复为模块级只建一次 watch。读 darvin-agent 源码确认 Go 侧事件时序正确，根因在渲染层。
+- 2026-08-01 · 02 tool-result-rendering · ✅ 7/7 落地。协议层 §4.5：`DarvinEvent.tool_start` / `tool_end` 补 `toolUseId?: string` + `parseDarvinEvent` 从 Go 的 `message.id` 提升 + `tool_end` 的 output 从 `raw.output ?? raw.tool` 兜底（Go 把输出内容塞在 tool 字段）。渲染层：`ToolCallGroup`（默认折叠 / 状态记忆）+ `ToolCallHeader`（状态点 4 色：蓝脉冲 / 蓝实心 / 绿 / 红）+ `ToolCallInput`（bash `$` 命令行 / todowrite 三态 checkbox / edit 文件路径 / generic JSON）+ `ToolCallResult`（edit → DiffView 红绿 LCS diff；>4KB 截断预览 + KB/MB 大小摘要 + 展开；错误红色 + `tool.error.noDetail` 兜底）+ bash 仿终端（三色圆点 + 黑底）。`useMessages` 接管 `tool_start` / `tool_end` 按 `toolUseId` 配对 + `buildConversationTurns` 产出 `tool_group` item。纯函数 `toolDisplay.ts`（归一化 / 截断 / todo 解析 / diff）+ 新 icon `terminal.svg` + 9 个 i18n key（zh/en）。新测试：`client.test.ts`（parseDarvinEvent 6 例）/ `toolDisplay.test.ts`（19 例）/ `useMessages.test.ts`（tool 配对 8 例）。lint / test（57 用例）/ renderer vite build 通过。
+- 2026-08-01 · 02 tool-result-rendering · **人工验证 + 修复 2 bug → ✅ 7/7**。playwright 驱动 Electron 实测：prompt「运行 bash pwd 和 ls -la」触发 2 个 Bash 工具组；「不存在的命令」触发错误工具组（红点 `bg-red-500` + 终端红字 `text-red-400`）；「find /usr/lib -type f」输出 3.9MB → 截断预览「输出过大 · 3.9 MB」+ 展开按钮 → 展开显示完整输出；新会话 write+edit 触发 Write/Edit/Read 三组，Edit 展开显示 DiffView 红删 `第一行` / 绿增 `修改后的第一行`。状态点绿/红/运行中（`Bash 运行中…`）均正确，折叠/展开状态记忆正常，console 0 错误。修复：(1) **工具组渲染顺序错位**——`startAssistantMessage` 把 assistant 消息建在 bucket 最前（thinking 与 content 同属一条消息），tool 条目随后 append 到尾部，导致工具组和 TurnMeta 排在答案下方；修复为 `AssistantTurnBlock` 三阶段渲染：thinking 段 → 工具组 → content 段 + TurnMeta（实测顺序：思考中 → Bash×2 → 答案 → TurnMeta）；(2) **`inferToolEndError` 识别不到字符串错误**——Go 的 `ToolEndEvent.Result.IsError` 存在但 `mapEventToTS` 没序列化（spec 规定不改 Go），白名单拒绝输出 `tool "shell": argument "command" must be one of [...]` 被误判成功（绿点）；扩展 TOOL_ERROR_PATTERNS（`command not allowed` / `must be one of` / `command not found` / `no such file or directory` / `permission denied` / `not found` / 行首 `error:` / `failed:`），单测覆盖 5 种真实文案 + 普通输出不误报。TodoWrite 渲染器当前 agent 无此工具无法 live 触发，由单测覆盖。lint / test（57 用例）通过。

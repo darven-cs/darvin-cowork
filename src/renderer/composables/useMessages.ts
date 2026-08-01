@@ -15,9 +15,10 @@
  */
 
 import { computed, ref, watch } from 'vue';
-import type { DarvinAttachment, DarvinEvent, DarvinMessage } from '../../shared/darvin-api';
+import type { DarvinAttachment, DarvinEvent, DarvinMessage, DarvinToolKind } from '../../shared/darvin-api';
 import { assertNever } from '../../shared/darvin-api';
 import { useSession } from './useSession';
+import { getToolKind } from '../services/toolDisplay';
 
 export interface Message {
   id: string;
@@ -31,30 +32,81 @@ export interface Message {
   attachments?: DarvinAttachment[];
   model?: string;
   createdAt: number;
+  // spec 02 — 工具调用条目（tool_use / tool_result）
+  kind?: 'tool_use' | 'tool_result';
+  toolUseId?: string;
+  tool?: string;
+  toolKind?: DarvinToolKind;
+  input?: unknown;
+  output?: unknown;
+  isError?: boolean;
 }
+
+/** AssistantTurnBlock 的条目：普通 assistant 消息或一组配对的工具调用。 */
+export type AssistantTurnItem =
+  | { type: 'assistant'; message: Message }
+  | { type: 'tool_group'; toolUse: Message; toolResult: Message | null };
 
 /** 一个 turn = user 消息 + 其后所有 assistant 消息；无 user 的 assistant 归入 orphan turn。 */
 export interface ConversationTurn {
   id: string;
   userMessage: Message | null;
-  assistantItems: Message[];
+  assistantItems: AssistantTurnItem[];
 }
 
 export function buildConversationTurns(messages: Message[]): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   let current: ConversationTurn | null = null;
   let orphanIndex = 0;
+  const groupsByToolUseId = new Map<string, Extract<AssistantTurnItem, { type: 'tool_group' }>>();
+  let pendingAdjacentGroup: AssistantTurnItem | null = null;
+
+  const pushAssistant = (item: AssistantTurnItem): void => {
+    if (!current) {
+      current = { id: `orphan-${orphanIndex++}`, userMessage: null, assistantItems: [] };
+      turns.push(current);
+    }
+    current.assistantItems.push(item);
+  };
+
   for (const msg of messages) {
     if (msg.role === 'user') {
       current = { id: msg.id, userMessage: msg, assistantItems: [] };
       turns.push(current);
-    } else {
-      if (!current) {
-        current = { id: `orphan-${orphanIndex++}`, userMessage: null, assistantItems: [] };
-        turns.push(current);
-      }
-      current.assistantItems.push(msg);
+      pendingAdjacentGroup = null;
+      continue;
     }
+
+    // 工具调用：tool_use 开新 group，tool_result 按 toolUseId 配对回来
+    if (msg.kind === 'tool_use') {
+      const group: AssistantTurnItem = { type: 'tool_group', toolUse: msg, toolResult: null };
+      pushAssistant(group);
+      if (msg.toolUseId) groupsByToolUseId.set(msg.toolUseId, group as Extract<AssistantTurnItem, { type: 'tool_group' }>);
+      pendingAdjacentGroup = group;
+      continue;
+    }
+
+    if (msg.kind === 'tool_result') {
+      let matched = false;
+      const id = msg.toolUseId;
+      const group = id ? groupsByToolUseId.get(id) : undefined;
+      if (group) {
+        group.toolResult = msg;
+        matched = true;
+      } else if (pendingAdjacentGroup && pendingAdjacentGroup.type === 'tool_group' && !pendingAdjacentGroup.toolResult) {
+        pendingAdjacentGroup.toolResult = msg;
+        matched = true;
+      }
+      pendingAdjacentGroup = null;
+      if (!matched) {
+        // 孤立 tool_result（缺 tool_use）：让 ToolCallGroup 直接消费自身 output
+        pushAssistant({ type: 'tool_group', toolUse: msg, toolResult: null });
+      }
+      continue;
+    }
+
+    pendingAdjacentGroup = null;
+    pushAssistant({ type: 'assistant', message: msg });
   }
   return turns;
 }
@@ -157,13 +209,31 @@ function toMessage(m: DarvinMessage): Message {
         createdAt: m.createdAt,
       };
     case 'tool_use':
+      return {
+        id: m.id,
+        sessionId: m.sessionId,
+        role: 'assistant',
+        content: '',
+        done: true,
+        kind: 'tool_use',
+        toolUseId: m.toolUseId,
+        tool: m.tool,
+        toolKind: m.toolKind,
+        input: m.input,
+        createdAt: m.createdAt,
+      };
     case 'tool_result':
       return {
         id: m.id,
         sessionId: m.sessionId,
         role: 'assistant',
-        content: `[${m.tool}]`,
+        content: '',
         done: true,
+        kind: 'tool_result',
+        toolUseId: m.toolUseId,
+        tool: m.tool,
+        output: m.output,
+        isError: m.isError,
         createdAt: m.createdAt,
       };
     case 'system':
@@ -180,7 +250,35 @@ function toMessage(m: DarvinMessage): Message {
   }
 }
 
-function appendToBucket(list: Message[], ev: DarvinEvent): void {
+// Go 的 ToolEndEvent.Result.IsError 存在但 mapEventToTS 没序列化（spec 规定不改
+// Go），渲染层只能从 output 内容推断。命中这些 darvin-agent 实际错误文案视为失败。
+const TOOL_ERROR_PATTERNS: RegExp[] = [
+  /^<tool_use_error>[\s\S]*<\/tool_use_error>$/i,
+  /command not allowed/i,
+  /must be one of/i,
+  /command not found/i,
+  /no such file or directory/i,
+  /permission denied/i,
+  /not found/i,
+  /(^|[\r\n])error\s*:/i,
+  /(^|[\r\n])failed\s*:/i,
+];
+
+function inferToolEndError(output: unknown): boolean {
+  if (output && typeof output === 'object') {
+    const rec = output as Record<string, unknown>;
+    if (rec.error !== undefined && rec.error !== null) return true;
+    if (typeof rec.exitCode === 'number' && rec.exitCode !== 0) return true;
+    if (typeof rec.stderr === 'string' && rec.stderr.trim().length > 0) return true;
+  }
+  if (typeof output === 'string') {
+    const trimmed = output.trim();
+    if (trimmed && TOOL_ERROR_PATTERNS.some((re) => re.test(trimmed))) return true;
+  }
+  return false;
+}
+
+function appendToBucket(list: Message[], sid: string, ev: DarvinEvent): void {
   if (ev.type === 'text_delta') {
     const msg = list.find((m) => m.id === ev.messageId);
     if (msg) msg.content += ev.delta;
@@ -196,6 +294,38 @@ function appendToBucket(list: Message[], ev: DarvinEvent): void {
       msg.done = true;
       msg.error = ev.message;
     }
+  } else if (ev.type === 'tool_start') {
+    const toolUseId = ev.toolUseId ?? ev.messageId;
+    if (list.some((m) => m.kind === 'tool_use' && m.toolUseId === toolUseId)) return; // 幂等
+    list.push({
+      id: toolUseId,
+      sessionId: sid,
+      role: 'assistant',
+      content: '',
+      done: false,
+      kind: 'tool_use',
+      toolUseId,
+      tool: ev.tool,
+      toolKind: getToolKind(ev.tool),
+      input: ev.input,
+      createdAt: Date.now(),
+    });
+  } else if (ev.type === 'tool_end') {
+    const toolUseId = ev.toolUseId ?? ev.messageId;
+    const use = list.find((m) => m.kind === 'tool_use' && m.toolUseId === toolUseId);
+    list.push({
+      id: `${toolUseId}-result`,
+      sessionId: sid,
+      role: 'assistant',
+      content: '',
+      done: true,
+      kind: 'tool_result',
+      toolUseId,
+      tool: use?.tool ?? ev.tool,
+      output: ev.output,
+      isError: inferToolEndError(ev.output),
+      createdAt: Date.now(),
+    });
   }
 }
 
@@ -239,13 +369,14 @@ export function useMessages() {
 
   function appendEventFor(sid: string, ev: DarvinEvent): void {
     const bucket = messagesBySessionId.value[sid] ?? [];
-    appendToBucket(bucket, ev);
+    appendToBucket(bucket, sid, ev);
     messagesBySessionId.value = { ...messagesBySessionId.value, [sid]: bucket };
 
     const active = session.activeSessionId.value;
     const isCurrent = sid === active;
 
-    if (ev.type === 'text_delta' || ev.type === 'thinking_delta') {
+    // tool_start / tool_end 也属于"正在跑"（工具执行中 session 持续运行）
+    if (ev.type === 'text_delta' || ev.type === 'thinking_delta' || ev.type === 'tool_start' || ev.type === 'tool_end') {
       streamingSessionIds.value = new Set([...streamingSessionIds.value, sid]);
     } else if (ev.type === 'done' || ev.type === 'error' || ev.type === 'agent_end') {
       const next = new Set(streamingSessionIds.value);

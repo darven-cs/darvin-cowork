@@ -37,7 +37,10 @@ watch(
 );
 
 watch(
-  () => turns.value.map((t) => t.assistantItems.map((m) => `${m.id}:${m.content.length}:${m.thinking?.length ?? 0}`).join('|')).join('~'),
+  () => turns.value.map((t) => t.assistantItems.map((it) => {
+    if (it.type === 'tool_group') return `t:${it.toolUse.id}:${it.toolResult ? '1' : '0'}`;
+    return `${it.message.id}:${it.message.content.length}:${it.message.thinking?.length ?? 0}`;
+  }).join('|')).join('~'),
   async () => {
     await nextTick();
     const el = scrollRef.value;

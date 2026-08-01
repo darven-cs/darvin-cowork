@@ -143,12 +143,12 @@ spec 00 把 `tool_use` / `tool_result` 加进了 `DarvinMessage` 消息 union（
 
 ## 6. 验收
 
-- [ ] Bash / Read / Write / Edit / TodoWrite / WebSearch 6 个内置 kind 全部有专门渲染
-- [ ] 默认折叠；用户能展开/折叠；状态记忆
-- [ ] 大文本（>4KB）显示截断预览 + 大小摘要 + 「展开」按钮
-- [ ] 状态点 4 色行为正确
-- [ ] `getToolDisplayName` 归一化单元测试覆盖
-- [ ] `useMessages` 接管 `tool_start` / `tool_end` 事件，配对逻辑单元测试覆盖
+- [x] Bash / Read / Write / Edit / TodoWrite / WebSearch 6 个内置 kind 全部有专门渲染
+- [x] 默认折叠；用户能展开/折叠；状态记忆
+- [x] 大文本（>4KB）显示截断预览 + 大小摘要 + 「展开」按钮
+- [x] 状态点 4 色行为正确
+- [x] `getToolDisplayName` 归一化单元测试覆盖
+- [x] `useMessages` 接管 `tool_start` / `tool_end` 事件，配对逻辑单元测试覆盖
 
 ## 7. 依赖
 

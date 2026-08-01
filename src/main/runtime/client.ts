@@ -250,14 +250,50 @@ const LIFECYCLE_EVENT_TYPES = new Set([
  * 未知 type 返回 null（caller 打 warn 后丢弃），不抛错 —— Go 侧新增事件
  * 类型时旧版 Electron 不应该崩，后续合法事件仍要能继续消费。
  */
+/**
+ * 从 raw 里提升 toolUseId：spec 00 把 tool_use / tool_result 加进消息 union
+ * 后，事件侧的 tool_start / tool_end 仍缺 toolUseId。Go 的 CallID 注入在
+ * `message.id`（eventledger.go mapEventToTS），这里提升出来；老 backend
+ * 没有 message.id 时按 messageId 兜底，保持向后兼容。
+ */
+function readToolUseId(raw: Record<string, unknown>): string | undefined {
+  const message = raw.message;
+  if (message && typeof message === 'object') {
+    const id = (message as Record<string, unknown>).id;
+    if (typeof id === 'string' && id) return id;
+  }
+  if (typeof raw.messageId === 'string' && raw.messageId) return raw.messageId;
+  return undefined;
+}
+
 export function parseDarvinEvent(
   raw: Record<string, unknown>,
 ): DarvinEvent | null {
   switch (raw.type) {
+    case 'tool_start':
+      return {
+        type: 'tool_start',
+        sessionId: raw.sessionId,
+        runId: raw.runId,
+        messageId: raw.messageId,
+        toolUseId: readToolUseId(raw),
+        tool: raw.tool,
+        input: raw.input,
+      } as unknown as DarvinEvent;
+    case 'tool_end':
+      // Go 的 mapEventToTS 把输出内容直接塞进 `tool` 字段（没有 `output`），
+      // 这里收敛成 output；等 Go 侧补齐字段后 raw.output 优先。
+      return {
+        type: 'tool_end',
+        sessionId: raw.sessionId,
+        runId: raw.runId,
+        messageId: raw.messageId,
+        toolUseId: readToolUseId(raw),
+        tool: raw.tool,
+        output: raw.output ?? raw.tool,
+      } as unknown as DarvinEvent;
     case 'text_delta':
     case 'thinking_delta':
-    case 'tool_start':
-    case 'tool_end':
     case 'done':
     case 'error':
     case 'agent_end':
