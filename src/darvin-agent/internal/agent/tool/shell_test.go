@@ -42,8 +42,8 @@ func TestShellRejectNotAllowed(t *testing.T) {
 	if !res.IsError {
 		t.Errorf("curl should be rejected (not in allowlist), got %+v", res)
 	}
-	if !strings.Contains(res.Content, "not allowed") {
-		t.Errorf("err should mention 'not allowed': %q", res.Content)
+	if !strings.Contains(res.Content, "must be one of") {
+		t.Errorf("err should reject via command enum: %q", res.Content)
 	}
 }
 
@@ -99,6 +99,63 @@ func TestShellCustomCwd(t *testing.T) {
 	}
 	if !strings.HasSuffix(strings.TrimSpace(res.Content), "/sub") {
 		t.Errorf("pwd output = %q, want ending with /sub", res.Content)
+	}
+}
+
+func TestShellEnumRejectCommand(t *testing.T) {
+	sh, _ := newShellToolForTest(t)
+	res := sh.Execute(context.Background(), map[string]any{
+		"command": "rm -rf /",
+		"args":    []any{},
+	})
+	if !res.IsError {
+		t.Error("rm -rf / should be rejected by command enum")
+	}
+	if !strings.Contains(res.Content, "must be one of") {
+		t.Errorf("err should mention enum: %q", res.Content)
+	}
+}
+
+func TestShellOutputTruncation(t *testing.T) {
+	sh, root := newShellToolForTest(t)
+	if _, err := lookPathOrSkip("cat"); err != nil {
+		t.Skip("cat not available")
+	}
+	// 2 MiB of output; cap at 64 KiB via max_output_bytes.
+	if err := os.WriteFile(filepath.Join(root, "big.txt"), []byte(strings.Repeat("y", 2<<20)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := sh.Execute(context.Background(), map[string]any{
+		"command":          "cat",
+		"args":             []any{"big.txt"},
+		"max_output_bytes": float64(65536),
+	})
+	if res.IsError {
+		t.Fatalf("cat big: %v", res.Content)
+	}
+	if !strings.Contains(res.Content, "[stdout truncated at 65536 bytes]") {
+		t.Errorf("truncation note missing: %q", res.Content[:80])
+	}
+	if len(res.Content) > 1<<20 {
+		t.Errorf("truncated output still too large: %d bytes", len(res.Content))
+	}
+}
+
+func TestShellMaxOutputBytesZeroUsesDefault(t *testing.T) {
+	sh, _ := newShellToolForTest(t)
+	if _, err := lookPathOrSkip("echo"); err != nil {
+		t.Skip("echo not available")
+	}
+	res := sh.Execute(context.Background(), map[string]any{
+		"command":          "echo",
+		"args":             []any{"hi"},
+		"max_output_bytes": float64(0),
+	})
+	if res.IsError {
+		t.Fatalf("echo with max_output_bytes=0: %v", res.Content)
+	}
+	if !strings.Contains(res.Content, "hi") {
+		t.Errorf("echo output missing: %q", res.Content)
 	}
 }
 

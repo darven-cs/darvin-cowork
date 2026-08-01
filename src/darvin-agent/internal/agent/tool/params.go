@@ -2,18 +2,17 @@ package tool
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 
 	"darvin-cowork/backend/internal/agent/llm"
 )
 
-// validateArgs checks that args satisfies schema. Supports the minimum JSON
-// Schema subset the executor cares about: type=object with property types
-// in {string,number,integer,boolean,array,object} and a required list.
-//
-// This is intentionally tiny — no $ref, no allOf/anyOf, no enum/default/
-// format. Future specs can swap in a fuller validator (e.g. gojsonschema)
-// without changing the call sites.
+// validateArgs checks that args satisfies schema. Supports type=object with
+// property types in {string,number,integer,boolean,array,object}, a required
+// list, and per-property enum / numeric range / string length / pattern /
+// array items constraints. Unknown (undeclared) args are a hard rejection —
+// a model passing a misspelled field gets an error, not a silent ignore.
 func validateArgs(name string, args map[string]any, schema llm.ParameterSchema) error {
 	if schema.Type != "" && schema.Type != "object" {
 		return fmt.Errorf("tool %q: only object schemas supported, got %q", name, schema.Type)
@@ -29,14 +28,74 @@ func validateArgs(name string, args map[string]any, schema llm.ParameterSchema) 
 		if !ok || v == nil {
 			continue
 		}
-		if err := checkType(name, propName, v, prop.Type); err != nil {
+		if err := checkProperty(name, propName, v, prop); err != nil {
 			return err
 		}
 	}
-	// surface unknown args (likely model mistake) — not fatal but helpful
+	// surface unknown args (likely model mistake) — fatal, kept for compat
 	if extra := unknownArgs(args, schema.Properties); len(extra) > 0 {
 		sort.Strings(extra)
 		return fmt.Errorf("tool %q: unknown arguments: %v", name, extra)
+	}
+	return nil
+}
+
+// checkProperty validates one property value against its schema constraints.
+func checkProperty(toolName, propName string, v any, prop llm.ParameterProperty) error {
+	if err := checkType(toolName, propName, v, prop.Type); err != nil {
+		return err
+	}
+	if len(prop.Enum) > 0 {
+		matched := false
+		for _, e := range prop.Enum {
+			if e == v {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return fmt.Errorf("tool %q: argument %q must be one of %v, got %v", toolName, propName, prop.Enum, v)
+		}
+	}
+	if prop.Minimum != nil || prop.Maximum != nil {
+		if num, ok := toFloat(v); ok {
+			if prop.Minimum != nil && num < *prop.Minimum {
+				return fmt.Errorf("tool %q: argument %q must be >= %v, got %v", toolName, propName, *prop.Minimum, v)
+			}
+			if prop.Maximum != nil && num > *prop.Maximum {
+				return fmt.Errorf("tool %q: argument %q must be <= %v, got %v", toolName, propName, *prop.Maximum, v)
+			}
+		}
+	}
+	if prop.MinLength != nil || prop.MaxLength != nil {
+		if s, ok := v.(string); ok {
+			if prop.MinLength != nil && len(s) < *prop.MinLength {
+				return fmt.Errorf("tool %q: argument %q must be at least %d characters, got %d", toolName, propName, *prop.MinLength, len(s))
+			}
+			if prop.MaxLength != nil && len(s) > *prop.MaxLength {
+				return fmt.Errorf("tool %q: argument %q must be at most %d characters, got %d", toolName, propName, *prop.MaxLength, len(s))
+			}
+		}
+	}
+	if prop.Pattern != "" {
+		if s, ok := v.(string); ok {
+			re, err := regexp.Compile(prop.Pattern)
+			if err != nil {
+				return fmt.Errorf("tool %q: argument %q has invalid pattern %q", toolName, propName, prop.Pattern)
+			}
+			if !re.MatchString(s) {
+				return fmt.Errorf("tool %q: argument %q does not match pattern %q", toolName, propName, prop.Pattern)
+			}
+		}
+	}
+	if prop.Items != nil {
+		if xs, ok := v.([]any); ok {
+			for i, x := range xs {
+				if err := checkProperty(toolName, fmt.Sprintf("%s[%d]", propName, i), x, *prop.Items); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -88,3 +147,39 @@ func unknownArgs(args map[string]any, props map[string]llm.ParameterProperty) []
 	}
 	return extra
 }
+
+func toFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int8:
+		return float64(n), true
+	case int16:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case uint:
+		return float64(n), true
+	case uint8:
+		return float64(n), true
+	case uint16:
+		return float64(n), true
+	case uint32:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
+	}
+	return 0, false
+}
+
+func ptrFloat64(f float64) *float64 { return &f }
+
+func ptrInt(i int) *int { return &i }
+
+func ptrBool(b bool) *bool { return &b }

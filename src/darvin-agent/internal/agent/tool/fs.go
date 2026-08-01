@@ -4,17 +4,21 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"darvin-cowork/backend/internal/agent/llm"
 )
 
-// maxReadBytes is the upper bound on a single read_file payload. Anything
-// beyond is truncated and the truncation is noted in the returned content.
+// maxReadBytes is the default read_file window. Anything beyond is truncated
+// and the truncation is noted in the returned content.
 const maxReadBytes = 1 << 20 // 1 MiB
+
+// maxHardWriteBytes caps a single write_file / edit_file payload so a model
+// cannot push a huge string through the tool boundary.
+const maxHardWriteBytes = 32 << 20 // 32 MiB
 
 // readFileTool reads a UTF-8 text file, optionally limited to a window.
 type readFileTool struct {
@@ -30,10 +34,11 @@ func (t *readFileTool) Parameters() llm.ParameterSchema {
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"path":   {Type: "string", Description: "Path relative to the workspace, or absolute within the workspace."},
-			"limit":  {Type: "integer", Description: "Maximum number of bytes to return (default 1 MiB)."},
-			"offset": {Type: "integer", Description: "Byte offset to start reading from."},
+			"limit":  {Type: "integer", Description: "Maximum number of bytes to return (default 1 MiB, hard cap 16 MiB).", Minimum: ptrFloat64(0), Maximum: ptrFloat64(maxHardReadBytes)},
+			"offset": {Type: "integer", Description: "Byte offset to start reading from.", Minimum: ptrFloat64(0)},
 		},
-		Required: []string{"path"},
+		Required:             []string{"path"},
+		AdditionalProperties: ptrBool(false),
 	}
 }
 
@@ -42,58 +47,22 @@ func (t *readFileTool) Execute(_ context.Context, args map[string]any) Result {
 		return Result{IsError: true, Content: err.Error()}
 	}
 	path, _ := args["path"].(string)
-	abs, err := t.sb.Resolve(path)
-	if err != nil {
-		return Result{IsError: true, Content: err.Error()}
-	}
-	f, err := os.Open(abs)
-	if err != nil {
-		return Result{IsError: true, Content: "open: " + err.Error()}
-	}
-	defer f.Close()
-
 	limit := maxReadBytes
 	if v, ok := args["limit"].(float64); ok && v > 0 {
 		limit = int(v)
-		if limit > maxReadBytes {
-			limit = maxReadBytes
-		}
 	}
 	offset := int64(0)
 	if v, ok := args["offset"].(float64); ok && v > 0 {
 		offset = int64(v)
 	}
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return Result{IsError: true, Content: "seek: " + err.Error()}
+	f, data, truncated, err := t.sb.openRootFileLimited(path, "read_file", offset, int64(limit))
+	if err != nil {
+		return Result{IsError: true, Content: err.Error()}
 	}
-
-	buf := bytes.NewBuffer(make([]byte, 0, min(limit, 4096)))
-	truncated := false
-	written := 0
-	tmp := make([]byte, 4096)
-	for written < limit {
-		n, rerr := f.Read(tmp)
-		if n > 0 {
-			remaining := limit - written
-			if n > remaining {
-				buf.Write(tmp[:remaining])
-				written = limit
-				truncated = true
-			} else {
-				buf.Write(tmp[:n])
-				written += n
-			}
-		}
-		if rerr == io.EOF {
-			break
-		}
-		if rerr != nil {
-			return Result{IsError: true, Content: "read: " + rerr.Error()}
-		}
-	}
-	content := buf.String()
+	defer f.Close()
+	content := utf8ValidString(data)
 	if truncated {
-		content += fmt.Sprintf("\n[truncated, total >= %d bytes]", offset+int64(written))
+		content += fmt.Sprintf("\n[truncated at offset %d, limit %d bytes]", offset, limit)
 	}
 	return Result{Content: content}
 }
@@ -112,9 +81,10 @@ func (t *writeFileTool) Parameters() llm.ParameterSchema {
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"path":    {Type: "string", Description: "Destination path."},
-			"content": {Type: "string", Description: "UTF-8 text content to write."},
+			"content": {Type: "string", Description: "UTF-8 text content to write.", MaxLength: ptrInt(maxHardWriteBytes)},
 		},
-		Required: []string{"path", "content"},
+		Required:             []string{"path", "content"},
+		AdditionalProperties: ptrBool(false),
 	}
 }
 
@@ -151,11 +121,12 @@ func (t *editFileTool) Parameters() llm.ParameterSchema {
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"path":        {Type: "string", Description: "File to edit."},
-			"old_text":    {Type: "string", Description: "Existing text to find."},
-			"new_text":    {Type: "string", Description: "Replacement text."},
+			"old_text":    {Type: "string", Description: "Existing text to find.", MaxLength: ptrInt(maxHardWriteBytes)},
+			"new_text":    {Type: "string", Description: "Replacement text.", MaxLength: ptrInt(maxHardWriteBytes)},
 			"replace_all": {Type: "boolean", Description: "Replace every occurrence (default false)."},
 		},
-		Required: []string{"path", "old_text", "new_text"},
+		Required:             []string{"path", "old_text", "new_text"},
+		AdditionalProperties: ptrBool(false),
 	}
 }
 
@@ -212,9 +183,10 @@ func (t *listDirTool) Parameters() llm.ParameterSchema {
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"path":      {Type: "string", Description: "Directory to list."},
-			"max_depth": {Type: "integer", Description: "Recursion depth; default 1 (no recursion)."},
+			"max_depth": {Type: "integer", Description: "Recursion depth; default 1 (no recursion).", Minimum: ptrFloat64(0), Maximum: ptrFloat64(20)},
 		},
-		Required: []string{"path"},
+		Required:             []string{"path"},
+		AdditionalProperties: ptrBool(false),
 	}
 }
 
@@ -275,9 +247,20 @@ func walkDir(buf *bytes.Buffer, root, current string, depth, maxDepth int) error
 	return nil
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+// utf8ValidString converts bytes to string, trimming trailing bytes that
+// fall in the middle of a multi-byte rune so a truncated read never yields
+// a half-mangled character.
+func utf8ValidString(b []byte) string {
+	if utf8.Valid(b) {
+		return string(b)
 	}
-	return b
+	n := len(b)
+	for n > 0 {
+		r, size := utf8.DecodeLastRune(b[:n])
+		if r != utf8.RuneError || size > 1 {
+			return string(b[:n])
+		}
+		n--
+	}
+	return ""
 }

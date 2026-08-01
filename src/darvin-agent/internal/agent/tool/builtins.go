@@ -11,7 +11,7 @@ import "errors"
 //
 // Returns an error only if workdir cannot be resolved to an absolute path.
 func NewBuiltins(workdir string, allowlist []string) (*Registry, error) {
-	sb, err := newFsSandbox(workdir)
+	sb, err := newFsSandbox(workdir, DefaultPathExclusions()...)
 	if err != nil {
 		return nil, err
 	}

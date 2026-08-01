@@ -46,17 +46,28 @@ type Tool struct {
 
 // ParameterSchema is a minimal JSON Schema subset accepted across providers.
 type ParameterSchema struct {
-	Type       string                       `json:"type"`
-	Properties map[string]ParameterProperty `json:"properties,omitempty"`
-	Required   []string                     `json:"required,omitempty"`
+	Type                 string                       `json:"type"`
+	Properties           map[string]ParameterProperty `json:"properties,omitempty"`
+	Required             []string                     `json:"required,omitempty"`
+	AdditionalProperties *bool                        `json:"additionalProperties,omitempty"`
 }
 
 // ParameterProperty describes a single property inside ParameterSchema.
+// Minimum / Maximum apply to number / integer, MinLength / MaxLength /
+// Pattern to string, and Items to array elements. Format is a hint passed
+// through to providers, not validated.
 type ParameterProperty struct {
-	Type        string `json:"type"`
-	Description string `json:"description,omitempty"`
-	Enum        []any  `json:"enum,omitempty"`
-	Default     any    `json:"default,omitempty"`
+	Type        string             `json:"type"`
+	Description string             `json:"description,omitempty"`
+	Enum        []string           `json:"enum,omitempty"`
+	Default     any                `json:"default,omitempty"`
+	Format      string             `json:"format,omitempty"`
+	Minimum     *float64           `json:"minimum,omitempty"`
+	Maximum     *float64           `json:"maximum,omitempty"`
+	MinLength   *int               `json:"minLength,omitempty"`
+	MaxLength   *int               `json:"maxLength,omitempty"`
+	Pattern     string             `json:"pattern,omitempty"`
+	Items       *ParameterProperty `json:"items,omitempty"`
 }
 
 // ToolChoice instructs the model on how (or whether) to use tools.

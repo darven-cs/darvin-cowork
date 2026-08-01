@@ -142,3 +142,78 @@ func TestListDirNotDirectory(t *testing.T) {
 		t.Errorf("list_dir on file should error, got %+v", res)
 	}
 }
+
+func TestReadFileOffset(t *testing.T) {
+	r, root := newFsTools(t)
+	ctx := context.Background()
+	// 150 bytes so offset 100 + limit 50 ends exactly at EOF (no truncation).
+	content := strings.Repeat("0123456789", 15)
+	if err := os.WriteFile(filepath.Join(root, "off.txt"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rf := r.Get("read_file").(Tool)
+	res := rf.Execute(ctx, map[string]any{"path": "off.txt", "offset": float64(100), "limit": float64(50)})
+	if res.IsError {
+		t.Fatalf("read_file offset: %v", res.Content)
+	}
+	if want := content[100:150]; res.Content != want {
+		t.Errorf("offset read = %q, want %q", res.Content, want)
+	}
+	// offset with no limit should still honor the offset (not restart at 0)
+	res = rf.Execute(ctx, map[string]any{"path": "off.txt", "offset": float64(100)})
+	if res.IsError {
+		t.Fatalf("read_file offset-only: %v", res.Content)
+	}
+	if want := content[100:]; res.Content != want {
+		t.Errorf("offset-only read = %q, want %q", res.Content, want)
+	}
+}
+
+func TestReadFileMaxBytesTruncation(t *testing.T) {
+	r, root := newFsTools(t)
+	ctx := context.Background()
+	big := make([]byte, maxReadBytes+4096)
+	for i := range big {
+		big[i] = 'a'
+	}
+	if err := os.WriteFile(filepath.Join(root, "huge.txt"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rf := r.Get("read_file").(Tool)
+	res := rf.Execute(ctx, map[string]any{"path": "huge.txt"})
+	if res.IsError {
+		t.Fatalf("read_file huge: %v", res.Content)
+	}
+	if !strings.Contains(res.Content, "[truncated at offset 0") {
+		t.Errorf("truncation note missing in content of len %d", len(res.Content))
+	}
+}
+
+func TestReadFileSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	sb, err := newFsSandbox(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(root, "leak")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	r := NewRegistry()
+	r.MustRegister(&readFileTool{sb: sb})
+	res := r.Get("read_file").(Tool).Execute(context.Background(), map[string]any{"path": "leak"})
+	if !res.IsError || !strings.Contains(res.Content, "escapes sandbox") {
+		t.Errorf("read_file symlink escape = %+v, want sandbox error", res)
+	}
+}
+
+func TestWriteFileContentTooLarge(t *testing.T) {
+	r, _ := newFsTools(t)
+	big := strings.Repeat("a", maxHardWriteBytes+1)
+	res := r.Get("write_file").(Tool).Execute(context.Background(), map[string]any{
+		"path":    "x.txt",
+		"content": big,
+	})
+	if !res.IsError {
+		t.Error("write_file with content over maxHardWriteBytes should be rejected")
+	}
+}

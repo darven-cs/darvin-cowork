@@ -1,10 +1,10 @@
 package tool
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
 	"time"
 
 	"darvin-cowork/backend/internal/agent/llm"
@@ -27,6 +27,13 @@ const maxShellTimeout = 5 * time.Minute
 
 // defaultShellTimeout is used when the caller does not specify timeout_ms.
 const defaultShellTimeout = 30 * time.Second
+
+// maxShellBytes is the default cap on captured stdout / stderr per stream.
+// maxHardShellBytes is the ceiling for the caller-provided max_output_bytes.
+const (
+	maxShellBytes     int64 = 1 << 20  // 1 MiB
+	maxHardShellBytes int64 = 16 << 20 // 16 MiB
+)
 
 // shellTool runs a single allowlisted command in the workspace sandbox.
 type shellTool struct {
@@ -53,13 +60,30 @@ func (t *shellTool) Parameters() llm.ParameterSchema {
 	return llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
-			"command":    {Type: "string", Description: "Command name; must be in the allowlist."},
-			"args":       {Type: "array", Description: "Command-line arguments (string array)."},
-			"cwd":        {Type: "string", Description: "Working directory; must be inside the workspace. Defaults to the workspace root."},
-			"timeout_ms": {Type: "integer", Description: "Timeout in milliseconds (default 30000, max 300000)."},
+			"command": {
+				Type:        "string",
+				Enum:        t.allowlistSlice(),
+				Description: "Command name; must be in the allowlist.",
+			},
+			"args":             {Type: "array", Items: &llm.ParameterProperty{Type: "string"}, Description: "Command-line arguments (string array)."},
+			"cwd":              {Type: "string", Format: "path", MaxLength: ptrInt(4096), Description: "Working directory; must be inside the workspace. Defaults to the workspace root."},
+			"timeout_ms":       {Type: "integer", Minimum: ptrFloat64(0), Maximum: ptrFloat64(float64(maxShellTimeout / time.Millisecond)), Description: "Timeout in milliseconds (default 30000, max 300000)."},
+			"max_output_bytes": {Type: "integer", Minimum: ptrFloat64(0), Maximum: ptrFloat64(float64(maxHardShellBytes)), Description: "Per-stream output cap in bytes (default 1 MiB, max 16 MiB)."},
 		},
-		Required: []string{"command", "args"},
+		Required:             []string{"command", "args"},
+		AdditionalProperties: ptrBool(false),
 	}
+}
+
+// allowlistSlice returns the configured allowlist as a sorted slice so the
+// schema's Enum is stable and reflects custom allowlists.
+func (t *shellTool) allowlistSlice() []string {
+	out := make([]string, 0, len(t.allowlist))
+	for c := range t.allowlist {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (t *shellTool) Execute(ctx context.Context, args map[string]any) Result {
@@ -91,27 +115,42 @@ func (t *shellTool) Execute(ctx context.Context, args map[string]any) Result {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	capBytes := maxShellBytes
+	if v, ok := args["max_output_bytes"].(float64); ok && v > 0 {
+		capBytes = int64(v)
+		if capBytes > maxHardShellBytes {
+			capBytes = maxHardShellBytes
+		}
+	}
+
 	c := exec.CommandContext(cctx, cmd, argv...)
 	c.Dir = cwd
-	var stdout, stderr bytes.Buffer
-	c.Stdout = &stdout
-	c.Stderr = &stderr
+	out := &limitWriter{cap: capBytes}
+	errOut := &limitWriter{cap: capBytes}
+	c.Stdout = out
+	c.Stderr = errOut
 	err := c.Run()
 
-	out := stdout.String()
-	if stderr.Len() > 0 {
-		if out != "" {
-			out += "\n"
+	content := out.String()
+	if errOut.Len() > 0 {
+		if content != "" {
+			content += "\n"
 		}
-		out += "[stderr]\n" + stderr.String()
+		content += "[stderr]\n" + errOut.String()
+	}
+	if out.Truncated() {
+		content += fmt.Sprintf("\n[stdout truncated at %d bytes]", capBytes)
+	}
+	if errOut.Truncated() {
+		content += fmt.Sprintf("\n[stderr truncated at %d bytes]", capBytes)
 	}
 	if err != nil {
-		if out != "" {
-			out += "\n"
+		if content != "" {
+			content += "\n"
 		}
-		return Result{IsError: true, Content: out + "[exit] " + err.Error()}
+		return Result{IsError: true, Content: content + "[exit] " + err.Error()}
 	}
-	return Result{Content: out}
+	return Result{Content: content}
 }
 
 func toStrSlice(v any) []string {
