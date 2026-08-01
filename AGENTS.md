@@ -60,8 +60,14 @@ npm run package
 # 发布（electron-forge publish；通常 CI 才会用，本地需配置 GH_TOKEN 等）
 npm run publish
 
-# ESLint：src 全部 .ts/.tsx/.vue（注意：与 LobsterAI 不同，本仓库目前还没有 Vitest 跑通）
+# ESLint：src 全部 .ts/.tsx/.vue
 npm run lint
+
+# 单元测试：vitest run（见 vitest.config.ts；覆盖 src/**/*.test.ts）
+npm run test
+
+# 烟雾测试：scripts/smoke.sh（手动跑，验证打包产物可启动）
+npm run smoke
 ```
 
 要求：
@@ -76,11 +82,14 @@ Go agent 相关：
 
 ## 测试
 
-当前仓库**尚未配置单元测试运行器**——`package.json` 没有 `test` 脚本，`node_modules` 里也没有 vitest / jest。不要假设单元测试可用：
+单元测试运行器已落地 Vitest：
 
-- 修改逻辑时不要新增依赖隐式测试覆盖。
-- CI 入口为 `npm run lint`。
-- 真正落地功能时，应在 `package.json` 加 `test` 脚本（建议 Vitest，与 Electron 主进程解耦测试逻辑函数），并把测试文件放在被测源码旁 `*.test.ts`。
+- 脚本：`package.json` 的 `test`（`vitest run`）与 `smoke`（`bash scripts/smoke.sh`）；devDependencies 含 `vitest` 与 `@vitest/coverage-v8`。
+- 配置：仓库根 `vitest.config.ts`（`environment: 'node'`，`include: ['src/**/*.test.ts']`，排除 `node_modules/` / `out/` / `.vite/build/` / `.git/`）。
+- 约定：测试文件放在被测源码旁，命名 `*.test.ts`（与被测模块同名，例如 `src/main/libs/user-paths.ts` ↔ `user-paths.test.ts`）。
+- API：从 `vitest` 导入 `describe` / `it` / `expect` / `vi` / `beforeAll` / `beforeEach`；需要 mock `electron` 时用 `vi.mock('electron', ...)` + `vi.hoisted` 维护 mock 状态（参考 `src/main/libs/user-paths.test.ts`）。
+- CI 入口包含 `npm run lint` + `npm run test`。
+- 新增逻辑：能不写测试就不写（避免覆盖债堆积）；覆盖时优先覆盖纯函数 / IPC 协议解析 / 路径与序列化工具，避免给 Electron 主进程写集成测试。
 
 UI / Electron 行为验证走 `playwright-cli`（不入 CI，dev 手动跑）。主进程在 `!app.isPackaged` 时已自动开 `remote-debugging-port=9222` + `remote-allow-origins=*`（见 `src/main/index.ts`），跑 `npm start` 拉起 Electron 后端口即可用。
 
