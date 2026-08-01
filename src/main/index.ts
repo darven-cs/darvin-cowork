@@ -11,19 +11,24 @@
  * main 用进程内 in-memory 缓存兜底（FR-8），保证最近一次视图可见。
  */
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { readUserSettingsYAML, writeUserSettingsYAML } from './libs/user-settings';
 import { installAppMenu } from './menu';
 import { RuntimeMgr, resolveAgentBinaryPath } from './runtime/manager';
 import { AgentClient } from './runtime/client';
 import { EventRouter } from './store/EventRouter';
+import { runImport, TEXT_FILE_EXTS } from './libs/importFiles';
+import { ensureWorkspaceRoot, resolveWorkspaceRoot, type WorkspaceLocation } from './libs/user-paths';
 import type {
   DarvinActiveSessionResponse,
   DarvinCreateSessionResponse,
   DarvinDeleteSessionResponse,
   DarvinGetMessagesResponse,
+  DarvinImportFilesResponse,
+  DarvinListImportedFilesResponse,
   DarvinListSessionsResponse,
   DarvinLLMConfig,
   DarvinLocale,
@@ -31,12 +36,14 @@ import type {
   DarvinMessage,
   DarvinPromptRequest,
   DarvinPromptResponse,
+  DarvinRemoveImportedFileResponse,
   DarvinRenameSessionResponse,
   DarvinRuntimeStatus,
   DarvinSearchSessionsResponse,
   DarvinSession,
   DarvinSetLLMConfigResponse,
   DarvinSwitchSessionResponse,
+  DarvinWorkspaceInfoResponse,
 } from '../shared/darvin-api';
 import { DarvinPushEvent } from '../shared/darvin-api';
 
@@ -84,6 +91,32 @@ const cache: CacheState = {
  * 时填；EventRouter 收 done 事件后 notifyIfHidden 用它补通知标题。
  */
 const sessionTitles = new Map<string, string>();
+
+/**
+ * 受控 workspace 根。v0 在启动期由 active session 解析一次并保持固定，
+ * Go agent 的 fsSandbox.root 通过 DARVIN_AGENT_WORKSPACE 与之对齐；所有
+ * import/remove/list 都走它，避免跨 session 指向不一致导致 agent 读不到。
+ */
+let workspaceLoc: WorkspaceLocation | null = null;
+
+/** workspace 内容变更后 main 端广播（import / remove 完成后调用）。 */
+function broadcastWorkspaceChanged(sessionId: string): void {
+  void (async () => {
+    try {
+      const r = await client.request<DarvinListImportedFilesResponse>(
+        'agent.list_imported_files',
+        { sessionId },
+      );
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send(DarvinPushEvent.WorkspaceChanged, { sessionId, files: r.files });
+        }
+      }
+    } catch (e) {
+      console.warn(`[main] workspace changed broadcast failed: ${(e as Error).message}`);
+    }
+  })();
+}
 
 function updateCacheFromListSessions(sessions: DarvinSession[]): void {
   cache.sessions = sessions;
@@ -249,6 +282,12 @@ ipcMain.handle(
       'agent.delete_session',
       { sessionId },
     );
+    // 同步清掉该 session 的 workspace 目录，避免孤儿文件累积。
+    try {
+      await fs.rm(resolveWorkspaceRoot(sessionId).rootPath, { recursive: true, force: true });
+    } catch (e) {
+      console.warn(`[main] workspace cleanup failed for ${sessionId}: ${(e as Error).message}`);
+    }
     cache.activeSessionId = r.nextActiveSessionId;
     await refreshSessionsAndBroadcast();
     broadcastActiveSession();
@@ -311,6 +350,87 @@ ipcMain.handle(
     return r;
   },
 );
+
+ipcMain.handle(
+  'darvin:import_files',
+  async (): Promise<DarvinImportFilesResponse> => {
+    if (!client.isConnected()) throw new Error('agent offline');
+    if (!workspaceLoc) throw new Error('workspace not ready');
+    await ensureWorkspaceRoot(workspaceLoc);
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    if (!win) return { imported: [], skipped: [] };
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择要导入的文件',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Text files', extensions: TEXT_FILE_EXTS }],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { imported: [], skipped: [] };
+    }
+    const sessionId = workspaceLoc.workspaceId;
+    const res = await runImport(workspaceLoc, result.filePaths, sessionId, client);
+    if (res.imported.length > 0) {
+      broadcastWorkspaceChanged(sessionId);
+    }
+    return res;
+  },
+);
+
+ipcMain.handle(
+  'darvin:list_imported_files',
+  async (): Promise<DarvinListImportedFilesResponse> => {
+    if (!workspaceLoc || !client.isConnected()) return { files: [], workspaceBytes: 0 };
+    return client.request<DarvinListImportedFilesResponse>('agent.list_imported_files', {
+      sessionId: workspaceLoc.workspaceId,
+    });
+  },
+);
+
+ipcMain.handle(
+  'darvin:remove_imported_file',
+  async (_e, relPath: string): Promise<DarvinRemoveImportedFileResponse> => {
+    if (!workspaceLoc) throw new Error('workspace not ready');
+    if (!client.isConnected()) throw new Error('agent offline');
+    // 防 path traversal：realpath 后必须仍在 workspace 根内。
+    const realRoot = await fs.realpath(workspaceLoc.rootPath);
+    const realAbs = await fs.realpath(path.join(workspaceLoc.rootPath, relPath));
+    if (realAbs !== realRoot && !realAbs.startsWith(realRoot + path.sep)) {
+      throw new Error('path escapes workspace');
+    }
+    await fs.unlink(realAbs);
+    const r = await client.request<DarvinRemoveImportedFileResponse>('agent.remove_imported_file', {
+      sessionId: workspaceLoc.workspaceId,
+      relPath,
+    });
+    try {
+      await client.request('agent.save_message', {
+        sessionId: workspaceLoc.workspaceId,
+        content: `[系统] 文件已从工作区移除：${relPath}`,
+        meta: { tag: 'workspace_event' },
+      });
+    } catch {
+      /* system note 是 best-effort */
+    }
+    broadcastWorkspaceChanged(workspaceLoc.workspaceId);
+    return r;
+  },
+);
+
+ipcMain.handle(
+  'darvin:get_workspace_info',
+  async (): Promise<DarvinWorkspaceInfoResponse> => {
+    if (!workspaceLoc || !client.isConnected()) return { workspaceBytes: 0 };
+    return client.request<DarvinWorkspaceInfoResponse>('agent.get_workspace_info', {
+      sessionId: workspaceLoc.workspaceId,
+    });
+  },
+);
+
+ipcMain.handle('darvin:reveal_workspace', async (): Promise<void> => {
+  if (!workspaceLoc) return;
+  await ensureWorkspaceRoot(workspaceLoc);
+  shell.showItemInFolder(workspaceLoc.rootPath);
+});
 
 ipcMain.handle(
   'darvin:prompt',
@@ -406,12 +526,13 @@ mgr.on('exit', ({ code, signal }: { code: number | null; signal: string | null }
 });
 
 /**
- * 重启 Go 子进程：用于 set_llm_config 等需要冷启动以加载新配置的场景。
+ * 重启 Go 子进程：用于 set_llm_config 等需要冷启动以加载新配置的场景，也用于
+ * 启动期把 DARVIN_AGENT_WORKSPACE（workspaceRoot）注入进子进程环境。
  *
  * 返回值表示是否真的拉起了一个新子进程。binary 缺失或 restart 失败
  * 时返 false，caller 决定如何 surface 给 UI（toast 即可，不阻塞写盘）。
  */
-async function restartGoSubprocess(): Promise<boolean> {
+async function restartGoSubprocess(workspaceRoot?: string): Promise<boolean> {
   if (!resolveAgentBinaryPath()) return false;
   eventRouter.stop();
   try {
@@ -425,7 +546,7 @@ async function restartGoSubprocess(): Promise<boolean> {
     /* 已退出 */
   }
   try {
-    const resolved = await mgr.start();
+    const resolved = await mgr.start(workspaceRoot);
     await client.connect(resolved.port);
     await subscribeAllSessions();
     eventRouter.start();
@@ -440,10 +561,44 @@ app.whenReady().then(async () => {
   installAppMenu();
 
   try {
+    // 1) 先起子进程（无 workspace env，Go 端 dev 兜底），用于 bootstrap。
     const resolved = await mgr.start();
     await client.connect(resolved.port);
     await subscribeAllSessions();
-    eventRouter.start();
+
+    // 2) bootstrap active session：优先取 app_state，冷启动无 session 时建一个，
+    //    保证有稳定的 workspace 根。
+    let sessionId: string | null = null;
+    try {
+      const active = await client.request<DarvinActiveSessionResponse>('agent.get_active_session', {});
+      sessionId = active.sessionId;
+    } catch {
+      /* agent 未就绪 */
+    }
+    if (!sessionId) {
+      try {
+        const list = await client.request<DarvinListSessionsResponse>('agent.list_sessions', {});
+        sessionId = list.sessions[0]?.id ?? null;
+      } catch {
+        /* 同上 */
+      }
+    }
+    if (!sessionId) {
+      const created = await client.request<DarvinCreateSessionResponse>('agent.create_session', {});
+      sessionId = created.session.id;
+    }
+
+    if (sessionId) {
+      cache.activeSessionId = sessionId;
+      // 3) workspace 根 + 建目录。
+      workspaceLoc = resolveWorkspaceRoot(sessionId);
+      await ensureWorkspaceRoot(workspaceLoc);
+      // 4) 带 DARVIN_AGENT_WORKSPACE 重启子进程，让 Go agent 沙箱根与
+      //    workspace 对齐（先建好目录再注入，FR-5.1 不变量 1）。
+      await restartGoSubprocess(workspaceLoc.rootPath);
+    } else {
+      eventRouter.start();
+    }
   } catch (e) {
     console.error(`[runtime] ${(e as Error).message}`);
   }

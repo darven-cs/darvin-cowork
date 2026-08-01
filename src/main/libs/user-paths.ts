@@ -21,6 +21,7 @@
  */
 import { app } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 
 export function userDataDir(): string {
   return app.getPath('userData');
@@ -36,4 +37,27 @@ export function userSettingsPath(): string {
 
 export function agentSessionsDsnPath(): string {
   return path.join(agentDataDir(), 'sessions.db');
+}
+
+/** 单 workspace 总容量上限（软上限，触发后 import 拒；不主动 GC）。 */
+export const MAX_WORKSPACE_BYTES = 500 * 1024 * 1024; // 500 MiB
+
+/** 单文件导入上限。 */
+export const MAX_IMPORT_BYTES = 50 * 1024 * 1024; // 50 MiB
+
+export interface WorkspaceLocation {
+  /** 绝对路径；macOS 例: ~/Library/Application Support/darvin-cowork/workspaces/{sid}/ */
+  rootPath: string;
+  /** workspace 自身的 id（v0 = sessionId，一一对应）。 */
+  workspaceId: string;
+}
+
+/** v0 单 workspace per session；workspaceId = sessionId。 */
+export function resolveWorkspaceRoot(sessionId: string): WorkspaceLocation {
+  const root = path.join(userDataDir(), 'workspaces', sessionId);
+  return { rootPath: root, workspaceId: sessionId };
+}
+
+export async function ensureWorkspaceRoot(loc: WorkspaceLocation): Promise<void> {
+  await fs.promises.mkdir(loc.rootPath, { recursive: true });
 }

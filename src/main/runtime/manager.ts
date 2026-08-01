@@ -86,8 +86,11 @@ export class RuntimeMgr extends EventEmitter {
   /**
    * spawn 子进程，在 stdout 出现 `<port>NNNNN</port>` 时 resolve；
    * START_TIMEOUT_MS 内没读到则 reject 并 SIGKILL 兜底。
+   *
+   * workspaceRoot 存在时注入 DARVIN_AGENT_WORKSPACE，作为 Go agent 的
+   * fsSandbox.root；未提供时 Go 端退回 config.yaml 的 workdir（dev 兜底）。
    */
-  start(): Promise<ResolvedAgent> {
+  start(workspaceRoot?: string): Promise<ResolvedAgent> {
     if (this.proc) {
       return Promise.reject(new Error('runtime: 子进程已在运行'));
     }
@@ -106,6 +109,7 @@ export class RuntimeMgr extends EventEmitter {
       const cfg = resolveAgentConfigPath();
       if (cfg) env.DARVIN_CONFIG = cfg;
       env.DARVIN_SESSIONS_DSN = agentSessionsDsnPath();
+      if (workspaceRoot) env.DARVIN_AGENT_WORKSPACE = workspaceRoot;
 
       const proc = spawn(bin, [], { stdio: ['ignore', 'pipe', 'pipe'], env });
       this.proc = proc;
