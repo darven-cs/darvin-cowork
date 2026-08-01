@@ -90,6 +90,20 @@ func buildRequest(req *llm.CompletionRequest, stream bool) (map[string]any, erro
 // tool_result blocks.
 func convertMessages(msgs []llm.Message) []map[string]any {
 	out := make([]map[string]any, 0, len(msgs))
+	// pendingToolResults 累积连续的工具结果。Anthropic 要求紧随 tool_use
+	// 的 user 消息必须一次性携带全部 tool_result block——拆成多条会触发
+	// 400 invalid_request_error（"tool_use ids ... without tool_result"）。
+	var pendingToolResults []map[string]any
+	flushToolResults := func() {
+		if len(pendingToolResults) == 0 {
+			return
+		}
+		out = append(out, map[string]any{
+			"role":    "user",
+			"content": pendingToolResults,
+		})
+		pendingToolResults = nil
+	}
 	for _, m := range msgs {
 		switch m.Role {
 		case llm.RoleSystem:
@@ -97,12 +111,20 @@ func convertMessages(msgs []llm.Message) []map[string]any {
 			// messages array; the caller is responsible for routing it
 			// via req.System. We drop it here to avoid duplicate injection.
 			continue
+		case llm.RoleTool:
+			pendingToolResults = append(pendingToolResults, map[string]any{
+				"type":        "tool_result",
+				"tool_use_id": m.ToolCallID,
+				"content":     m.Content,
+			})
 		case llm.RoleUser:
+			flushToolResults()
 			out = append(out, map[string]any{
 				"role":    "user",
 				"content": m.Content,
 			})
 		case llm.RoleAssistant:
+			flushToolResults()
 			blocks := make([]map[string]any, 0, 1+len(m.ToolCalls))
 			if m.Content != "" {
 				blocks = append(blocks, map[string]any{
@@ -122,24 +144,12 @@ func convertMessages(msgs []llm.Message) []map[string]any {
 				"role":    "assistant",
 				"content": blocks,
 			})
-		case llm.RoleTool:
-			// Anthropic represents tool results inside a user message as
-			// a tool_result block keyed by tool_use_id.
-			out = append(out, map[string]any{
-				"role": "user",
-				"content": []map[string]any{
-					{
-						"type":        "tool_result",
-						"tool_use_id": m.ToolCallID,
-						"content":     m.Content,
-					},
-				},
-			})
 		default:
 			// Unknown role: skip silently to avoid breaking a streaming run.
 			// Validation belongs in buildRequest at a higher level if needed.
 		}
 	}
+	flushToolResults()
 	return out
 }
 

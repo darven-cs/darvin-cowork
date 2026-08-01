@@ -126,6 +126,40 @@ func TestConvertMessages_ToolResult(t *testing.T) {
 	}
 }
 
+func TestConvertMessages_MultipleToolResultsMerged(t *testing.T) {
+	// Anthropic requires every tool_result for a turn's tool_use calls to
+	// live in ONE user message immediately after the assistant message.
+	msgs := []llm.Message{
+		{Role: llm.RoleUser, Content: "analyze"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "call_00", Name: "shell", Arguments: map[string]any{"command": "cat"}},
+			{ID: "call_01", Name: "shell", Arguments: map[string]any{"command": "wc"}},
+		}},
+		{Role: llm.RoleTool, ToolCallID: "call_00", Content: "a"},
+		{Role: llm.RoleTool, ToolCallID: "call_01", Content: "b"},
+	}
+	got := convertMessages(msgs)
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3 (user + assistant + merged tool_result)", len(got))
+	}
+	assistant := got[1]
+	assistantBlocks := assistant["content"].([]map[string]any)
+	if len(assistantBlocks) != 2 || assistantBlocks[0]["type"] != "tool_use" || assistantBlocks[1]["type"] != "tool_use" {
+		t.Fatalf("assistant blocks = %+v, want 2 tool_use", assistantBlocks)
+	}
+	toolUser := got[2]
+	if toolUser["role"] != "user" {
+		t.Fatalf("tool result role = %v, want user", toolUser["role"])
+	}
+	blocks := toolUser["content"].([]map[string]any)
+	if len(blocks) != 2 {
+		t.Fatalf("tool_result blocks = %d, want 2 merged into one user message", len(blocks))
+	}
+	if blocks[0]["tool_use_id"] != "call_00" || blocks[1]["tool_use_id"] != "call_01" {
+		t.Errorf("tool_result ids = %v / %v, want call_00 / call_01", blocks[0]["tool_use_id"], blocks[1]["tool_use_id"])
+	}
+}
+
 func TestConvertTools_Empty(t *testing.T) {
 	got, err := convertTools(nil)
 	if err != nil {
