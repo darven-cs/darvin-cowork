@@ -10,7 +10,7 @@
 
 ## 当前进度
 
-**已完成 8 / 11（含 2 份补充）。下一个该做的：06（sidebar-upgrade）。**
+**已完成 9 / 11（含 2 份补充）。下一个该做的：07（settings-expansion）。**
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
@@ -20,7 +20,7 @@
 | 03 | [token-context-usage](./../token-context-usage/2026-08-01-token-context-usage-design.md) | ✅ 完成 | 6/6 | 依赖 00 |
 | 04 | [context-compaction-ui](./../context-compaction-ui/2026-08-01-context-compaction-ui-design.md) | ✅ 完成 | 6/6 | 依赖 00 + 03 |
 | 05 | [artifact-panel](./../artifact-panel/2026-08-01-artifact-panel-design.md) | ✅ 完成 | 7/7 | 依赖 00 |
-| 06 | [sidebar-upgrade](./../sidebar-upgrade/2026-08-01-sidebar-upgrade-design.md) | ⬜ 未启动 | 0/7 | 无前置 |
+| 06 | [sidebar-upgrade](./../sidebar-upgrade/2026-08-01-sidebar-upgrade-design.md) | ✅ 完成 | 7/7 | 无前置 |
 | 07 | [settings-expansion](./../settings-expansion/2026-08-01-settings-expansion-design.md) | ⬜ 未启动 | 0/6 | 依赖 04 |
 | 08 | [i18n-enhancement](./../i18n-enhancement/2026-08-01-i18n-enhancement-design.md) | ⬜ 未启动 | 0/6 | 无前置 |
 | 09 | [composer-composition（补充）](./2026-08-01-composer-composition-design.md) | ✅ 完成 | 7/7 | 依赖 04；纯渲染重组 |
@@ -137,14 +137,14 @@
 
 > 侧栏升级：树形 Agent / 拖拽改宽 / 多 tab 真实入口 / 快捷键。
 
-- [ ] 侧栏宽度 220-420px 拖拽（CSS variable 驱动）
-- [ ] 宽度持久化（localStorage）
-- [ ] 5 nav tab 全部可点（即使内容是空态面板，不 warn）
-- [ ] `Cmd+1-5` / `Ctrl+1-5` 快捷键生效（统一 `useShortcuts` 注册）
-- [ ] 会话项 5 种 status（idle / running / completed / error / pinned）
-- [ ] 折叠态：220px → 56px 紧凑模式
-- [ ] `npm run lint` 通过
-- [ ] 状态：**⬜ 未启动**
+- [x] 侧栏宽度 220-420px 拖拽（CSS variable 驱动）
+- [x] 宽度持久化（localStorage）
+- [x] 6 nav tab 全部可点（scheduled/skill/mcp 走 PlaceholderView 空态面板，不 warn）
+- [x] `Cmd+1-5` / `Ctrl+1-5` 快捷键生效（统一 `useShortcuts` 注册）
+- [x] 会话项 5 种 status（idle / running / completed / error / pinned）
+- [x] 折叠态：220px → 56px 紧凑模式
+- [x] `npm run lint` 通过
+- [x] 状态：**✅ 完成**
 
 ### 07 · settings-expansion
 
@@ -212,4 +212,5 @@
 - 2026-08-01 · 09 composer-composition · ✅ 7/7 落地。**Composer 重组**：新建 `ComposerToolbar.vue`（底部工具栏，左 `+`/专家套件，右 圆环/模型/语音/发送）+ `ComposerContextRow.vue`（context 行：左工作目录 label + 右 Agent 选择器）；`Composer.vue` 与 home `PromptDock.vue` 均收敛为单一卡片（textarea + 工具栏 + context 行），`PromptToolbar.vue` 删除、ChatView 不再单独成行。**圆环迁移**：`ChatHeader.vue` 删除 `ContextUsageIndicator` + `handleCompact`，压缩逻辑整体搬进 `ComposerToolbar`（读 `session.activeSessionId` + `window.darvin.compactContext` + `useMessages.begin/end/failCompact`，15s 超时兜底不变）。**导入合并**：`PlusMenu` 的 upload 项改调 `useImportedFiles().importFiles()`（busy 时禁用该项），独立 `ImportButton.vue`（回形针）删除，导入唯一入口收敛到 `+` 菜单，home/chat 共用同一单例；`ImportedFilesBar` 保留为唯一导入结果展示。**文件类型放宽**：main dialog 去 text-only `filters`，`runImport` 删除 `TEXT_FILE_EXTS` 扩展名白名单，保留普通文件/symlink 拒绝 + `MAX_IMPORT_BYTES` 上限（importFiles.test 的 pdf 用例改为「任意类型可导入」）。**工作目录展示**：`DarvinWorkspaceInfoResponse` 增 `label?`（basename，不下发绝对路径），main `get_workspace_info` 从 `rootPath` 取 basename；context 行 `[📁 label ▾]` 只读展示 + hover tooltip（v0 不实现目录选择器）。i18n 新增 `composer.plus/suite/mic/workspace`（zh/en），移除废弃 `composer.import`；新增 `folder.svg` 图标。lint / test（84 用例）/ renderer vite build 通过。
 - 2026-08-01 · 10 session-workspace-usage · ✅ 6/6 落地（live bug 修复，提前执行）。**main workspace 跟随 active session**：新增 `followActiveWorkspace(sessionId)`（更新 `workspaceLoc` → `ensureWorkspaceRoot` → 以新根 `restartGoSubprocess` 重锚 agent 沙箱），在 `switch_session` / `create_session` / `delete_session` 三入口接入，先改 workspace 再广播（switch 加 `broadcastWorkspaceChanged`，delete 无 next 时 `workspaceLoc=null`）。**renderer useImportedFiles 会话隔离**：模块级 `watch(session.activeSessionId)` 变化即清空 files/workspaceBytes/notice + refetch；`onWorkspaceChanged` 回调加 `info.sessionId !== active` 过滤。**Go emit context_usage**：`event.go` 新增 `ContextUsageEvent`；`dispatcher.go` RunEndEvent 后调 `emitContextUsage()`（`LastUsage().PromptTokens` 优先，**代理不上报 input_tokens 时退回 `ctxengine.EstimateMessageTokens` rune/4 估算**——live 实测 `done` 的 inputTokens=0，spec 原设计前提不成立，此为落地时发现并补充的兜底）；`eventledger.mapEventToTS` 补 case（`status:"unknown"` 由 renderer 派生）+ 新增序列化单测。**工作目录可点击**：`ComposerContextRow` chip `span`→`button`（`@click` → `revealWorkspace()`，`t('imported.reveal')` title/aria，hover 态）；补 `watch(activeSessionId)` 刷新 label（live 发现原 onMounted 只读一次、切换后 chip 残留旧 basename）。**live 验证（playwright 驱动新二进制）**：(1) 切换 `xKY1`↔`2Iqp` 后 `getWorkspaceInfo().label` + `listImportedFiles()` 与 active 一致，文件隔离（xKY1→3 jpg，2Iqp→3 csv）；(2) 真实 prompt 后 `context_usage` 事件流入 renderer（`text_delta→done→context_usage→agent_end`），圆环出现「0% 已用 48 / 上下文 200k」可点击；(3) chip 为 BUTTON，点击 revealWorkspace 无报错。Go `go build`/`go vet`/agent+gateway 单测、lint、test（84 用例）、renderer vite build 全绿。**已知边界**：切换会话重启子进程 ~1s、中断其它在途流式；rune/4 兜底在长会话下低估实际用量（代理不报 input_tokens 时圆环 percent 偏低）。
 - 2026-08-01 · 05 artifact-panel · 🚧 6/7 落地。**状态机 `useArtifacts.ts`**：`artifactsBySession` / `previewTabsBySession` / `activeTabIdBySession` / `isPanelOpenBySession` / `panelWidth`(180-1000) + `ArtifactSpecialTab`(fileList/browser/subagents) + `ArtifactContentView`(preview/code)，`addArtifact` id 去重 + 内容更新，切 active session 才自动弹开侧栏/切外层 tab。**10 渲染器**（`components/side-panel/renderers/`）：HtmlRenderer（srcdoc + `sandbox="allow-scripts"` 不加 same-origin + hash-nav 拦截器 `services/artifactHtml.ts`）、SvgRenderer（DOMPurify svg profile + srcdoc）、Image/Video（data/URL）、MermaidRenderer（`securityLevel:'strict'` + offscreen DOM 提取 + DOMPurify 二次净化）、CodeRenderer（复用 `services/highlight` Shiki，name 推导语言）、MarkdownRenderer（复用 MarkdownContent）、TextRenderer、DocumentRenderer（office 非目标 → 占位）、LocalServiceRenderer（URL + 新窗口打开 + iframe）。**面板**：`ArtifactPanel.vue`（内层特殊 tab + per-artifact 预览 tab + preview/code 切换 + 关闭），`SidePanelContent` artifact tab 渲染 panel（按 sessionId key 重挂载），`SidePanel.vue` 左边沿拖拽 handle 调 `setPanelWidth`，`AppShell` grid 右列跟随 panelWidth + dragging 时关过渡。**useMessages 接入**：`artifact` 事件 → `artifacts.addArtifact`（不落消息 bucket，后台 session 仍 unread），`removeSession` 清 artifacts。i18n 新增 13 key（zh/en 对齐）。**live 验证（合成 artifact 事件注入 + playwright）**：(1) 注入 html → 面板自动弹开 + 外层切 Artifact + iframe `sandbox="allow-scripts"` 渲染；(2) mermaid SVG 渲染且无 `<script>` 注入（strict+DOMPurify）；(3) code Shiki 高亮 `<span class="line">`；(4) markdown h1/table / text / local-service URL+打开链接+iframe / svg 全过；(5) 预览↔代码视图切换、关闭 tab、特殊 tab 占位均正常；(6) 拖拽 560→360→clamp 1000→clamp 180；(7) 切换 session B 面板空态、切回 A 6 个 tab 恢复（会话隔离）。lint / test（95 用例，新增 useArtifacts 9 例 + artifact 事件路由 2 例）/ renderer vite build 全绿（mermaid 新增依赖）。**待办**：file-based HTML 本地服务（协议无 filePath 字段 + Go 不产 artifact 事件 → 暂缓，见 spec §4.3 落地补充）。
+- 2026-08-02 · 06 sidebar-upgrade · ✅ 7/7 落地。**useSidebar**：新增 `width`（220-420 clamp，localStorage 持久化，`--sidebar-width` 写 documentElement）+ `dragging`；collapsed 不再摘除 Sidebar，而是 220px→56px 图标 rail（Brand/Nav/AgentCard/Bottom 收 collapsed prop，session 列表折叠时隐藏）。**useViewMode** 增 `scheduled`/`skills`/`mcp` 三 mode；新建 `PlaceholderView.vue` 承载三个 nav 空态面板，`AppShell` 全 nav 路由不再 warn。**useShortcuts**：`Cmd/Ctrl+1-5` 映射 home/search/scheduled/suite/skills，可编辑元素聚焦跳过。**useSession**：`pinnedSessionIds`（localStorage）+ `togglePin` + deleteSession 清理。**useMessages**：`sessionStatusBySessionId`（流式→running / done→completed / error→error / agent_end→completed）+ 纯函数 `deriveSessionStatusFromMessages` + loadMessages 派生。**SessionList/Item**：置顶排序 + `status` 多态图标（running 脉冲 / error 红叹 / completed 灰勾 / idle message-square）+ pin 徽标 + 下拉置顶/取消置顶。i18n 新增 13 key（zh/en 对齐）+ `pin.svg`。lint / test（118 用例，新增 sessionStatus 3 例）/ renderer+main+preload vite build 全绿。**live 验证**（playwright）：拖拽 244→324→420 clamp + 持久化；6 nav 全可点（定时任务/技能/MCP 空态面板、专家套件真实页）；Cmd+1→home / Cmd+2→search / Cmd+3→scheduled / Cmd+4→suite / Cmd+5→skills / Ctrl+3 同效；折叠→56px icon rail、展开回 420；会话项 error/completed 状态图标 + pin 徽标 + 置顶/取消置顶 + localStorage `[]` 恢复。**已知边界**：G5 多 Agent 树未做（darvin 无子代理体系，见 spec 落地补充）；settings 不占 1-5。
 - 2026-08-01 · 05 artifact-panel · **file-based HTML 补全 → ✅ 7/7**。协议 `artifact` 事件加 `filePath?`（相对 workspace 根）+ `DarvinApi` 增 `createArtifactPreviewSession` / `destroyArtifactPreviewSession`（IPC `darvin:artifact:create_preview_session` / `destroy_preview_session`，preload 转发）。**main 本地预览服务** `src/main/services/artifact-preview-server.ts`：`127.0.0.1` 静态 HTTP 服务器（懒启动、无会话时整体关闭），每个预览会话随机 sessionId，entry 所在目录作 URL 挂载根（相对资源 css/js/img 按此解析），解析结果越出 workspace 根返回 403，纯函数 `resolveWithinRoot` 单测覆盖（sibling 允许 / `../` 越界 null）。`HtmlRenderer`：有 `filePath` 时走预览会话 `iframe[src]` + `sandbox="allow-scripts"`，卸载销毁会话；错误信息净化（不把绝对路径透传 renderer）。i18n 增 `artifact.render.loadFailed`（zh/en）。**live 验证**：workspace 内写 `preview.html` + `style.css` + `app.js`，注入 `{kind:'html', filePath:'preview.html'}` → iframe src = `http://127.0.0.1:<port>/<uuid>/preview.html`，sandbox=`allow-scripts`，服务端 fetch 确认 html/css/js 全部正确返回（相对资源解析 OK）；关闭 tab → 会话销毁 → 端口整体关闭（ECONNREFUSED）。lint / test（99 用例，新增 resolveWithinRoot 4 例）/ renderer + main vite build 全绿。

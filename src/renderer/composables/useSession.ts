@@ -11,11 +11,31 @@
  * - 暴露 `createSession` / `switchSession` / `deleteSession` 命令入口
  */
 
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import type { DarvinDeleteSessionResponse, DarvinSession } from '../../shared/darvin-api';
+
+const KEY_PINNED = 'darvin.sidebar.pinned';
+
+function readStoredPinned(): Set<string> {
+  if (typeof localStorage === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(KEY_PINNED);
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+  } catch {
+    return new Set();
+  }
+}
 
 const sessions = ref<DarvinSession[]>([]);
 const activeSessionId = ref<string | null>(null);
+/** 置顶会话 id 集合（localStorage 持久化；spec 06 会话项 pinned 状态）。 */
+const pinnedSessionIds = ref<Set<string>>(readStoredPinned());
+
+watch(pinnedSessionIds, (v) => {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(KEY_PINNED, JSON.stringify([...v]));
+  }
+});
 /**
  * compose 态：点了「新建任务」但还没发首条消息。此时 main 端没有新
  * session，active 仍是上一个；UI 侧用该标志隐藏 active 高亮、让 send()
@@ -76,17 +96,31 @@ export function useSession() {
     const r = await window.darvin.deleteSession(id);
     sessions.value = sessions.value.filter((s) => s.id !== id);
     activeSessionId.value = r.nextActiveSessionId;
+    if (pinnedSessionIds.value.has(id)) {
+      const next = new Set(pinnedSessionIds.value);
+      next.delete(id);
+      pinnedSessionIds.value = next;
+    }
     return r;
+  }
+
+  function togglePin(id: string): void {
+    const next = new Set(pinnedSessionIds.value);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    pinnedSessionIds.value = next;
   }
 
   return {
     sessions,
     activeSessionId,
     draftMode,
+    pinnedSessionIds,
     createSession,
     switchSession,
     renameSession,
     deleteSession,
+    togglePin,
     startNewTask: () => {
       draftMode.value = true;
     },

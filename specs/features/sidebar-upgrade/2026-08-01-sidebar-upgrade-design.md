@@ -135,13 +135,23 @@ export function useShortcuts() {
 
 ## 6. 验收
 
-- [ ] 拖拽 handle 流畅，220-420px 边界正确
-- [ ] 宽度持久化（localStorage）
-- [ ] 6 个 nav tab 全部可点（即使内容是空态面板，不是 warn）
-- [ ] `Cmd+1-5` / `Ctrl+1-5` 快捷键生效
-- [ ] 会话项 5 种 status 正确显示
-- [ ] 折叠态：220px → 56px 紧凑模式
-- [ ] `npm run lint` 通过
+- [x] 拖拽 handle 流畅，220-420px 边界正确
+- [x] 宽度持久化（localStorage）
+- [x] 6 个 nav tab 全部可点（即使内容是空态面板，不是 warn）
+- [x] `Cmd+1-5` / `Ctrl+1-5` 快捷键生效
+- [x] 会话项 5 种 status 正确显示
+- [x] 折叠态：220px → 56px 紧凑模式
+- [x] `npm run lint` 通过
+
+### 落地补充（实现期决议）
+
+- **宽度实现**：不依赖 CSS `:root` 变量声明，`useSidebar` 持 `width` ref（220-420 clamp）并把 `--sidebar-width` 写到 `documentElement.style`，`AppShell` grid 左列直接引用 `var(--sidebar-width)`；拖拽期间 `dragging` 置真关闭 grid 过渡。
+- **紧凑态**：`collapsed` 不再从 DOM 摘除 Sidebar，而是 220px → 56px 图标 rail；Brand/Nav/AgentCard/Bottom 各收 `collapsed` prop 切换 icon-only + `title` tooltip，session 列表折叠时隐藏。
+- **nav 全可点**：`scheduled` / `skill` / `mcp` 三个 nav 接入 `useViewMode` 新增的 `scheduled` / `skills` / `mcp` mode，AppShell 路由到统一 `PlaceholderView`（icon + 标题 + desc），不再 `console.warn`。
+- **快捷键**：新建 `useShortcuts.ts`，`Cmd/Ctrl+1-5` 映射 home/search/scheduled/suite/skills；可编辑元素聚焦时跳过；`settings` 不占 1-5。
+- **会话状态**：`useMessages` 新增 `sessionStatusBySessionId`（流式→running / done→completed / error→error / agent_end→completed），历史加载走 `deriveSessionStatusFromMessages` 纯函数（error > completed > idle）；`SessionItem` 用 `status` prop 替换原 `running`。
+- **pin**：`useSession` 新增 `pinnedSessionIds`（localStorage `darvin.sidebar.pinned`）+ `togglePin`；SessionList 置顶排序；SessionItem 状态图标旁加 pin 徽标，下拉菜单含置顶/取消置顶；deleteSession 同步清理。
+- **G5 多 Agent 树**：darvin 无子代理体系（spec 11 已确认），本轮保留 `SidebarAgentCard` 单主 Agent 卡，未造树；后续接子代理体系时再补 `MyAgentSidebarTree` 等价组件。
 
 ## 7. 依赖
 

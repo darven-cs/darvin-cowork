@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* 侧栏宽度由 useSidebar 运行时驱动（220-420px 拖拽，默认 244） */
+:root {
+  --sidebar-width: 244px;
+}
+
 @theme {
   /* 字体：系统优先（PingFang SC / Inter），不下载 woff2 */
   --font-sans:    "PingFang SC", "Inter", -apple-system, BlinkMacSystemFont, "Microsoft YaHei UI", "Segoe UI", sans-serif;

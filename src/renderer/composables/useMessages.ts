@@ -55,6 +55,9 @@ export type AssistantTurnItem =
   | { type: 'assistant'; message: Message }
   | { type: 'tool_group'; toolUse: Message; toolResult: Message | null };
 
+/** 会话项状态（spec 06）：idle / running / completed / error。 */
+export type SessionActivityStatus = 'idle' | 'running' | 'completed' | 'error';
+
 /** 一次上下文压缩的渲染标记（divider / toast 数据源）。 */
 export interface CompactionMarker {
   checkpointId: string;
@@ -151,6 +154,8 @@ const unreadSessionIds = ref<Set<string>>(new Set());
 const contextUsageBySessionId = ref<Record<string, DarvinContextUsage>>({});
 /** 每 session 已发生的压缩标记，来自 Go 的 `compaction` 事件。 */
 const compactionsBySessionId = ref<Record<string, CompactionMarker[]>>({});
+/** 会话项活动状态（spec 06），从事件流 + 历史消息派生。 */
+const sessionStatusBySessionId = ref<Record<string, SessionActivityStatus>>({});
 
 const session = useSession();
 const artifacts = useArtifacts();
@@ -164,15 +169,30 @@ const currentCompactions = computed<CompactionMarker[]>(
 );
 
 /**
+ * 从已加载消息派生会话活动状态：有 error → error；有已完成 assistant 消息
+ * → completed；否则 idle。running 不在此判断（事件流时 streamingSessionIds 覆盖）。
+ */
+export function deriveSessionStatusFromMessages(msgs: Message[]): SessionActivityStatus {
+  if (msgs.some((m) => m.error)) return 'error';
+  if (msgs.some((m) => m.role === 'assistant' && m.done)) return 'completed';
+  return 'idle';
+}
+
+/**
  * 从 main 拉指定 session 的历史消息。
  */
 async function loadMessages(sessionId: string): Promise<void> {
   if (typeof window === 'undefined' || !window.darvin) return;
   try {
     const r = await window.darvin.getMessages(sessionId);
+    const msgs = r.messages.map(toMessage);
     messagesBySessionId.value = {
       ...messagesBySessionId.value,
-      [sessionId]: r.messages.map(toMessage),
+      [sessionId]: msgs,
+    };
+    sessionStatusBySessionId.value = {
+      ...sessionStatusBySessionId.value,
+      [sessionId]: deriveSessionStatusFromMessages(msgs),
     };
   } catch {
     messagesBySessionId.value = {
@@ -491,13 +511,24 @@ export function useMessages() {
     const active = session.activeSessionId.value;
     const isCurrent = sid === active;
 
+    // 会话活动状态（spec 06）：流式/工具执行 → running，done → completed，
+    // error → error，agent_end → 收尾（若非 error 则 completed）。
+    const setStatus = (s: SessionActivityStatus) => {
+      sessionStatusBySessionId.value = { ...sessionStatusBySessionId.value, [sid]: s };
+    };
     // tool_start / tool_end 也属于"正在跑"（工具执行中 session 持续运行）
     if (ev.type === 'text_delta' || ev.type === 'thinking_delta' || ev.type === 'tool_start' || ev.type === 'tool_end') {
       streamingSessionIds.value = new Set([...streamingSessionIds.value, sid]);
+      setStatus('running');
     } else if (ev.type === 'done' || ev.type === 'error' || ev.type === 'agent_end') {
       const next = new Set(streamingSessionIds.value);
       next.delete(sid);
       streamingSessionIds.value = next;
+      if (ev.type === 'error') setStatus('error');
+      else if (ev.type === 'agent_end') {
+        const prev = sessionStatusBySessionId.value[sid];
+        if (prev !== 'error') setStatus('completed');
+      } else setStatus('completed');
     }
 
     // 后台 session 的非 lifecycle 事件 → unread 红点。agent_end / context_usage /
@@ -570,6 +601,9 @@ export function useMessages() {
     const comp = { ...compactionsBySessionId.value };
     delete comp[sessionId];
     compactionsBySessionId.value = comp;
+    const st = { ...sessionStatusBySessionId.value };
+    delete st[sessionId];
+    sessionStatusBySessionId.value = st;
     artifacts.clearSessionArtifacts(sessionId);
   }
 
@@ -579,6 +613,7 @@ export function useMessages() {
     unreadSessionIds.value = new Set();
     contextUsageBySessionId.value = {};
     compactionsBySessionId.value = {};
+    sessionStatusBySessionId.value = {};
   }
 
   return {
@@ -587,6 +622,7 @@ export function useMessages() {
     unreadSessionIds,
     contextUsageBySessionId,
     compactionsBySessionId,
+    sessionStatusBySessionId,
     currentMessages,
     currentCompactions,
     loadMessages,

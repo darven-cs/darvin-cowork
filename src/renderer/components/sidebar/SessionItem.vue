@@ -9,10 +9,26 @@
         : 'text-text-muted hover:bg-surface-hover hover:text-text'"
       @click="emit('select', session.id)"
     >
-      <span
-        v-if="running"
-        class="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent"
-        aria-label="运行中"
+      <Icon
+        v-if="status === 'running'"
+        name="circle-dot"
+        :size="12"
+        class="shrink-0 animate-pulse text-accent"
+        :aria-label="t('sidebar.session.status.running')"
+      />
+      <Icon
+        v-else-if="status === 'error'"
+        name="alert-circle"
+        :size="12"
+        class="shrink-0 text-danger"
+        :aria-label="t('sidebar.session.status.error')"
+      />
+      <Icon
+        v-else-if="status === 'completed'"
+        name="check"
+        :size="12"
+        class="shrink-0 text-text-subtle"
+        :aria-label="t('sidebar.session.status.completed')"
       />
       <Icon
         v-else
@@ -21,10 +37,17 @@
         class="shrink-0 text-text-subtle"
       />
       <span class="flex-1 truncate">{{ session.title }}</span>
+      <Icon
+        v-if="pinned"
+        name="pin"
+        :size="11"
+        class="shrink-0 text-accent"
+        :aria-label="t('sidebar.session.status.pinned')"
+      />
       <span
         v-if="unread"
         class="h-1.5 w-1.5 shrink-0 rounded-full bg-error"
-        aria-label="未读"
+        :aria-label="t('sidebar.session.unread')"
       />
       <span class="shrink-0 font-mono text-[10px] text-text-subtle">{{ relTime }}</span>
     </button>
@@ -85,6 +108,14 @@
             <button
               type="button"
               class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-text transition-colors hover:bg-surface-hover"
+              @click="togglePin(close)"
+            >
+              <Icon name="pin" :size="13" class="text-text-subtle" />
+              {{ pinned ? t('sidebar.session.unpin') : t('sidebar.session.pin') }}
+            </button>
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-text transition-colors hover:bg-surface-hover"
               @click="startRename(close)"
             >
               <Icon name="edit" :size="13" class="text-text-subtle" />
@@ -108,6 +139,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
 import type { DarvinSession } from '../../../shared/darvin-api';
+import type { SessionActivityStatus } from '../../composables/useMessages';
 import Icon from '../common/Icon.vue';
 import Dropdown from '../common/Dropdown.vue';
 import { t } from '../../services/i18n';
@@ -115,13 +147,15 @@ import { t } from '../../services/i18n';
 const props = defineProps<{
   session: DarvinSession;
   active: boolean;
-  running: boolean;
+  status: SessionActivityStatus;
+  pinned: boolean;
   unread: boolean;
 }>();
 const emit = defineEmits<{
   select: [id: string];
   rename: [id: string, title: string];
   delete: [id: string];
+  pin: [id: string];
 }>();
 
 const editing = ref(false);
@@ -144,6 +178,11 @@ const relTime = computed(() => {
 
 function onMenuOpenChange(open: boolean): void {
   if (open) confirming.value = false;
+}
+
+function togglePin(close: () => void): void {
+  close();
+  emit('pin', props.session.id);
 }
 
 function startRename(close: () => void): void {

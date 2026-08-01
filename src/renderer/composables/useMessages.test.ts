@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { buildConversationTurns, useMessages, type Message } from './useMessages';
+import { buildConversationTurns, deriveSessionStatusFromMessages, useMessages, type Message } from './useMessages';
 import { useArtifacts } from './useArtifacts';
 
 const messages = useMessages();
@@ -360,5 +360,37 @@ describe('buildConversationTurns compaction dividers', () => {
     const userMsg: Message = { id: 'u1', sessionId: 's1', role: 'user', content: 'hi', done: true, createdAt: 50 };
     const turns = buildConversationTurns([userMsg], [marker]);
     expect(turns[0].precedingCompactions).toBeUndefined();
+  });
+});
+
+describe('session activity status (spec 06)', () => {
+  it('derives completed/error/idle from loaded messages', () => {
+    const done: Message = { id: 'a1', sessionId: 's1', role: 'assistant', content: 'ok', done: true, createdAt: 1 };
+    expect(deriveSessionStatusFromMessages([done])).toBe('completed');
+    const err: Message = { id: 'e1', sessionId: 's1', role: 'assistant', content: 'x', done: true, error: 'boom', createdAt: 2 };
+    expect(deriveSessionStatusFromMessages([err])).toBe('error');
+    expect(deriveSessionStatusFromMessages([])).toBe('idle');
+    const pending: Message = { id: 'p1', sessionId: 's1', role: 'assistant', content: '', done: false, createdAt: 3 };
+    expect(deriveSessionStatusFromMessages([pending])).toBe('idle');
+  });
+
+  it('marks running on streaming, completed on done, error on error', () => {
+    messages.appendEvent({ type: 'text_delta', sessionId: 's1', messageId: 'm1', delta: 'hi' });
+    expect(messages.sessionStatusBySessionId.value.s1).toBe('running');
+    messages.appendEvent({ type: 'done', sessionId: 's1', messageId: 'm1', usage: undefined });
+    expect(messages.sessionStatusBySessionId.value.s1).toBe('completed');
+
+    messages.appendEvent({ type: 'text_delta', sessionId: 's2', messageId: 'm2', delta: 'hi' });
+    messages.appendEvent({ type: 'error', sessionId: 's2', messageId: 'm2', message: 'oops' });
+    expect(messages.sessionStatusBySessionId.value.s2).toBe('error');
+  });
+
+  it('clears status on removeSession and reset', () => {
+    messages.appendEvent({ type: 'text_delta', sessionId: 's1', messageId: 'm1', delta: 'hi' });
+    messages.removeSession('s1');
+    expect(messages.sessionStatusBySessionId.value.s1).toBeUndefined();
+    messages.appendEvent({ type: 'text_delta', sessionId: 's1', messageId: 'm1', delta: 'hi' });
+    messages.reset();
+    expect(messages.sessionStatusBySessionId.value.s1).toBeUndefined();
   });
 });
