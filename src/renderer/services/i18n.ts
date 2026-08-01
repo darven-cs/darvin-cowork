@@ -126,6 +126,17 @@ const dictZh: Record<string, string> = {
   'settings.models.save_failed': '保存失败',
   'settings.models.load_failed': '加载失败',
   'settings.models.path_hint': '配置文件路径：',
+  'composer.import': '导入文件',
+  'imported.remove': '从工作区移除',
+  'imported.empty': '工作区还没有导入的文件',
+  'imported.workspace_meter': '工作区已用',
+  'imported.reveal': '在文件管理器中打开',
+  'import.toast.imported': '已导入文件',
+  'import.error.too_large': '文件过大',
+  'import.error.unsupported_type': '文件类型不支持',
+  'import.error.workspace_full': '工作区空间不足',
+  'import.error.source_unreadable': '无法读取源文件',
+  'import.error.copy_failed': '复制失败',
 };
 
 const dictEn: Record<string, string> = {
@@ -248,6 +259,17 @@ const dictEn: Record<string, string> = {
   'settings.models.save_failed': 'Save failed',
   'settings.models.load_failed': 'Load failed',
   'settings.models.path_hint': 'Config file path:',
+  'composer.import': 'Import files',
+  'imported.remove': 'Remove from workspace',
+  'imported.empty': 'No imported files in the workspace yet',
+  'imported.workspace_meter': 'Workspace used',
+  'imported.reveal': 'Open in file manager',
+  'import.toast.imported': 'Files imported',
+  'import.error.too_large': 'File too large',
+  'import.error.unsupported_type': 'File type not supported',
+  'import.error.workspace_full': 'Workspace is full',
+  'import.error.source_unreadable': 'Could not read source file',
+  'import.error.copy_failed': 'Copy failed',
 };
 
 // dev-only: zh/en 字典 key 集合必须严格一致

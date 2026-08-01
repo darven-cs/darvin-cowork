@@ -1,8 +1,10 @@
 <template>
   <div class="px-6 pb-5 pt-2">
+    <ImportedFilesBar class="mb-1.5" />
     <div
       class="mx-auto flex max-w-[760px] items-end gap-2 rounded-xl border border-border bg-surface-2 px-4 py-3 transition-colors focus-within:border-border-strong"
     >
+      <ImportButton />
       <textarea
         ref="textareaRef"
         v-model="text"
@@ -39,6 +41,8 @@
 import { computed, nextTick, ref } from 'vue';
 import { t } from '../../services/i18n';
 import Icon from '../common/Icon.vue';
+import ImportButton from './ImportButton.vue';
+import ImportedFilesBar from './ImportedFilesBar.vue';
 
 const props = defineProps<{ busy: boolean }>();
 const emit = defineEmits<{ send: [content: string] }>();
