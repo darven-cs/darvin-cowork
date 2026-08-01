@@ -171,6 +171,19 @@ const dictZh: Record<string, string> = {
   'import.error.workspace_full': '工作区空间不足',
   'import.error.source_unreadable': '无法读取源文件',
   'import.error.copy_failed': '复制失败',
+  'artifact.special.fileList': '文件',
+  'artifact.special.browser': '浏览器',
+  'artifact.special.subagents': '子代理',
+  'artifact.special.placeholder': '该面板尚未实现',
+  'artifact.empty': '还没有 artifact',
+  'artifact.view.preview': '预览',
+  'artifact.view.code': '代码',
+  'artifact.tab.close': '关闭预览',
+  'artifact.render.openNewWindow': '在新窗口打开',
+  'artifact.render.unsupported': '该类型的 artifact 暂不支持预览',
+  'artifact.render.mermaidError': 'Mermaid 渲染失败',
+  'artifact.render.loadFailed': '预览文件加载失败',
+  'artifact.drag.resize': '拖拽调整面板宽度',
 };
 
 const dictEn: Record<string, string> = {
@@ -338,6 +351,19 @@ const dictEn: Record<string, string> = {
   'import.error.workspace_full': 'Workspace is full',
   'import.error.source_unreadable': 'Could not read source file',
   'import.error.copy_failed': 'Copy failed',
+  'artifact.special.fileList': 'Files',
+  'artifact.special.browser': 'Browser',
+  'artifact.special.subagents': 'Subagents',
+  'artifact.special.placeholder': 'This panel is not implemented yet',
+  'artifact.empty': 'No artifacts yet',
+  'artifact.view.preview': 'Preview',
+  'artifact.view.code': 'Code',
+  'artifact.tab.close': 'Close preview',
+  'artifact.render.openNewWindow': 'Open in new window',
+  'artifact.render.unsupported': 'This artifact type is not supported yet',
+  'artifact.render.mermaidError': 'Mermaid render failed',
+  'artifact.render.loadFailed': 'Failed to load preview file',
+  'artifact.drag.resize': 'Drag to resize the panel',
 };
 
 // dev-only: zh/en 字典 key 集合必须严格一致

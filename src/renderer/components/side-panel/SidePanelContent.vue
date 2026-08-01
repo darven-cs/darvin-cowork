@@ -1,5 +1,6 @@
 <template>
-  <div class="flex flex-1 flex-col items-center justify-center px-6 text-center">
+  <ArtifactPanel v-if="tab === 'artifact' && sessionId" :key="sessionId" :session-id="sessionId" />
+  <div v-else class="flex flex-1 flex-col items-center justify-center px-6 text-center">
     <p class="font-display text-lg italic text-text-muted">{{ title }}</p>
     <p class="mt-1 text-sm text-text-subtle">{{ subtitle }}</p>
   </div>
@@ -9,8 +10,13 @@
 import { computed } from 'vue';
 import { t } from '../../services/i18n';
 import type { SidePanelTab } from '../../composables/useSidePanel';
+import { useSession } from '../../composables/useSession';
+import ArtifactPanel from './ArtifactPanel.vue';
 
 const props = defineProps<{ tab: SidePanelTab }>();
+
+const session = useSession();
+const sessionId = computed(() => session.activeSessionId.value);
 
 const title = computed(() => {
   switch (props.tab) {

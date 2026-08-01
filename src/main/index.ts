@@ -22,11 +22,14 @@ import { AgentClient } from './runtime/client';
 import { EventRouter } from './store/EventRouter';
 import { runImport } from './libs/importFiles';
 import { ensureWorkspaceRoot, resolveWorkspaceRoot, type WorkspaceLocation } from './libs/user-paths';
+import { artifactPreviewServer } from './services/artifact-preview-server';
 import type {
   DarvinActiveSessionResponse,
   DarvinCompactContextResponse,
+  DarvinCreateArtifactPreviewSessionResponse,
   DarvinCreateSessionResponse,
   DarvinDeleteSessionResponse,
+  DarvinDestroyArtifactPreviewSessionResponse,
   DarvinGetMessagesResponse,
   DarvinImportFilesResponse,
   DarvinListImportedFilesResponse,
@@ -461,6 +464,28 @@ ipcMain.handle('darvin:reveal_workspace', async (): Promise<void> => {
   await ensureWorkspaceRoot(workspaceLoc);
   shell.showItemInFolder(workspaceLoc.rootPath);
 });
+
+ipcMain.handle(
+  'darvin:artifact:create_preview_session',
+  async (_e, relativePath: string): Promise<DarvinCreateArtifactPreviewSessionResponse> => {
+    if (!workspaceLoc) return { success: false, error: 'workspace not ready' };
+    try {
+      const r = await artifactPreviewServer.createPreviewSession(workspaceLoc.rootPath, relativePath);
+      return { success: true, sessionId: r.sessionId, url: r.url };
+    } catch (e) {
+      console.warn(`[main] artifact preview session failed: ${(e as Error).message}`);
+      return { success: false, error: 'preview file not found in workspace' };
+    }
+  },
+);
+
+ipcMain.handle(
+  'darvin:artifact:destroy_preview_session',
+  async (_e, sessionId: string): Promise<DarvinDestroyArtifactPreviewSessionResponse> => {
+    artifactPreviewServer.destroyPreviewSession(sessionId);
+    return { success: true };
+  },
+);
 
 ipcMain.handle(
   'darvin:prompt',

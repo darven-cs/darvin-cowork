@@ -18,6 +18,7 @@ import { computed, ref, watch } from 'vue';
 import type { DarvinAttachment, DarvinContextUsage, DarvinEvent, DarvinMessage, DarvinToolKind, DarvinUsage } from '../../shared/darvin-api';
 import { assertNever } from '../../shared/darvin-api';
 import { useSession } from './useSession';
+import { useArtifacts } from './useArtifacts';
 import { getToolKind } from '../services/toolDisplay';
 import { t } from '../services/i18n';
 import { showToast } from '../services/toast';
@@ -149,6 +150,7 @@ const contextUsageBySessionId = ref<Record<string, DarvinContextUsage>>({});
 const compactionsBySessionId = ref<Record<string, CompactionMarker[]>>({});
 
 const session = useSession();
+const artifacts = useArtifacts();
 
 const currentMessages = computed<Message[]>(
   () => messagesBySessionId.value[session.activeSessionId.value ?? ''] ?? [],
@@ -417,6 +419,19 @@ export function useMessages() {
       contextUsageBySessionId.value = { ...contextUsageBySessionId.value, [key]: ev.usage };
     }
 
+    if (ev.type === 'artifact') {
+      // artifact 不落消息 bucket，走 useArtifacts 面板状态机；后台 session 仍
+      // 触发 unread（继续走下面的 bucket append + unread 逻辑，append 无副作用）
+      artifacts.addArtifact(sid, {
+        id: ev.artifactId,
+        kind: ev.kind,
+        name: ev.name,
+        content: ev.content,
+        filePath: ev.filePath,
+        createdAt: ev.createdAt,
+      });
+    }
+
     if (ev.type === 'compaction') {
       const markers = compactionsBySessionId.value[sid] ?? [];
       if (!markers.some((m) => m.checkpointId === ev.checkpointId)) {
@@ -542,6 +557,7 @@ export function useMessages() {
     const comp = { ...compactionsBySessionId.value };
     delete comp[sessionId];
     compactionsBySessionId.value = comp;
+    artifacts.clearSessionArtifacts(sessionId);
   }
 
   function reset(): void {

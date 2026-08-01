@@ -203,7 +203,17 @@ export type DarvinEvent =
       afterTokens?: number;
     }
   | { type: 'context_usage'; sessionId: string; usage: DarvinContextUsage }
-  | { type: 'artifact'; sessionId: string; artifactId: string; kind: DarvinArtifactKind; name?: string; content: string; createdAt: number };
+  | {
+      type: 'artifact';
+      sessionId: string;
+      artifactId: string;
+      kind: DarvinArtifactKind;
+      name?: string;
+      content: string;
+      /** html 引用 workspace 内文件时携带（相对 workspace 根）；走本地预览服务。 */
+      filePath?: string;
+      createdAt: number;
+    };
 
 export interface DarvinPromptRequest {
   content: string;
@@ -324,6 +334,17 @@ export interface DarvinListImportedFilesResponse {
   workspaceBytes: number;
 }
 
+export interface DarvinCreateArtifactPreviewSessionResponse {
+  success: boolean;
+  sessionId?: string;
+  url?: string;
+  error?: string;
+}
+
+export interface DarvinDestroyArtifactPreviewSessionResponse {
+  success: boolean;
+}
+
 export interface DarvinRemoveImportedFileResponse {
   removed: boolean;
 }
@@ -388,4 +409,9 @@ export interface DarvinApi {
   revealWorkspace(): Promise<void>;
   /** workspace 内容变更 push（import / remove 后 main 广播）。 */
   onWorkspaceChanged(handler: (info: { sessionId: string; files: DarvinImportedFile[] }) => void): () => void;
+
+  /** 为 file-based HTML artifact 起本地预览会话（relativePath 相对 workspace 根）。 */
+  createArtifactPreviewSession(relativePath: string): Promise<DarvinCreateArtifactPreviewSessionResponse>;
+  /** 销毁本地预览会话（renderer 卸载 iframe 时调用）。 */
+  destroyArtifactPreviewSession(sessionId: string): Promise<DarvinDestroyArtifactPreviewSessionResponse>;
 }

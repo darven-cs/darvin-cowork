@@ -13,8 +13,10 @@ import type {
   DarvinAbortResponse,
   DarvinApi,
   DarvinCompactContextResponse,
+  DarvinCreateArtifactPreviewSessionResponse,
   DarvinCreateSessionResponse,
   DarvinDeleteSessionResponse,
+  DarvinDestroyArtifactPreviewSessionResponse,
   DarvinSwitchSessionResponse,
   DarvinActiveSessionResponse,
   DarvinEvent,
@@ -135,6 +137,13 @@ const api: DarvinApi = {
     return () => {
       ipcRenderer.off(DarvinPushEvent.WorkspaceChanged, wrap);
     };
+  },
+
+  async createArtifactPreviewSession(relativePath: string): Promise<DarvinCreateArtifactPreviewSessionResponse> {
+    return ipcRenderer.invoke('darvin:artifact:create_preview_session', relativePath);
+  },
+  async destroyArtifactPreviewSession(sessionId: string): Promise<DarvinDestroyArtifactPreviewSessionResponse> {
+    return ipcRenderer.invoke('darvin:artifact:destroy_preview_session', sessionId);
   },
 };
 

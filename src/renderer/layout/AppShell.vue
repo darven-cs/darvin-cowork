@@ -1,7 +1,7 @@
 <template>
   <div
     class="grid h-screen overflow-hidden bg-bg text-text"
-    :style="{ gridTemplateColumns, transition: 'grid-template-columns 180ms cubic-bezier(0.4, 0, 0.2, 1)' }"
+    :style="{ gridTemplateColumns, transition: dragging ? 'none' : 'grid-template-columns 180ms cubic-bezier(0.4, 0, 0.2, 1)' }"
   >
     <Sidebar v-if="!sidebarCollapsed" class="col-start-1" @navigate="onSidebarNavigate" />
     <component
@@ -31,10 +31,12 @@ import { useSidePanel } from '../composables/useSidePanel';
 import { useTheme } from '../composables/useTheme';
 import { useMessages } from '../composables/useMessages';
 import { useViewMode, type ViewMode } from '../composables/useViewMode';
+import { useArtifacts } from '../composables/useArtifacts';
 import ToastHost from '../components/common/ToastHost.vue';
 
 const sidebar = useSidebar();
 const sidePanel = useSidePanel();
+const artifacts = useArtifacts();
 useTheme();
 // 触发 useMessages 内部 watch（首次 active 拉历史、后续切 session 拉历史）
 useMessages();
@@ -42,10 +44,11 @@ const viewMode = useViewMode();
 
 const sidebarCollapsed = computed(() => sidebar.collapsed.value);
 const sidePanelOpen = computed(() => sidePanel.open.value);
+const dragging = computed(() => artifacts.dragging.value);
 
 const gridTemplateColumns = computed(() => {
   const left = sidebarCollapsed.value ? '0px' : '220px';
-  const right = sidePanelOpen.value ? '300px' : '0px';
+  const right = sidePanelOpen.value ? `${artifacts.panelWidth.value}px` : '0px';
   return `${left} 1fr ${right}`;
 });
 

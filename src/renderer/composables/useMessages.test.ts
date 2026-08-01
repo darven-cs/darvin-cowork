@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { buildConversationTurns, useMessages, type Message } from './useMessages';
+import { useArtifacts } from './useArtifacts';
 
 const messages = useMessages();
+const artifacts = useArtifacts();
 
 beforeEach(() => {
   messages.reset();
+  artifacts.reset();
 });
 
 describe('useMessages tool event pairing', () => {
@@ -259,6 +262,33 @@ describe('useMessages compaction events', () => {
     messages.appendEvent({ type: 'compaction', sessionId: 's2', runId: 'r1', reason: 'manual', checkpointId: 'cp-2', createdAt: 1 });
     messages.reset();
     expect(messages.compactionsBySessionId.value.s2).toBeUndefined();
+  });
+});
+
+describe('useMessages artifact events (spec 05)', () => {
+  it('routes artifact event into useArtifacts, not the message bucket', () => {
+    messages.appendEvent({
+      type: 'artifact',
+      sessionId: 's1',
+      artifactId: 'art-1',
+      kind: 'html',
+      name: 'page',
+      content: '<html><body>hi</body></html>',
+      createdAt: 1,
+    });
+    expect(messages.messagesBySessionId.value.s1 ?? []).toHaveLength(0);
+    expect(artifacts.artifactsBySession.value.s1).toHaveLength(1);
+    expect(artifacts.artifactsBySession.value.s1[0].name).toBe('page');
+    expect(artifacts.previewTabsBySession.value.s1).toHaveLength(1);
+    expect(artifacts.activeTabIdBySession.value.s1).toBe(`artifact:art-1`);
+  });
+
+  it('clears artifacts for a deleted session via removeSession', () => {
+    messages.appendEvent({
+      type: 'artifact', sessionId: 's1', artifactId: 'art-1', kind: 'text', content: 'x', createdAt: 1,
+    });
+    messages.removeSession('s1');
+    expect(artifacts.artifactsBySession.value.s1).toBeUndefined();
   });
 });
 

@@ -108,6 +108,8 @@ const rendererFor = (kind: ArtifactKind) => {
 | `svg` | `allow-scripts` | `srcdoc={sanitizedContent}` | DOMPurify 净化 |
 | `mermaid` | n/a（offscreen DOM） | — | 提取 SVG 后渲染 |
 
+> **落地补充（实现期决议）**：file-based HTML 已补全——协议 `artifact` 事件加 `filePath?`（相对 workspace 根），main 端新增本地预览服务 `src/main/services/artifact-preview-server.ts`（`127.0.0.1` 静态 HTTP 服务器，按随机 sessionId 注册会话，entry 所在目录作挂载根、相对资源按此解析，路径越界 403），IPC `darvin:artifact:create_preview_session` / `destroy_preview_session`（preload + `DarvinApi` 暴露）；`HtmlRenderer` 有 `filePath` 时创建预览会话以 `iframe[src]` + `sandbox="allow-scripts"` 渲染，卸载时销毁会话（无会话时服务器整体关闭）。Go agent 目前仍不产 `artifact` 事件，触发路径由合成事件 + workspace 内真实 html 文件验证。
+
 ### 4.4 Artifact 事件处理
 
 ```ts
