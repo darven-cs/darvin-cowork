@@ -209,6 +209,18 @@ type CompactionEvent struct {
 func (CompactionEvent) isAgentEvent()     {}
 func (CompactionEvent) EventName() string { return "compaction" }
 
+// ContextUsageEvent reports the session's context occupancy after a run
+// completes; the renderer drives the context ring from this snapshot.
+type ContextUsageEvent struct {
+	EventBase
+	UsedTokens    int
+	ContextTokens int
+	Percent       int
+}
+
+func (ContextUsageEvent) isAgentEvent()     {}
+func (ContextUsageEvent) EventName() string { return "context_usage" }
+
 // CustomEvent is an out-of-band channel for domain-specific events
 // (Skills / MCP / etc.) to publish without expanding the agent core.
 type CustomEvent struct {

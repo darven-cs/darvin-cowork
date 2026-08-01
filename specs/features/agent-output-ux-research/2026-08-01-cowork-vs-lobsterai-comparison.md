@@ -16,7 +16,7 @@
 | 流式渲染 | 纯文本 + 三点动画 | react-markdown + KaTeX + GFM + CodeMirror | 渲染层整层缺 |
 | 工具结果 | `tool_start`/`tool_end` 事件定义存在但 UI **完全不消费** | `ToolCallGroup` + Bash/TodoWrite/Edit/Diff 多种专门渲染 | 整层缺 |
 | Token 用量 | `DarvinUsage` 已补 cache 字段（spec 00），UI **完全无展示** | `CoworkMessageMetadata.usage` + `ContextUsageIndicator` 圆环可视化 | 数据已通，UI 整层缺 |
-| 上下文压缩 | `compaction` 事件已进 `DarvinEvent`（spec 00 不再静默丢弃），UI 入口/动画/分隔符缺 | 圆环点击 → 手动压缩 / `status='compacting'` 旋转 / `AssistantTurnBlock` 压缩分隔符 | 协议已通，UI 缺 |
+| 上下文压缩 | `compactContext` IPC + `agent.compact_context` RPC + `compaction` 事件 + `ContextCompactionDivider`（04 落地） | 圆环点击 → 手动压缩 / `status='compacting'` 旋转 / `AssistantTurnBlock` 压缩分隔符 | ✅ 已落地（04） |
 | 侧栏 | 简单会话列表 + 静态 Agent 卡片 | 树形 Agent + 会话 + 子会话 + 拖拽 + pin + parent session | 复杂，差异化重 |
 | 右侧面板 | 三个 tab 全空态占位 | `ArtifactPanel` + artifactSlice + 10 种 artifact 渲染器 | 整层缺 |
 | 设置 | 5 个 tab，3 个有占位 | 12 个 tab，IM/MCP/dreaming/embedding 等深度功能 | 广度差距大 |
@@ -98,11 +98,11 @@
 | 圆环可视化 | ✅ 已落地（03）`ContextUsageIndicator.vue` 28×28 SVG 圆环（`RADIUS=7`），12 点方向起笔 | ✅ `ContextUsageIndicator` SVG 圆环（`RADIUS=7, CIRCUMFERENCE=43.96`），12 点方向起笔 |
 | 颜色 | ✅ 已落地（03）5 态颜色（unknown/normal/warning/danger/compacting，compacting 旋转） | ✅ 状态映射颜色（normal/warning/danger/compacting） |
 | 数字展示 | ✅ 已落地（03）tooltip 显示百分比 + 已用/上下文窗口数字 + 接近上限提示；TurnMeta hover 显示 token 三元组 | ✅ tooltip 显示 `coworkContextUsagePercent` + `coworkContextUsageTokens` |
-| 手动压缩 | 🔶 占位（03 点击 emit compact，IPC 由 04 落地） | ✅ 圆环点击 → `onCompact()` |
-| 自动压缩 | 🔶 占位（03 compacting 旋转已实现，压缩完成回退由 04 落地） | ✅ 状态 `compacting` 时圆环持续旋转动画 |
-| 压缩历史 | ❌ 无 | ✅ `compactionCount` + `latestCompaction*` 字段 |
-| 压缩边界可视化 | ❌ 无 | ✅ `ContextCompactionDivider`（`AssistantTurnBlock.tsx` 内部） |
-| 压缩后 i18n | ❌ 无 | ✅ `coworkContextCompacting / AutoCompacted / ManualCompacted / CompactionFailed` |
+| 手动压缩 | ✅ 已落地（04）圆环点击 → `compactContext` IPC → Go `agent.compact_context`；未受理 `{accepted:false}` 不动画不 toast | ✅ 圆环点击 → `onCompact()` |
+| 自动压缩 | ✅ 已落地（04）`assemble.go` 预算触发成功后 emit `CompactionEvent` → compacting 旋转 + 事件回退 normal | ✅ 状态 `compacting` 时圆环持续旋转动画 |
+| 压缩历史 | 🔶 数据已落地（04）`compactionCount` / `latestCompactionAt` / `latestCompactionReason` 由 compaction 事件维护；显示在 07 | ✅ `compactionCount` + `latestCompaction*` 字段 |
+| 压缩边界可视化 | ✅ 已落地（04）`ContextCompactionDivider`（`MessageList` 在 turn 间渲染） | ✅ `ContextCompactionDivider`（`AssistantTurnBlock.tsx` 内部） |
+| 压缩后 i18n | ✅ 已落地（04）`chat.context.compacting.manual/auto` + `compacted` + `compactionFailed` 4 态 | ✅ `coworkContextCompacting / AutoCompacted / ManualCompacted / CompactionFailed` |
 
 **LobsterAI 借鉴目标**：
 - `src/renderer/components/cowork/ContextUsageIndicator.tsx:40-121`
@@ -264,11 +264,13 @@ darvin-cowork 的 `DarvinEvent` 在 `darvin-api.ts` 定义 `tool_start` / `tool_
 | 01 | [agent-output-rendering](../agent-output-rendering/2026-08-01-agent-output-rendering-design.md) | ✅ 已完成：Markdown（markdown-it+KaTeX） / Shiki 代码块 / ThinkingBlock / turn 模型 / hover 元信息 / 大文档截断 / 图片附件 | 00 | P1 |
 | 02 | [tool-result-rendering](../tool-result-rendering/2026-08-01-tool-result-rendering-design.md) | ✅ 已完成：`ToolCallGroup` + Bash 仿终端 / TodoWrite checkbox / Edit DiffView / 状态点 4 色 / 折叠 / 大文本截断 / 工具归一化 | 00 | P1 |
 | 03 | [token-context-usage](../token-context-usage/2026-08-01-token-context-usage-design.md) | ✅ 已完成：TurnMeta token 三元组 + `ContextUsageIndicator` 圆环 + 5 态颜色 + tooltip + `contextUsageBySessionId` | 00 | P1 |
-| 04 | [context-compaction-ui](../context-compaction-ui/2026-08-01-context-compaction-ui-design.md) | 手动压缩入口 + 自动压缩动画 + `ContextCompactionDivider` + 失败回退 | 00 + 03 | P1 |
+| 04 | [context-compaction-ui](../context-compaction-ui/2026-08-01-context-compaction-ui-design.md) | ✅ 已完成：`compactContext` IPC + Go `agent.compact_context` RPC + 压缩动画/toast/失败回退 + `ContextCompactionDivider` | 00 + 03 | P1 |
 | 05 | [artifact-panel](../artifact-panel/2026-08-01-artifact-panel-design.md) | 状态机重做 + 10 种 artifact 渲染器 + iframe sandbox + 面板宽度拖拽 | 00 | P2 |
 | 06 | [sidebar-upgrade](../sidebar-upgrade/2026-08-01-sidebar-upgrade-design.md) | 树形 Agent / 220-420px 拖拽 / 5 tab 真实入口 / `Cmd+1-5` 快捷键 / session 5 态 status | — | P2 |
 | 07 | [settings-expansion](../settings-expansion/2026-08-01-settings-expansion-design.md) | 7 个 tab 拆分 / 字号可调 / 多 provider 模型 / 压缩次数显示 | 04 | P2 |
 | 08 | [i18n-enhancement](../i18n-enhancement/2026-08-01-i18n-enhancement-design.md) | 插值 / 响应式切换 / 补齐 60+ 新 key / `Intl.NumberFormat` / 缺 key 告警 | — | P1 |
+| 09 | [composer-composition（补充）](2026-08-01-composer-composition-design.md) | ✅ 已完成：单一 composer 卡片（工具栏 + context 行）/ 圆环迁入工具栏 / 导入合并到 `+` 菜单 / 文件类型放宽 / 工作目录 label | 04 | P2 |
+| 10 | [session-workspace-usage（补充）](2026-08-01-session-workspace-usage-design.md) | workspace 按会话隔离（main 跟随 active session + renderer 按 session 重置）/ Go emit `context_usage` → 圆环实时显示 / 工作目录点击打开 | 03+04+09 | P0 |
 
 ### 启动顺序
 

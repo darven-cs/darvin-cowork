@@ -8,11 +8,14 @@
       <p class="text-xs text-text-subtle">{{ t('chat.empty') }}</p>
     </div>
     <div v-else class="mx-auto flex max-w-[760px] flex-col gap-6">
-      <ConversationTurn
-        v-for="turn in turns"
-        :key="turn.id"
-        :turn="turn"
-      />
+      <template v-for="turn in turns" :key="turn.id">
+        <ContextCompactionDivider
+          v-for="marker in turn.precedingCompactions"
+          :key="marker.checkpointId"
+          :marker="marker"
+        />
+        <ConversationTurn :turn="turn" />
+      </template>
     </div>
   </div>
 </template>
@@ -20,11 +23,14 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import ConversationTurn from './ConversationTurn.vue';
+import ContextCompactionDivider from './ContextCompactionDivider.vue';
 import { buildConversationTurns, useMessages } from '../../composables/useMessages';
 import { t } from '../../services/i18n';
 
 const messages = useMessages();
-const turns = computed(() => buildConversationTurns(messages.currentMessages.value));
+const turns = computed(() =>
+  buildConversationTurns(messages.currentMessages.value, messages.currentCompactions.value),
+);
 const scrollRef = ref<HTMLDivElement | null>(null);
 
 watch(

@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"darvin-cowork/backend/internal/agent/ctxengine"
 	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/llm"
 	"darvin-cowork/backend/internal/agent/queue"
@@ -200,12 +201,45 @@ func (a *Agent) Run(ctx context.Context) error {
 			EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: a.session.ID, RunID: a.CurrentRunID()}},
 			Turns:     turnsThisRun,
 		})
+		a.emitContextUsage()
 
 		// if no followup is queued, exit; otherwise loop and consume it
 		if a.queue.Len() == 0 {
 			return nil
 		}
 	}
+}
+
+// emitContextUsage pushes a context_usage snapshot after a completed run so
+// the renderer can paint the context ring. used prefers the API-reported
+// prompt token count (≈ context occupancy); when the provider's stream omits
+// input_tokens (common behind a proxy) it falls back to the local rune/4
+// estimate over the session. The window comes from the model registry.
+// Skipped when no LLM call completed or the model's window is unknown, so a
+// 0% ring never appears.
+func (a *Agent) emitContextUsage() {
+	used := a.LastUsage().PromptTokens
+	if used <= 0 {
+		for _, m := range a.session.Messages() {
+			used += ctxengine.EstimateMessageTokens(m)
+		}
+	}
+	if used <= 0 {
+		return
+	}
+	ctx := 0
+	if d, ok := llm.DefaultModelRegistry.Get(a.ModelName()); ok {
+		ctx = d.ContextWindow
+	}
+	if ctx <= 0 {
+		return
+	}
+	a.bus.Emit(event.ContextUsageEvent{
+		EventBase:     event.EventBase{EventCommon: event.EventCommon{SessionID: a.session.ID}},
+		UsedTokens:    used,
+		ContextTokens: ctx,
+		Percent:       int(float64(used) / float64(ctx) * 100),
+	})
 }
 
 // persistUserMessage is hook 1 of 3 (spec FR-2.2). It records the

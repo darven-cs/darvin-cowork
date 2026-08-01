@@ -52,11 +52,10 @@ import { t } from '../../services/i18n';
 import { deriveContextStatus, formatTokenCount } from '../../services/tokenFormat';
 
 /**
- * Chat header 圆环：session 上下文占比可视化（spec 03）。
+ * Composer 工具栏圆环：session 上下文占比可视化。
  * - 数据源 useMessages.contextUsageBySessionId[sessionId]（Go `context_usage` 事件）
- * - 5 态颜色 unknown / normal / warning / danger / compacting
- * - tooltip 显示百分比 + 数字 + 上下文窗口；compacting 时持续旋转
- * - 点击事件仅占位：手动压缩 IPC 由 04 spec 落地，本组件只 emit('compact')
+ * - 5 态颜色 unknown / normal / warning / danger / compacting；compacting 时持续旋转
+ * - tooltip 显示百分比 + 数字 + 上下文窗口；点击 emit('compact')，由 ComposerToolbar 触发压缩 IPC
  */
 const props = defineProps<{ sessionId?: string | null }>();
 const emit = defineEmits<{ compact: [sessionId?: string | null] }>();
@@ -102,7 +101,11 @@ const statusClass = computed(() => {
 const isClickable = computed(() => !isCompacting.value && typeof percent.value === 'number');
 
 const tooltipLines = computed<string[]>(() => {
-  if (isCompacting.value) return [t('context.usage.compacting')];
+  if (isCompacting.value) {
+    if (usage.value?.compactionReason === 'manual') return [t('chat.context.compacting.manual')];
+    if (usage.value?.compactionReason === 'auto') return [t('chat.context.compacting.auto')];
+    return [t('context.usage.compacting')];
+  }
   const p = percent.value;
   if (typeof p !== 'number') return [t('context.usage.unknown')];
   const lines: string[] = [t('context.usage.percent').replace('{percent}', String(Math.round(p)))];

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/llm"
 )
 
@@ -65,6 +66,14 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 			msgs = compactRes.RetainedMessages
 			tokensBefore = compactRes.TokensAfter
 			stats.CompactionTriggered = true
+			if a.deps != nil {
+				a.deps.Emit(event.CompactionEvent{
+					EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: p.SessionID}},
+					Before:    compactRes.TokensBefore,
+					After:     compactRes.TokensAfter,
+					Note:      "auto",
+				})
+			}
 		}
 	}
 

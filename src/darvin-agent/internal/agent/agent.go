@@ -264,6 +264,14 @@ func (a *Agent) SystemSections() []ctxengine.SystemSection { return nil }
 // specs/features/agent-context-engine §FR-12.
 func (a *Agent) AssemblerEnabled() bool { return a.assemblerEnabled }
 
+// IsRunning reports whether Agent.Run is currently in progress. The gateway
+// uses it to refuse manual context compaction while a turn is executing.
+func (a *Agent) IsRunning() bool {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	return a.state == stateRunning
+}
+
 // RecordUsage stores the API-reported Usage from the just-finished turn.
 // Safe to call from the executor goroutine; readers (next turn's Assemble)
 // use LastUsage under the same mutex.

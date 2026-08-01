@@ -13,6 +13,7 @@
       @navigate="navigateTo"
     />
     <SidePanel v-if="sidePanelOpen" class="col-start-3" />
+    <ToastHost />
   </div>
 </template>
 
@@ -30,6 +31,7 @@ import { useSidePanel } from '../composables/useSidePanel';
 import { useTheme } from '../composables/useTheme';
 import { useMessages } from '../composables/useMessages';
 import { useViewMode, type ViewMode } from '../composables/useViewMode';
+import ToastHost from '../components/common/ToastHost.vue';
 
 const sidebar = useSidebar();
 const sidePanel = useSidePanel();

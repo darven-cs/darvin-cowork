@@ -10,7 +10,7 @@
 
 ## 当前进度
 
-**已完成 4 / 9。下一个该做的：04（context-compaction-ui）。**
+**已完成 7 / 11（含 2 份补充）。下一个该做的：05（artifact-panel）或 06（sidebar-upgrade）。**
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
@@ -18,11 +18,13 @@
 | 01 | [agent-output-rendering](./../agent-output-rendering/2026-08-01-agent-output-rendering-design.md) | ✅ 完成 | 9/9 | 依赖 00 |
 | 02 | [tool-result-rendering](./../tool-result-rendering/2026-08-01-tool-result-rendering-design.md) | ✅ 完成 | 7/7 | 依赖 00 |
 | 03 | [token-context-usage](./../token-context-usage/2026-08-01-token-context-usage-design.md) | ✅ 完成 | 6/6 | 依赖 00 |
-| 04 | [context-compaction-ui](./../context-compaction-ui/2026-08-01-context-compaction-ui-design.md) | ⬜ 未启动 | 0/6 | 依赖 00 + 03 |
+| 04 | [context-compaction-ui](./../context-compaction-ui/2026-08-01-context-compaction-ui-design.md) | ✅ 完成 | 6/6 | 依赖 00 + 03 |
 | 05 | [artifact-panel](./../artifact-panel/2026-08-01-artifact-panel-design.md) | ⬜ 未启动 | 0/7 | 依赖 00 |
 | 06 | [sidebar-upgrade](./../sidebar-upgrade/2026-08-01-sidebar-upgrade-design.md) | ⬜ 未启动 | 0/7 | 无前置 |
 | 07 | [settings-expansion](./../settings-expansion/2026-08-01-settings-expansion-design.md) | ⬜ 未启动 | 0/6 | 依赖 04 |
 | 08 | [i18n-enhancement](./../i18n-enhancement/2026-08-01-i18n-enhancement-design.md) | ⬜ 未启动 | 0/6 | 无前置 |
+| 09 | [composer-composition（补充）](./2026-08-01-composer-composition-design.md) | ✅ 完成 | 7/7 | 依赖 04；纯渲染重组 |
+| 10 | [session-workspace-usage（补充）](./2026-08-01-session-workspace-usage-design.md) | ✅ 完成 | 6/6 | live bug 修复；**提前做，先于 05-08** |
 
 **图例**：⏳ 待启动 / 🚧 进行中 / ✅ 完成 / ⛔ 阻塞
 
@@ -43,6 +45,8 @@
         [08 i18n]                        ▼
                                     [07 settings]
 [05 artifact-panel] ← 独立（仅依赖 00）
+[09 composer-composition] ← 补充（依赖 04，纯渲染重组）
+[10 session-workspace-usage] ← 补充（live bug 修复；**最先做，先于 05-08**）
 ```
 
 ---
@@ -108,13 +112,13 @@
 
 > 手动压缩 + 自动压缩动画 + 压缩边界。
 
-- [ ] 圆环点击触发 `window.darvin.compactContext(sessionId)` IPC
-- [ ] compacting 状态圆环持续旋转动画
-- [ ] 完成后显示 toast「上下文已压缩 XX → YY tokens」
-- [ ] `ContextCompactionDivider` 在 turn 间渲染边界
-- [ ] 失败时圆环变红 + toast「压缩失败，可重试」
-- [ ] i18n 4 态文案齐（manual / auto / compacted / failed）
-- [ ] 状态：**⬜ 未启动**
+- [x] 圆环点击触发 `window.darvin.compactContext(sessionId)` IPC
+- [x] compacting 状态圆环持续旋转动画
+- [x] 完成后显示 toast「上下文已压缩 XX → YY tokens」
+- [x] `ContextCompactionDivider` 在 turn 间渲染边界
+- [x] 失败时圆环变红 + toast「压缩失败，可重试」
+- [x] i18n 4 态文案齐（manual / auto / compacted / failed）
+- [x] 状态：**✅ 完成**
 
 ### 05 · artifact-panel
 
@@ -166,6 +170,31 @@
 - [ ] `assertSameKeys(dictZh, dictEn)` 通过
 - [ ] 状态：**⬜ 未启动**
 
+### 09 · composer-composition（补充）
+
+> 聊天框组合重组：单一 composer 卡片承载全部输入控制，参考 LobsterAI `CoworkPromptInput`。详见 [`2026-08-01-composer-composition-design.md`](./2026-08-01-composer-composition-design.md)。
+
+- [x] Composer 单一卡片（textarea + 底部工具栏 + context 行），PromptToolbar 不再单独成行
+- [x] 圆环从 ChatHeader 移入 Composer 工具栏右侧（发送键左），压缩流程不变
+- [x] `+` 菜单「上传文件」触发真实导入（`useImportedFiles().importFiles()`），独立回形针 ImportButton 删除；导入结果统一由 ImportedFilesBar 展示
+- [x] 文件类型放宽：dialog 无 filters、`runImport` 无扩展名白名单；大小上限 + symlink 拒绝仍生效
+- [x] 模型 / 语音 / 专家套件入口全部并入 Composer 工具栏
+- [x] context 行展示当前工作目录（label + hover tooltip 或目录选择器）
+- [x] `npm run lint` + `npm run test` 通过；home / chat 两处 composer 均正常
+- [x] 状态：**✅ 完成**
+
+### 10 · session-workspace-usage（补充）
+
+> live bug 修复：workspace 按会话隔离 + Go 上报 `context_usage` + 工作目录可点击打开。详见 [`2026-08-01-session-workspace-usage-design.md`](./2026-08-01-session-workspace-usage-design.md)。
+
+- [x] Go：`go build` / `go vet` / gateway+dispatcher 单测通过；`npm run lint` + `npm run test`（含新增 context_usage 序列化用例）通过
+- [x] 切换会话子进程重启成本已记录（已知边界：在途流式中断）
+- [x] 切换会话后 `getWorkspaceInfo().label` + `listImportedFiles()` 与 active session 一致；ImportedFilesBar 只显示当前会话文件（live 验证通过）
+- [x] 会话 A 导入文件，切到 B 不显示，切回 A 显示（live 验证通过：xKY1→3 jpg，2Iqp→3 csv）
+- [x] 完成一次 prompt 后圆环出现（percent / used / context tokens 正确，tooltip 正常）；再发一轮 usage 更新（live 验证通过）
+- [x] context 行工作目录点击打开系统文件管理器（live 验证通过：button + revealWorkspace 无报错）
+- [x] 状态：**✅ 完成**
+
 ---
 
 ## 状态变更日志
@@ -179,3 +208,6 @@
 - 2026-08-01 · 02 tool-result-rendering · **人工验证 + 修复 2 bug → ✅ 7/7**。playwright 驱动 Electron 实测：prompt「运行 bash pwd 和 ls -la」触发 2 个 Bash 工具组；「不存在的命令」触发错误工具组（红点 `bg-red-500` + 终端红字 `text-red-400`）；「find /usr/lib -type f」输出 3.9MB → 截断预览「输出过大 · 3.9 MB」+ 展开按钮 → 展开显示完整输出；新会话 write+edit 触发 Write/Edit/Read 三组，Edit 展开显示 DiffView 红删 `第一行` / 绿增 `修改后的第一行`。状态点绿/红/运行中（`Bash 运行中…`）均正确，折叠/展开状态记忆正常，console 0 错误。修复：(1) **工具组渲染顺序错位**——`startAssistantMessage` 把 assistant 消息建在 bucket 最前（thinking 与 content 同属一条消息），tool 条目随后 append 到尾部，导致工具组和 TurnMeta 排在答案下方；修复为 `AssistantTurnBlock` 三阶段渲染：thinking 段 → 工具组 → content 段 + TurnMeta（实测顺序：思考中 → Bash×2 → 答案 → TurnMeta）；(2) **`inferToolEndError` 识别不到字符串错误**——Go 的 `ToolEndEvent.Result.IsError` 存在但 `mapEventToTS` 没序列化（spec 规定不改 Go），白名单拒绝输出 `tool "shell": argument "command" must be one of [...]` 被误判成功（绿点）；扩展 TOOL_ERROR_PATTERNS（`command not allowed` / `must be one of` / `command not found` / `no such file or directory` / `permission denied` / `not found` / 行首 `error:` / `failed:`），单测覆盖 5 种真实文案 + 普通输出不误报。TodoWrite 渲染器当前 agent 无此工具无法 live 触发，由单测覆盖。lint / test（57 用例）通过。
 - 2026-08-01 · 03 token-context-usage · ✅ 6/6 落地。新建 `services/tokenFormat.ts`（`formatTokenCount` 1k/M 短标签 + `deriveContextStatus` 5 态：显式 status 优先，unknown 时按 percent 阈值 normal<60% / warning 60-85% / danger>85%）。`useMessages`：`Message` 加 `usage` + done 事件写入 + 历史 `toMessage` 保留；新增 `contextUsageBySessionId` ref 消费 `context_usage` 事件（key 用 `usage.sessionId` 兜底 event.sessionId），`removeSession` / `reset` 清理；`context_usage` 不触发 unread 红点（纯用量快照）。`TurnMeta` hover 增 token 三元组行（`1.2k in · 0.3k out · 0.5k cache`）。新建 `ContextUsageIndicator.vue`：28×28 SVG 圆环（radius 7 / dasharray 百分比）+ 5 态颜色 + compacting `animate-spin` + tooltip（百分比/已用/上下文窗口/接近上限提示）+ 点击 emit compact 占位（04 落 IPC）。`ChatHeader` 挂圆环（activeSessionId）+ 占位 `handleCompact`。i18n 新增 `context.usage.*` 5 key（zh/en）。新测试：tokenFormat.test.ts（9 例）/ useMessages.test.ts context 块（7 例）。lint / test（73 用例）/ renderer vite build 通过。
 - 2026-08-01 · 03 token-context-usage · **人工 live 验证 → ✅ 6/6（无渲染层 bug）**。playwright 驱动 Electron：发 `ping` 触发真实 done 事件带 `usage {inputTokens:1160, outputTokens:17}` → TurnMeta 渲染 `1.2k in · 17 out`，hover 容器 opacity=1。圆环 5 态用**合成 `context_usage` 注入**验证（Go 不推该事件）：normal 30% → `text-text-muted` 灰 / warning 78% → `text-warning` 橙 + tooltip「接近上限，可手动压缩」/ danger 95% → `text-danger` 红 / compacting 100% → `text-accent` + `animate-spin` + `cursor-default` +「正在压缩上下文…」/ 无数据整颗不渲染。tooltip hover `display:block`（`78% 已用 78k / 上下文 100k 接近上限，可手动压缩`）；点击 emit compact 走 `handleCompact` 占位 no-op，console 0 错误。**2 个后端 gap（非渲染 bug）**：(1) Go 完全不推 `context_usage` 事件 → 真实会话圆环不会出现，等 Go 补事件或 04 接手动数据源；(2) Go `done` usage 只序列化 input/output/total、无 cacheReadTokens，且历史消息不持久化 usage → token 三元组只有 live 流式完成的才显示、cache 段永不显示。
+- 2026-08-01 · 04 context-compaction-ui · ✅ 6/6 落地。**协议层**：`DarvinEvent.compaction` 补 `beforeTokens? / afterTokens?`；新增 `DarvinCompactContextResponse {accepted, sessionId}` + `DarvinApi.compactContext(sessionId)`；`DarvinContextUsage` 补 `compactionReason?: 'manual' | 'auto'`。preload 暴露 `darvin:compact_context` → main 转发 `agent.compact_context`（Go 离线/会话不可压返回 `{accepted:false}`，不动画不 toast 避免假压缩）。**Go 侧**：gateway 新增 `agent.compact_context` RPC——`handleCompactContext` 校验会话 idle + assembler 就绪后**异步**跑 `Assembler().Compact()`（避免 LLM 摘要阻塞 WS 读循环），成功后 `Session().ReplaceAll(retained)` + `Agent.Emit(CompactionEvent)`；`Agent.IsRunning()` 空闲守卫；`eventledger.mapEventToTS` 补 `CompactionEvent` case（reason/checkpointId/createdAt/beforeTokens/afterTokens）；自动压缩路径 `assemble.go` 在预算触发成功后 emit `CompactionEvent`（Note "auto"）→ 新增 `ctxengine.Deps.Emit` 接口 + agent.Agent 实现 + 测试桩同步。**渲染层**：`useMessages` 加 `compactionsBySessionId` 消费 compaction 事件（按 checkpointId 去重）+ `beginCompact/endCompact/failCompact` 状态助手（compacting 旋转 / normal 还原 / danger 转红+失败 toast）+ compaction 事件回写 `compactionCount / latestCompactionAt / latestCompactionReason` + 不触发 unread；`buildConversationTurns(messages, markers)` 把 createdAt 早于该 turn 的 marker 挂到 `precedingCompactions`（晚于最后消息的 marker 丢弃，避免时序错位）。新建 `ContextCompactionDivider.vue`（虚线分隔 + `↻` + 原因 + Intl 时间）。`ChatHeader.handleCompact`：beginCompact → `window.darvin.compactContext` → 未被受理则 endCompact；受理后 15s 超时兜底转失败态。新建 `services/toast.ts` + `ToastHost.vue`（fixed 顶部 / success/error/info / 3s 自动消失），`AppShell` 挂载。圆环 tooltip compacting 态按 `compactionReason` 分 manual/auto 文案。i18n 新增 8 key（zh/en，含 4 态 + divider + reason ×2 + toast.dismiss）。新测试：useMessages compaction 块 8 例 + divider 挂载 3 例 + client parseDarvinEvent compaction 1 例。lint / test（84 用例）/ renderer vite build 通过；Go `go build` / `go vet` / gateway+ctxengine+agent 单测通过。**已知 gap（非渲染 bug）**：(1) 手动压缩会 `ReplaceAll` 会话内存历史，但 TextDeltaHook 落库的 store 行不更新 → 重载历史仍显示压缩前消息（live 会话已生效）；(2) Go 不推 `context_usage` 事件 → 无用量数据时圆环不可见、手动压缩入口需先有 usage（合成注入可触发）；(3) 自动压缩的 divider 依赖 assemble.go 的新 emit，需真实跑超预算长会话才能 live 触发。
+- 2026-08-01 · 09 composer-composition · ✅ 7/7 落地。**Composer 重组**：新建 `ComposerToolbar.vue`（底部工具栏，左 `+`/专家套件，右 圆环/模型/语音/发送）+ `ComposerContextRow.vue`（context 行：左工作目录 label + 右 Agent 选择器）；`Composer.vue` 与 home `PromptDock.vue` 均收敛为单一卡片（textarea + 工具栏 + context 行），`PromptToolbar.vue` 删除、ChatView 不再单独成行。**圆环迁移**：`ChatHeader.vue` 删除 `ContextUsageIndicator` + `handleCompact`，压缩逻辑整体搬进 `ComposerToolbar`（读 `session.activeSessionId` + `window.darvin.compactContext` + `useMessages.begin/end/failCompact`，15s 超时兜底不变）。**导入合并**：`PlusMenu` 的 upload 项改调 `useImportedFiles().importFiles()`（busy 时禁用该项），独立 `ImportButton.vue`（回形针）删除，导入唯一入口收敛到 `+` 菜单，home/chat 共用同一单例；`ImportedFilesBar` 保留为唯一导入结果展示。**文件类型放宽**：main dialog 去 text-only `filters`，`runImport` 删除 `TEXT_FILE_EXTS` 扩展名白名单，保留普通文件/symlink 拒绝 + `MAX_IMPORT_BYTES` 上限（importFiles.test 的 pdf 用例改为「任意类型可导入」）。**工作目录展示**：`DarvinWorkspaceInfoResponse` 增 `label?`（basename，不下发绝对路径），main `get_workspace_info` 从 `rootPath` 取 basename；context 行 `[📁 label ▾]` 只读展示 + hover tooltip（v0 不实现目录选择器）。i18n 新增 `composer.plus/suite/mic/workspace`（zh/en），移除废弃 `composer.import`；新增 `folder.svg` 图标。lint / test（84 用例）/ renderer vite build 通过。
+- 2026-08-01 · 10 session-workspace-usage · ✅ 6/6 落地（live bug 修复，提前执行）。**main workspace 跟随 active session**：新增 `followActiveWorkspace(sessionId)`（更新 `workspaceLoc` → `ensureWorkspaceRoot` → 以新根 `restartGoSubprocess` 重锚 agent 沙箱），在 `switch_session` / `create_session` / `delete_session` 三入口接入，先改 workspace 再广播（switch 加 `broadcastWorkspaceChanged`，delete 无 next 时 `workspaceLoc=null`）。**renderer useImportedFiles 会话隔离**：模块级 `watch(session.activeSessionId)` 变化即清空 files/workspaceBytes/notice + refetch；`onWorkspaceChanged` 回调加 `info.sessionId !== active` 过滤。**Go emit context_usage**：`event.go` 新增 `ContextUsageEvent`；`dispatcher.go` RunEndEvent 后调 `emitContextUsage()`（`LastUsage().PromptTokens` 优先，**代理不上报 input_tokens 时退回 `ctxengine.EstimateMessageTokens` rune/4 估算**——live 实测 `done` 的 inputTokens=0，spec 原设计前提不成立，此为落地时发现并补充的兜底）；`eventledger.mapEventToTS` 补 case（`status:"unknown"` 由 renderer 派生）+ 新增序列化单测。**工作目录可点击**：`ComposerContextRow` chip `span`→`button`（`@click` → `revealWorkspace()`，`t('imported.reveal')` title/aria，hover 态）；补 `watch(activeSessionId)` 刷新 label（live 发现原 onMounted 只读一次、切换后 chip 残留旧 basename）。**live 验证（playwright 驱动新二进制）**：(1) 切换 `xKY1`↔`2Iqp` 后 `getWorkspaceInfo().label` + `listImportedFiles()` 与 active 一致，文件隔离（xKY1→3 jpg，2Iqp→3 csv）；(2) 真实 prompt 后 `context_usage` 事件流入 renderer（`text_delta→done→context_usage→agent_end`），圆环出现「0% 已用 48 / 上下文 200k」可点击；(3) chip 为 BUTTON，点击 revealWorkspace 无报错。Go `go build`/`go vet`/agent+gateway 单测、lint、test（84 用例）、renderer vite build 全绿。**已知边界**：切换会话重启子进程 ~1s、中断其它在途流式；rune/4 兜底在长会话下低估实际用量（代理不报 input_tokens 时圆环 percent 偏低）。

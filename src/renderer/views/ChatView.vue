@@ -7,14 +7,6 @@
     />
     <MessageList />
     <Composer ref="composerRef" :busy="busy" @send="handleSend" />
-    <div class="px-6 pb-4">
-      <div class="mx-auto flex max-w-[760px] items-center pl-4">
-        <PromptToolbar
-          @grid="onGrid"
-          @mic="onMic"
-        />
-      </div>
-    </div>
   </div>
 </template>
 
@@ -23,7 +15,6 @@ import { ref } from 'vue';
 import ChatHeader from '../components/chat/ChatHeader.vue';
 import MessageList from '../components/chat/MessageList.vue';
 import Composer from '../components/chat/Composer.vue';
-import PromptToolbar from '../components/home/PromptToolbar.vue';
 import { useChatActions } from '../composables/useChatActions';
 
 defineProps<{ sidePanelOpen: boolean }>();
@@ -37,7 +28,4 @@ async function handleSend(content: string) {
   await chatActions.send(content, busy);
   composerRef.value?.focus();
 }
-
-function onGrid() {}
-function onMic() {}
 </script>

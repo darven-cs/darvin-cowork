@@ -85,15 +85,13 @@ describe('runImport', () => {
     expect(((saveCall as unknown[])[1] as { meta: { tag: string } }).meta.tag).toBe('workspace_event');
   });
 
-  it('rejects a non-whitelisted extension', async () => {
+  it('imports files of any extension (no text-only whitelist)', async () => {
     const src = path.join(srcDir, 'photo.pdf');
     fs.writeFileSync(src, '%PDF-1.4');
     const client = fakeClient();
     const res = await runImport(loc, [src], 's1', client);
-    expect(res.imported).toHaveLength(0);
-    expect(res.skipped).toHaveLength(1);
-    expect(res.skipped[0].reason).toBe('unsupported_type');
-    expect(fs.existsSync(path.join(wsRoot, 'photo.pdf'))).toBe(false);
+    expect(res.imported).toHaveLength(1);
+    expect(fs.existsSync(path.join(wsRoot, 'photo.pdf'))).toBe(true);
   });
 
   it('rejects a file over the per-file size limit', async () => {

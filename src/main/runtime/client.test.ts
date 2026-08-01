@@ -64,4 +64,23 @@ describe('parseDarvinEvent', () => {
     const ev = parseDarvinEvent({ type: 'text_delta', messageId: 'm-1', delta: 'hi' });
     expect(ev).toEqual({ type: 'text_delta', messageId: 'm-1', delta: 'hi' });
   });
+
+  it('passes through compaction with before/after tokens', () => {
+    const ev = parseDarvinEvent({
+      type: 'compaction',
+      sessionId: 's1',
+      runId: 'r1',
+      reason: 'manual',
+      checkpointId: 'cp-1',
+      createdAt: 1722522000000,
+      beforeTokens: 80000,
+      afterTokens: 30000,
+    });
+    expect(ev).not.toBeNull();
+    if (ev && ev.type === 'compaction') {
+      expect(ev.reason).toBe('manual');
+      expect(ev.beforeTokens).toBe(80000);
+      expect(ev.afterTokens).toBe(30000);
+    }
+  });
 });

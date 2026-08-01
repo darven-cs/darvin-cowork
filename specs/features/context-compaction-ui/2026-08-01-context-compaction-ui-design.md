@@ -104,12 +104,12 @@ compactContext(sessionId: string): Promise<{ accepted: boolean }>;
 
 ## 6. 验收
 
-- [ ] 圆环点击触发 `compactContext` IPC
-- [ ] compacting 状态旋转动画流畅
-- [ ] 完成后显示 toast + 数字前后对比
-- [ ] `ContextCompactionDivider` 渲染边界
-- [ ] 失败时圆环变红 + toast 提示
-- [ ] i18n 4 态文案齐
+- [x] 圆环点击触发 `compactContext` IPC
+- [x] compacting 状态旋转动画流畅
+- [x] 完成后显示 toast + 数字前后对比
+- [x] `ContextCompactionDivider` 渲染边界
+- [x] 失败时圆环变红 + toast 提示
+- [x] i18n 4 态文案齐
 
 ## 7. 依赖
 

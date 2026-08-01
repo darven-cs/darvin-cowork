@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"strconv"
 	"sync"
 	"time"
 
@@ -214,6 +215,31 @@ func mapEventToTS(ev event.Event, _ string) any {
 			"messageId": ev.Common().MessageID,
 			"message":   e.Err.Error(),
 		})
+	case event.CompactionEvent:
+		reason := "auto"
+		if e.Note == "manual" {
+			reason = "manual"
+		}
+		return withCommon(map[string]any{
+			"type":         ev.EventName(),
+			"reason":       reason,
+			"checkpointId": "cp-" + strconv.FormatInt(time.Now().UnixNano(), 36),
+			"createdAt":    time.Now().UnixMilli(),
+			"beforeTokens": e.Before,
+			"afterTokens":  e.After,
+		})
+	case event.ContextUsageEvent:
+		// status stays "unknown" — the renderer derives the 5-state ring
+		// from percent thresholds via deriveContextStatus.
+		usage := map[string]any{
+			"sessionId":     common.SessionID,
+			"usedTokens":    e.UsedTokens,
+			"contextTokens": e.ContextTokens,
+			"percent":       e.Percent,
+			"status":        "unknown",
+			"updatedAt":     time.Now().UnixMilli(),
+		}
+		return withCommon(map[string]any{"type": "context_usage", "usage": usage})
 	default:
 		return withCommon(map[string]any{"type": ev.EventName()})
 	}

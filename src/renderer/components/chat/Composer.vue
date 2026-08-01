@@ -2,31 +2,21 @@
   <div class="px-6 pb-5 pt-2">
     <ImportedFilesBar class="mb-1.5" />
     <div
-      class="mx-auto flex max-w-[760px] items-end gap-2 rounded-xl border border-border bg-surface-2 px-4 py-3 transition-colors focus-within:border-border-strong"
+      class="mx-auto max-w-[760px] rounded-xl border border-border bg-surface-2 transition-colors focus-within:border-border-strong"
     >
-      <ImportButton />
       <textarea
         ref="textareaRef"
         v-model="text"
-        :placeholder="busy ? 'Darvin 正在思考…' : '给 Darvin 发送消息…'"
+        :placeholder="busy ? t('chat.placeholder.busy') : t('home.prompt.placeholder')"
         :disabled="busy"
         rows="1"
-        class="flex-1 resize-none bg-transparent font-sans text-[14.5px] leading-relaxed text-text outline-none placeholder:text-text-subtle disabled:opacity-50"
+        class="w-full resize-none bg-transparent px-4 pt-3 font-sans text-[14.5px] leading-relaxed text-text outline-none placeholder:text-text-subtle disabled:opacity-50"
         data-testid="composer-textarea"
         @input="autoGrow"
         @keydown="onKeydown"
       />
-      <button
-        type="button"
-        :disabled="!canSend"
-        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all"
-        :class="canSend ? 'bg-accent text-white hover:bg-accent-hover hover:scale-[1.04]' : 'bg-border cursor-not-allowed'"
-        :aria-label="t('chat.send')"
-        data-testid="composer-send"
-        @click="emitSend"
-      >
-        <Icon name="arrow-up" :size="16" />
-      </button>
+      <ComposerToolbar :can-send="canSend" @send="emitSend" @suite="onSuite" @mic="onMic" />
+      <ComposerContextRow />
     </div>
     <p
       v-if="text.length > 50"
@@ -40,8 +30,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
 import { t } from '../../services/i18n';
-import Icon from '../common/Icon.vue';
-import ImportButton from './ImportButton.vue';
+import ComposerToolbar from './ComposerToolbar.vue';
+import ComposerContextRow from './ComposerContextRow.vue';
 import ImportedFilesBar from './ImportedFilesBar.vue';
 
 const props = defineProps<{ busy: boolean }>();
@@ -90,4 +80,7 @@ function focus() {
 }
 
 defineExpose({ focus });
+
+function onSuite() {}
+function onMic() {}
 </script>

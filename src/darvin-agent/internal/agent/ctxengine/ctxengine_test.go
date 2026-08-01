@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/llm"
 )
 
@@ -37,11 +38,17 @@ type fakeDeps struct {
 	provider llm.ModelProvider
 	model    string
 	logger   *zap.Logger
+	emit     func(event.Event)
 }
 
 func (f fakeDeps) Provider() llm.ModelProvider { return f.provider }
 func (f fakeDeps) ModelName() string           { return f.model }
 func (f fakeDeps) Logger() *zap.Logger         { return f.logger }
+func (f fakeDeps) Emit(ev event.Event) {
+	if f.emit != nil {
+		f.emit(ev)
+	}
+}
 
 // newTestAssembler builds an assembler wired to zap.NewNop().
 func newTestAssembler() *DefaultAssembler {

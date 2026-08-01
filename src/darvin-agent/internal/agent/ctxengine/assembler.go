@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/llm"
 )
 
@@ -31,6 +32,9 @@ type Deps interface {
 	Provider() llm.ModelProvider
 	ModelName() string
 	Logger() *zap.Logger
+	// Emit 发布 agent 生命周期事件；DefaultAssembler 在触发压缩后用它
+	// 广播 CompactionEvent，让 EventLedger 能把压缩边界推到 renderer。
+	Emit(ev event.Event)
 }
 
 // DefaultAssembler is the in-process ContextEngine implementation. It is

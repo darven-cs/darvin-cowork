@@ -179,6 +179,45 @@ func TestMapEventToTSDoneUsage(t *testing.T) {
 	})
 }
 
+// TestMapEventToTSContextUsage pins down the context_usage wire shape the
+// renderer consumes (src/shared/darvin-api.ts DarvinContextUsage). status is
+// always "unknown"; the renderer derives the ring state from percent.
+func TestMapEventToTSContextUsage(t *testing.T) {
+	ec := event.EventBase{EventCommon: event.EventCommon{SessionID: "s1"}}
+	got := mapEventToTS(event.ContextUsageEvent{
+		EventBase:     ec,
+		UsedTokens:    40000,
+		ContextTokens: 200000,
+		Percent:       20,
+	}, "s1").(map[string]any)
+
+	if got["type"] != "context_usage" {
+		t.Fatalf("type = %v, want context_usage", got["type"])
+	}
+	if got["sessionId"] != "s1" {
+		t.Errorf("sessionId = %v, want s1", got["sessionId"])
+	}
+	u, ok := got["usage"].(map[string]any)
+	if !ok {
+		t.Fatalf("usage not a map; got %T (%+v)", got["usage"], got)
+	}
+	if u["usedTokens"] != 40000 {
+		t.Errorf("usedTokens = %v, want 40000", u["usedTokens"])
+	}
+	if u["contextTokens"] != 200000 {
+		t.Errorf("contextTokens = %v, want 200000", u["contextTokens"])
+	}
+	if u["percent"] != 20 {
+		t.Errorf("percent = %v, want 20", u["percent"])
+	}
+	if u["status"] != "unknown" {
+		t.Errorf("status = %v, want unknown", u["status"])
+	}
+	if _, present := u["updatedAt"]; !present {
+		t.Errorf("updatedAt missing: %+v", u)
+	}
+}
+
 // TestEmitStubDeliversNotifications pairs a real WebSocket server with a
 // real *client; EmitStub's goroutine writes two frames which the test
 // reads back via the server-side forwarder and asserts on.

@@ -12,6 +12,9 @@ import (
 	"github.com/google/uuid"
 
 	"darvin-cowork/backend/internal/acp"
+	"darvin-cowork/backend/internal/agent"
+	"darvin-cowork/backend/internal/agent/ctxengine"
+	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/store"
 )
 
@@ -260,6 +263,8 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handlePrompt(ctx, req.ID, req.Params, c, h)
 	case "agent.abort":
 		return handleAbort(ctx, req.ID, req.Params, c, h)
+	case "agent.compact_context":
+		return handleCompactContext(ctx, req.ID, req.Params, c, h)
 	case "agent.subscribe_events":
 		return handleSubscribeEvents(ctx, req.ID, req.Params, c, h)
 	case "agent.steer":
@@ -361,6 +366,65 @@ func handleAbort(_ context.Context, id json.RawMessage, params json.RawMessage, 
 		}
 	}
 	return successResp(id, AbortResult{Aborted: true, SessionID: p.SessionID})
+}
+
+// CompactContextParams is the JSON-RPC params for agent.compact_context.
+type CompactContextParams struct {
+	SessionID string `json:"sessionId"`
+}
+
+// CompactContextResult is the JSON-RPC result for agent.compact_context.
+type CompactContextResult struct {
+	Accepted  bool   `json:"accepted"`
+	SessionID string `json:"sessionId"`
+}
+
+// handleCompactContext 触发一次手动上下文压缩。会话不在可压状态
+// （运行中 / 无 assembler / 无 AcpSession）时返回 accepted=false，renderer
+// 保持圆环现状不进入动画。压缩含 LLM 摘要调用，放后台跑避免阻塞 WS 读
+// 循环；最终成败由随后的 compaction 事件驱动 UI。
+func handleCompactContext(_ context.Context, id json.RawMessage, params json.RawMessage, c *client, _ *Handler) *Response {
+	var p CompactContextParams
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+		}
+	}
+	if p.SessionID == "" {
+		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
+	}
+	entry, err := c.sessions.GetOrCreateEntry(p.SessionID)
+	if err != nil || entry.Acp == nil || entry.Acp.Agent == nil {
+		return successResp(id, CompactContextResult{Accepted: false, SessionID: p.SessionID})
+	}
+	a := entry.Acp.Agent
+	if a.IsRunning() || a.Assembler() == nil || !a.AssemblerEnabled() {
+		return successResp(id, CompactContextResult{Accepted: false, SessionID: p.SessionID})
+	}
+	go runManualCompact(a, p.SessionID)
+	return successResp(id, CompactContextResult{Accepted: true, SessionID: p.SessionID})
+}
+
+func runManualCompact(a *agent.Agent, sessionID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	res := a.Assembler().Compact(ctx, ctxengine.CompactParams{
+		SessionID: sessionID,
+		Messages:  a.Session().Messages(),
+		Budget:    a.Config().TokenBudget,
+		Reason:    "manual",
+		LastUsage: a.LastUsage(),
+	})
+	if !res.Success {
+		return
+	}
+	a.Session().ReplaceAll(res.RetainedMessages)
+	a.Emit(event.CompactionEvent{
+		EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: sessionID}},
+		Before:    res.TokensBefore,
+		After:     res.TokensAfter,
+		Note:      "manual",
+	})
 }
 
 // handleSubscribeEvents 走两阶段(FR-8):EnsureEntry 只建 SessionEntry

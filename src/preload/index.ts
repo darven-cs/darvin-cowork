@@ -12,6 +12,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   DarvinAbortResponse,
   DarvinApi,
+  DarvinCompactContextResponse,
   DarvinCreateSessionResponse,
   DarvinDeleteSessionResponse,
   DarvinSwitchSessionResponse,
@@ -82,6 +83,9 @@ const api: DarvinApi = {
   },
   async abort(): Promise<DarvinAbortResponse> {
     return ipcRenderer.invoke('darvin:abort');
+  },
+  async compactContext(sessionId: string): Promise<DarvinCompactContextResponse> {
+    return ipcRenderer.invoke('darvin:compact_context', sessionId);
   },
 
   onEvent(handler: (e: DarvinEvent) => void): () => void {

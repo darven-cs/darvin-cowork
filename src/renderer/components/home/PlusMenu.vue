@@ -8,7 +8,8 @@
       v-for="item in items"
       :key="item.id"
       type="button"
-      class="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+      :disabled="item.id === 'upload' && busy"
+      class="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
       @click="onPick(item.id)"
     >
       <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-2 text-text-muted">
@@ -46,6 +47,8 @@ const items: PlusItem[] = [
 
 const fp = useFloatingPanel();
 const isOpen = computed(() => fp.isActive('plus'));
+
+defineProps<{ busy?: boolean }>();
 
 const emit = defineEmits<{ pick: [id: PlusId] }>();
 

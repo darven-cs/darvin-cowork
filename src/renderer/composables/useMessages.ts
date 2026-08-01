@@ -19,6 +19,9 @@ import type { DarvinAttachment, DarvinContextUsage, DarvinEvent, DarvinMessage, 
 import { assertNever } from '../../shared/darvin-api';
 import { useSession } from './useSession';
 import { getToolKind } from '../services/toolDisplay';
+import { t } from '../services/i18n';
+import { showToast } from '../services/toast';
+import { formatTokenCount } from '../services/tokenFormat';
 
 export interface Message {
   id: string;
@@ -48,19 +51,36 @@ export type AssistantTurnItem =
   | { type: 'assistant'; message: Message }
   | { type: 'tool_group'; toolUse: Message; toolResult: Message | null };
 
+/** 一次上下文压缩的渲染标记（divider / toast 数据源）。 */
+export interface CompactionMarker {
+  checkpointId: string;
+  sessionId: string;
+  reason: 'auto' | 'manual';
+  createdAt: number;
+  beforeTokens?: number;
+  afterTokens?: number;
+}
+
 /** 一个 turn = user 消息 + 其后所有 assistant 消息；无 user 的 assistant 归入 orphan turn。 */
 export interface ConversationTurn {
   id: string;
   userMessage: Message | null;
   assistantItems: AssistantTurnItem[];
+  /** 该 turn 之前发生过的压缩（divider 渲染在其上方）。 */
+  precedingCompactions?: CompactionMarker[];
 }
 
-export function buildConversationTurns(messages: Message[]): ConversationTurn[] {
+export function buildConversationTurns(
+  messages: Message[],
+  markers: CompactionMarker[] = [],
+): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   let current: ConversationTurn | null = null;
   let orphanIndex = 0;
   const groupsByToolUseId = new Map<string, Extract<AssistantTurnItem, { type: 'tool_group' }>>();
   let pendingAdjacentGroup: AssistantTurnItem | null = null;
+  const sortedMarkers = [...markers].sort((a, b) => a.createdAt - b.createdAt);
+  let mi = 0;
 
   const pushAssistant = (item: AssistantTurnItem): void => {
     if (!current) {
@@ -70,9 +90,17 @@ export function buildConversationTurns(messages: Message[]): ConversationTurn[] 
     current.assistantItems.push(item);
   };
 
+  const attachMarkers = (turn: ConversationTurn, anchor: number): void => {
+    while (mi < sortedMarkers.length && sortedMarkers[mi].createdAt <= anchor) {
+      turn.precedingCompactions = [...(turn.precedingCompactions ?? []), sortedMarkers[mi]];
+      mi++;
+    }
+  };
+
   for (const msg of messages) {
     if (msg.role === 'user') {
       current = { id: msg.id, userMessage: msg, assistantItems: [] };
+      attachMarkers(current, msg.createdAt);
       turns.push(current);
       pendingAdjacentGroup = null;
       continue;
@@ -115,13 +143,19 @@ export function buildConversationTurns(messages: Message[]): ConversationTurn[] 
 const messagesBySessionId = ref<Record<string, Message[]>>({});
 const streamingSessionIds = ref<Set<string>>(new Set());
 const unreadSessionIds = ref<Set<string>>(new Set());
-/** spec 03 — 每 session 上下文用量快照，来自 Go 的 `context_usage` 事件。 */
+/** 每 session 上下文用量快照，来自 Go 的 `context_usage` 事件。 */
 const contextUsageBySessionId = ref<Record<string, DarvinContextUsage>>({});
+/** 每 session 已发生的压缩标记，来自 Go 的 `compaction` 事件。 */
+const compactionsBySessionId = ref<Record<string, CompactionMarker[]>>({});
 
 const session = useSession();
 
 const currentMessages = computed<Message[]>(
   () => messagesBySessionId.value[session.activeSessionId.value ?? ''] ?? [],
+);
+
+const currentCompactions = computed<CompactionMarker[]>(
+  () => compactionsBySessionId.value[session.activeSessionId.value ?? ''] ?? [],
 );
 
 /**
@@ -376,11 +410,50 @@ export function useMessages() {
   }
 
   function appendEventFor(sid: string, ev: DarvinEvent): void {
-    // spec 03 — context_usage 是 session 级快照，不落消息 bucket，
-    // 单独维护 contextUsageBySessionId 给 chat header 圆环消费。
+    // context_usage 是 session 级快照，不落消息 bucket，单独维护
+    // contextUsageBySessionId 给 chat header 圆环消费。
     if (ev.type === 'context_usage') {
       const key = ev.usage.sessionId || sid;
       contextUsageBySessionId.value = { ...contextUsageBySessionId.value, [key]: ev.usage };
+    }
+
+    if (ev.type === 'compaction') {
+      const markers = compactionsBySessionId.value[sid] ?? [];
+      if (!markers.some((m) => m.checkpointId === ev.checkpointId)) {
+        compactionsBySessionId.value = {
+          ...compactionsBySessionId.value,
+          [sid]: [...markers, {
+            checkpointId: ev.checkpointId,
+            sessionId: sid,
+            reason: ev.reason,
+            createdAt: ev.createdAt,
+            beforeTokens: ev.beforeTokens,
+            afterTokens: ev.afterTokens,
+          }],
+        };
+      }
+      const prev = contextUsageBySessionId.value[sid];
+      contextUsageBySessionId.value = {
+        ...contextUsageBySessionId.value,
+        [sid]: {
+          sessionId: sid,
+          status: 'normal',
+          usedTokens: prev?.usedTokens,
+          contextTokens: prev?.contextTokens,
+          percent: prev?.percent,
+          compactionCount: (prev?.compactionCount ?? 0) + 1,
+          latestCompactionAt: ev.createdAt,
+          latestCompactionReason: ev.reason,
+          model: prev?.model,
+          updatedAt: Date.now(),
+        },
+      };
+      showToast(
+        t('chat.context.compacted')
+          .replace('{before}', formatTokenCount(ev.beforeTokens ?? 0))
+          .replace('{after}', formatTokenCount(ev.afterTokens ?? 0)),
+        'success',
+      );
     }
 
     const bucket = messagesBySessionId.value[sid] ?? [];
@@ -399,15 +472,64 @@ export function useMessages() {
       streamingSessionIds.value = next;
     }
 
-    // 后台 session 的非 lifecycle 事件 → unread 红点。agent_end / context_usage
-    // 不触发：前者避免 sidebar 在 stream 收尾时闪一下，后者是纯用量快照，
-    // 不该因为后台 token 数字跳动而点亮红点。
-    if (!isCurrent && ev.type !== 'agent_end' && ev.type !== 'context_usage') {
+    // 后台 session 的非 lifecycle 事件 → unread 红点。agent_end / context_usage /
+    // compaction 不触发：前两者避免 stream 收尾闪烁与用量快照跳动，compaction
+    // 是纯压缩边界信号，不该点亮红点。
+    if (
+      !isCurrent
+      && ev.type !== 'agent_end'
+      && ev.type !== 'context_usage'
+      && ev.type !== 'compaction'
+    ) {
       unreadSessionIds.value = new Set([...unreadSessionIds.value, sid]);
     }
   }
 
-  /** 会话删除后清掉其消息缓存与 streaming/unread/context 标记，避免残留。 */
+  /** 手动压缩点击后把圆环切到 compacting 旋转态。 */
+  function beginCompact(sessionId: string): void {
+    const prev = contextUsageBySessionId.value[sessionId];
+    contextUsageBySessionId.value = {
+      ...contextUsageBySessionId.value,
+      [sessionId]: {
+        sessionId,
+        status: 'compacting',
+        compactionReason: 'manual',
+        usedTokens: prev?.usedTokens,
+        contextTokens: prev?.contextTokens,
+        percent: prev?.percent,
+        compactionCount: prev?.compactionCount,
+        latestCompactionAt: prev?.latestCompactionAt,
+        model: prev?.model,
+        updatedAt: Date.now(),
+      },
+    };
+  }
+
+  /** 压缩未被受理（Go 离线 / 会话不可压）时把圆环还原，不 toast。 */
+  function endCompact(sessionId: string): void {
+    const prev = contextUsageBySessionId.value[sessionId];
+    if (!prev) return;
+    contextUsageBySessionId.value = {
+      ...contextUsageBySessionId.value,
+      [sessionId]: { ...prev, status: 'normal', updatedAt: Date.now() },
+    };
+  }
+
+  /** 压缩失败：圆环转红 + toast「压缩失败，可重试」。 */
+  function failCompact(sessionId: string): void {
+    const prev = contextUsageBySessionId.value[sessionId];
+    contextUsageBySessionId.value = {
+      ...contextUsageBySessionId.value,
+      [sessionId]: {
+        ...(prev ?? { sessionId, status: 'unknown' as const }),
+        status: 'danger',
+        updatedAt: Date.now(),
+      },
+    };
+    showToast(t('chat.context.compactionFailed'), 'error');
+  }
+
+  /** 会话删除后清掉其消息缓存与 streaming/unread/context/compaction 标记。 */
   function removeSession(sessionId: string): void {
     const bucket = { ...messagesBySessionId.value };
     delete bucket[sessionId];
@@ -417,6 +539,9 @@ export function useMessages() {
     const cu = { ...contextUsageBySessionId.value };
     delete cu[sessionId];
     contextUsageBySessionId.value = cu;
+    const comp = { ...compactionsBySessionId.value };
+    delete comp[sessionId];
+    compactionsBySessionId.value = comp;
   }
 
   function reset(): void {
@@ -424,6 +549,7 @@ export function useMessages() {
     streamingSessionIds.value = new Set();
     unreadSessionIds.value = new Set();
     contextUsageBySessionId.value = {};
+    compactionsBySessionId.value = {};
   }
 
   return {
@@ -431,11 +557,16 @@ export function useMessages() {
     streamingSessionIds,
     unreadSessionIds,
     contextUsageBySessionId,
+    compactionsBySessionId,
     currentMessages,
+    currentCompactions,
     loadMessages,
     appendUserMessage,
     startAssistantMessage,
     appendEvent,
+    beginCompact,
+    endCompact,
+    failCompact,
     removeSession,
     reset,
   };

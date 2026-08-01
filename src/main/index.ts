@@ -20,10 +20,11 @@ import { installAppMenu } from './menu';
 import { RuntimeMgr, resolveAgentBinaryPath } from './runtime/manager';
 import { AgentClient } from './runtime/client';
 import { EventRouter } from './store/EventRouter';
-import { runImport, TEXT_FILE_EXTS } from './libs/importFiles';
+import { runImport } from './libs/importFiles';
 import { ensureWorkspaceRoot, resolveWorkspaceRoot, type WorkspaceLocation } from './libs/user-paths';
 import type {
   DarvinActiveSessionResponse,
+  DarvinCompactContextResponse,
   DarvinCreateSessionResponse,
   DarvinDeleteSessionResponse,
   DarvinGetMessagesResponse,
@@ -116,6 +117,19 @@ function broadcastWorkspaceChanged(sessionId: string): void {
       console.warn(`[main] workspace changed broadcast failed: ${(e as Error).message}`);
     }
   })();
+}
+
+/**
+ * 把受控 workspace 重锚到指定 session：更新 workspaceLoc + 建目录 + 以新根
+ * 重启 Go 子进程（重新注入 DARVIN_AGENT_WORKSPACE，agent 沙箱随会话切换）。
+ * 相同 session 直接跳过（bootstrap 已锚定）。切换会话会中断其它在途流式，
+ * 成本约 1s，本版本接受（后续可做 Go set_workspace RPC 消除重启）。
+ */
+async function followActiveWorkspace(sessionId: string): Promise<void> {
+  if (workspaceLoc && workspaceLoc.workspaceId === sessionId) return;
+  workspaceLoc = resolveWorkspaceRoot(sessionId);
+  await ensureWorkspaceRoot(workspaceLoc);
+  await restartGoSubprocess(workspaceLoc.rootPath);
 }
 
 function updateCacheFromListSessions(sessions: DarvinSession[]): void {
@@ -224,6 +238,8 @@ ipcMain.handle(
       { title: req?.title },
     );
     cache.activeSessionId = r.session.id;
+    // 重锚 workspace 到新 session（restart 内部已 subscribeAllSessions，幂等）
+    await followActiveWorkspace(r.session.id);
     // 给新 session 在 backend 留一条事件通道
     if (client.isConnected()) {
       try {
@@ -234,6 +250,7 @@ ipcMain.handle(
     }
     await refreshSessionsAndBroadcast();
     broadcastActiveSession();
+    broadcastWorkspaceChanged(r.session.id);
     return r;
   },
 );
@@ -257,9 +274,13 @@ ipcMain.handle(
       { sessionId },
     );
     cache.activeSessionId = r.sessionId;
+    // 重锚 workspace 到新 active session；先改 workspace 再广播，避免
+    // renderer 读到中间态。
+    await followActiveWorkspace(r.sessionId);
     // active 切换后顺手 touch list 的 updatedAt，让 sidebar 排序更新
     await refreshSessionsAndBroadcast();
     broadcastActiveSession();
+    broadcastWorkspaceChanged(r.sessionId);
     return r;
   },
 );
@@ -289,6 +310,13 @@ ipcMain.handle(
       console.warn(`[main] workspace cleanup failed for ${sessionId}: ${(e as Error).message}`);
     }
     cache.activeSessionId = r.nextActiveSessionId;
+    if (r.nextActiveSessionId) {
+      await followActiveWorkspace(r.nextActiveSessionId);
+      broadcastWorkspaceChanged(r.nextActiveSessionId);
+    } else {
+      // 无会话空态：没有可跟随的 workspace
+      workspaceLoc = null;
+    }
     await refreshSessionsAndBroadcast();
     broadcastActiveSession();
     return r;
@@ -362,7 +390,6 @@ ipcMain.handle(
     const result = await dialog.showOpenDialog(win, {
       title: '选择要导入的文件',
       properties: ['openFile', 'multiSelections'],
-      filters: [{ name: 'Text files', extensions: TEXT_FILE_EXTS }],
     });
     if (result.canceled || result.filePaths.length === 0) {
       return { imported: [], skipped: [] };
@@ -419,10 +446,13 @@ ipcMain.handle(
 ipcMain.handle(
   'darvin:get_workspace_info',
   async (): Promise<DarvinWorkspaceInfoResponse> => {
-    if (!workspaceLoc || !client.isConnected()) return { workspaceBytes: 0 };
-    return client.request<DarvinWorkspaceInfoResponse>('agent.get_workspace_info', {
+    if (!workspaceLoc || !client.isConnected()) {
+      return { workspaceBytes: 0, label: workspaceLoc ? path.basename(workspaceLoc.rootPath) : undefined };
+    }
+    const r = await client.request<DarvinWorkspaceInfoResponse>('agent.get_workspace_info', {
       sessionId: workspaceLoc.workspaceId,
     });
+    return { ...r, label: path.basename(workspaceLoc.rootPath) };
   },
 );
 
@@ -458,6 +488,18 @@ ipcMain.handle(
     } catch (e) {
       currentRunIdBySessionId.delete(sessionId);
       throw e;
+    }
+  },
+);
+
+ipcMain.handle(
+  'darvin:compact_context',
+  async (_e, sessionId: string): Promise<DarvinCompactContextResponse> => {
+    if (!client.isConnected() || !sessionId) return { accepted: false, sessionId: '' };
+    try {
+      return await client.request<DarvinCompactContextResponse>('agent.compact_context', { sessionId });
+    } catch {
+      return { accepted: false, sessionId };
     }
   },
 );

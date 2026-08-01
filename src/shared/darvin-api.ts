@@ -148,6 +148,8 @@ export interface DarvinContextUsage {
   compactionCount?: number;
   latestCompactionAt?: number;
   latestCompactionReason?: string;
+  /** 当前正在进行的压缩来源（手动 / 自动），圆环 tooltip 区分展示。 */
+  compactionReason?: 'manual' | 'auto';
   model?: string;
   updatedAt: number;
 }
@@ -189,7 +191,17 @@ export type DarvinEvent =
   | { type: 'done'; sessionId?: string; runId?: string; messageId: string; usage?: DarvinUsage }
   | { type: 'error'; sessionId?: string; runId?: string; messageId: string; message: string }
   | { type: 'agent_end'; sessionId?: string; runId?: string }
-  | { type: 'compaction'; sessionId: string; runId: string; reason: 'auto' | 'manual'; checkpointId: string; createdAt: number }
+  | {
+      type: 'compaction';
+      sessionId: string;
+      runId: string;
+      reason: 'auto' | 'manual';
+      checkpointId: string;
+      createdAt: number;
+      /** Go CompactionEvent 携带压缩前后 token 数，toast / divider 展示。 */
+      beforeTokens?: number;
+      afterTokens?: number;
+    }
   | { type: 'context_usage'; sessionId: string; usage: DarvinContextUsage }
   | { type: 'artifact'; sessionId: string; artifactId: string; kind: DarvinArtifactKind; name?: string; content: string; createdAt: number };
 
@@ -209,6 +221,16 @@ export interface DarvinPromptResponse {
 
 export interface DarvinAbortResponse {
   aborted: boolean;
+  sessionId: string;
+}
+
+/**
+ * 手动压缩结果。`accepted:false` 表示 Go 未就绪 / 会话不在可压状态
+ * （不进入 compacting 动画、不 toast，避免假压缩）；`accepted:true`
+ * 表示压缩管线已启动，最终成败由随后的 `compaction` 事件驱动 UI。
+ */
+export interface DarvinCompactContextResponse {
+  accepted: boolean;
   sessionId: string;
 }
 
@@ -308,6 +330,8 @@ export interface DarvinRemoveImportedFileResponse {
 
 export interface DarvinWorkspaceInfoResponse {
   workspaceBytes: number;
+  /** workspace 根的展示名（basename）；绝对路径不下发。 */
+  label?: string;
 }
 
 export const DarvinPushEvent = {
@@ -333,6 +357,9 @@ export interface DarvinApi {
 
   prompt(req: DarvinPromptRequest): Promise<DarvinPromptResponse>;
   abort(): Promise<DarvinAbortResponse>;
+
+  /** 手动触发当前 session 上下文压缩。 */
+  compactContext(sessionId: string): Promise<DarvinCompactContextResponse>;
 
   onEvent(handler: (e: DarvinEvent) => void): () => void;
 

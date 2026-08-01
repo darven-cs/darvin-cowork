@@ -19,14 +19,6 @@ import type {
   DarvinListImportedFilesResponse,
 } from '../../shared/darvin-api';
 
-/** v0 text-only 导入白名单；.env 及 binary 类型不在其中。 */
-export const TEXT_FILE_EXTS = [
-  'md', 'markdown', 'txt', 'json', 'yaml', 'yml', 'ts', 'tsx', 'js', 'jsx',
-  'vue', 'css', 'html', 'htm', 'xml', 'go', 'py', 'java', 'c', 'h', 'cpp',
-  'hpp', 'rs', 'rb', 'sh', 'bash', 'zsh', 'toml', 'ini', 'conf', 'log',
-  'csv', 'sql', 'graphql', 'proto', 'svg',
-];
-
 export function formatBytes(b: number): string {
   if (b < 1024) return `${b} B`;
   const kb = b / 1024;
@@ -83,7 +75,7 @@ function mapGoSkipReason(reason: string): DarvinImportErrorCode {
 }
 
 /**
- * 串行处理每个源文件：类型/大小白名单检查 → 拷贝到 workspace → 调 Go 端
+ * 串行处理每个源文件：普通文件 / 大小校验 → 拷贝到 workspace → 调 Go 端
  * import_files 入库。成功文件汇总后注入一条 workspace_event system note。
  */
 export async function runImport(
@@ -115,11 +107,6 @@ export async function runImport(
       }
       if (lst.size > MAX_IMPORT_BYTES) {
         skipped.push({ sourcePath: src, reason: 'too_large', message: `file size ${lst.size} > ${MAX_IMPORT_BYTES}` });
-        continue;
-      }
-      const ext = path.extname(src).toLowerCase().slice(1);
-      if (!TEXT_FILE_EXTS.includes(ext)) {
-        skipped.push({ sourcePath: src, reason: 'unsupported_type', message: `extension ${ext} not in whitelist` });
         continue;
       }
 

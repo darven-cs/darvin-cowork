@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { buildConversationTurns, useMessages } from './useMessages';
+import { buildConversationTurns, useMessages, type Message } from './useMessages';
 
 const messages = useMessages();
 
@@ -180,5 +180,111 @@ describe('useMessages context usage (spec 03)', () => {
     messages.startAssistantMessage('s1', 'm1');
     messages.appendEvent({ type: 'done', sessionId: 's1', messageId: 'm1' });
     expect(messages.messagesBySessionId.value.s1[0].usage).toBeUndefined();
+  });
+});
+
+describe('useMessages compaction events', () => {
+  it('records compaction marker and updates context usage snapshot', () => {
+    messages.appendEvent({
+      type: 'context_usage',
+      sessionId: 's1',
+      usage: { sessionId: 's1', status: 'warning', percent: 80, usedTokens: 80_000, contextTokens: 100_000, updatedAt: 1 },
+    });
+    messages.appendEvent({
+      type: 'compaction',
+      sessionId: 's1',
+      runId: 'r1',
+      reason: 'manual',
+      checkpointId: 'cp-1',
+      createdAt: 2000,
+      beforeTokens: 80_000,
+      afterTokens: 30_000,
+    });
+    expect(messages.compactionsBySessionId.value.s1).toHaveLength(1);
+    expect(messages.compactionsBySessionId.value.s1[0].checkpointId).toBe('cp-1');
+    expect(messages.compactionsBySessionId.value.s1[0].beforeTokens).toBe(80_000);
+    const cu = messages.contextUsageBySessionId.value.s1;
+    expect(cu.status).toBe('normal');
+    expect(cu.compactionCount).toBe(1);
+    expect(cu.latestCompactionAt).toBe(2000);
+    expect(cu.latestCompactionReason).toBe('manual');
+  });
+
+  it('dedupes compaction events by checkpointId', () => {
+    const ev = {
+      type: 'compaction' as const,
+      sessionId: 's1',
+      runId: 'r1',
+      reason: 'manual' as const,
+      checkpointId: 'cp-1',
+      createdAt: 2000,
+    };
+    messages.appendEvent(ev);
+    messages.appendEvent(ev);
+    expect(messages.compactionsBySessionId.value.s1).toHaveLength(1);
+  });
+
+  it('does not mark session as unread on compaction', () => {
+    messages.appendEvent({ type: 'compaction', sessionId: 's9', runId: 'r1', reason: 'auto', checkpointId: 'cp-1', createdAt: 1 });
+    expect(messages.unreadSessionIds.value.has('s9')).toBe(false);
+  });
+
+  it('beginCompact sets compacting; endCompact reverts to normal', () => {
+    messages.appendEvent({ type: 'context_usage', sessionId: 's1', usage: { sessionId: 's1', status: 'warning', percent: 80, updatedAt: 1 } });
+    messages.beginCompact('s1');
+    expect(messages.contextUsageBySessionId.value.s1.status).toBe('compacting');
+    messages.endCompact('s1');
+    expect(messages.contextUsageBySessionId.value.s1.status).toBe('normal');
+    expect(messages.contextUsageBySessionId.value.s1.percent).toBe(80);
+  });
+
+  it('beginCompact creates a compacting snapshot without prior usage data', () => {
+    messages.beginCompact('s1');
+    expect(messages.contextUsageBySessionId.value.s1.status).toBe('compacting');
+    messages.endCompact('s1');
+    expect(messages.contextUsageBySessionId.value.s1.status).toBe('normal');
+  });
+
+  it('failCompact sets danger status', () => {
+    messages.beginCompact('s1');
+    messages.failCompact('s1');
+    expect(messages.contextUsageBySessionId.value.s1.status).toBe('danger');
+  });
+
+  it('clears compaction markers on removeSession and reset', () => {
+    messages.appendEvent({ type: 'compaction', sessionId: 's1', runId: 'r1', reason: 'manual', checkpointId: 'cp-1', createdAt: 1 });
+    messages.removeSession('s1');
+    expect(messages.compactionsBySessionId.value.s1).toBeUndefined();
+
+    messages.appendEvent({ type: 'compaction', sessionId: 's2', runId: 'r1', reason: 'manual', checkpointId: 'cp-2', createdAt: 1 });
+    messages.reset();
+    expect(messages.compactionsBySessionId.value.s2).toBeUndefined();
+  });
+});
+
+describe('buildConversationTurns compaction dividers', () => {
+  it('attaches a marker arriving before a user turn as precedingCompactions', () => {
+    const marker = { checkpointId: 'cp-1', sessionId: 's1', reason: 'manual' as const, createdAt: 2000 };
+    const userMsg: Message = { id: 'u1', sessionId: 's1', role: 'user', content: 'hi', done: true, createdAt: 3000 };
+    const turns = buildConversationTurns([userMsg], [marker]);
+    expect(turns).toHaveLength(1);
+    expect(turns[0].precedingCompactions).toHaveLength(1);
+    expect(turns[0].precedingCompactions?.[0].checkpointId).toBe('cp-1');
+  });
+
+  it('keeps a marker arriving after a turn for the next turn', () => {
+    const marker = { checkpointId: 'cp-1', sessionId: 's1', reason: 'auto' as const, createdAt: 5000 };
+    const u1: Message = { id: 'u1', sessionId: 's1', role: 'user', content: 'a', done: true, createdAt: 1000 };
+    const u2: Message = { id: 'u2', sessionId: 's1', role: 'user', content: 'b', done: true, createdAt: 8000 };
+    const turns = buildConversationTurns([u1, u2], [marker]);
+    expect(turns[0].precedingCompactions).toBeUndefined();
+    expect(turns[1].precedingCompactions).toHaveLength(1);
+  });
+
+  it('does not attach markers without a later turn', () => {
+    const marker = { checkpointId: 'cp-1', sessionId: 's1', reason: 'manual' as const, createdAt: 100 };
+    const userMsg: Message = { id: 'u1', sessionId: 's1', role: 'user', content: 'hi', done: true, createdAt: 50 };
+    const turns = buildConversationTurns([userMsg], [marker]);
+    expect(turns[0].precedingCompactions).toBeUndefined();
   });
 });
