@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"darvin-cowork/backend/internal/acp"
 	"darvin-cowork/backend/internal/agent/store"
@@ -152,7 +156,7 @@ type DeleteSessionParams struct {
 // DeleteSessionResult is the JSON-RPC result for agent.delete_session.
 // nextActiveSessionId is null when the deleted session was the last one.
 type DeleteSessionResult struct {
-	Deleted            bool    `json:"deleted"`
+	Deleted             bool    `json:"deleted"`
 	NextActiveSessionID *string `json:"nextActiveSessionId"`
 }
 
@@ -182,7 +186,7 @@ type SearchHitWire struct {
 // SearchSessionsResult is the JSON-RPC result for agent.search_sessions:
 // sessions whose title matches plus message hits whose content matches.
 type SearchSessionsResult struct {
-	Sessions []SessionWire  `json:"sessions"`
+	Sessions []SessionWire   `json:"sessions"`
 	Messages []SearchHitWire `json:"messages"`
 }
 
@@ -193,6 +197,14 @@ type SearchSessionsResult struct {
 // Loop 不再挂在 Handler 上 —— prompt 路径按 sessionID 路由到对应 entry 的
 // per-session Loop(见 handlePrompt)。Steer 仍接全局 Agent(本期不迁,见
 // spec §1.3 非目标)。
+// HandlerOptions carries the optional workspace / imported-file wiring.
+// Kept separate from the required constructor args so existing call sites
+// (and handler tests) do not need to change.
+type HandlerOptions struct {
+	ImportedFiles *store.ImportedFileStore
+	WorkspaceRoot string
+}
+
 type Handler struct {
 	Sessions     *SessionManager
 	Ledger       *EventLedger
@@ -203,11 +215,18 @@ type Handler struct {
 	// create_session / delete_session 的 active 推进)。nil 时 get_active
 	// 返 null、set/create 只做内存侧行为。
 	AppState *store.AppStateStore
+	// ImportedFiles 支撑 agent.import_files / list_imported_files /
+	// remove_imported_file / get_workspace_info。nil 时这些 handler 返回
+	// 空结果,便于 handler 测试 stub。
+	ImportedFiles *store.ImportedFileStore
+	// WorkspaceRoot 是 agent 的沙箱根(env DARVIN_AGENT_WORKSPACE),
+	// import_files 用它做 sourcePaths 的 containment check。
+	WorkspaceRoot string
 }
 
 // NewHandler wires the dependencies. main.go 注入 SessionManager /
 // EventLedger / SteerControl 与两个 store 及 AppStateStore;Loop 不再
-// 入参。
+// 入参。opts 可选携带 ImportedFiles / WorkspaceRoot。
 func NewHandler(
 	s *SessionManager,
 	l *EventLedger,
@@ -215,14 +234,21 @@ func NewHandler(
 	sessStore store.SessionStore,
 	msgStore store.MessageStore,
 	appState *store.AppStateStore,
+	opts ...HandlerOptions,
 ) *Handler {
+	var o HandlerOptions
+	if len(opts) > 0 {
+		o = opts[0]
+	}
 	return &Handler{
-		Sessions:     s,
-		Ledger:       l,
-		Steer:        steer,
-		SessionStore: sessStore,
-		MessageStore: msgStore,
-		AppState:     appState,
+		Sessions:      s,
+		Ledger:        l,
+		Steer:         steer,
+		SessionStore:  sessStore,
+		MessageStore:  msgStore,
+		AppState:      appState,
+		ImportedFiles: o.ImportedFiles,
+		WorkspaceRoot: o.WorkspaceRoot,
 	}
 }
 
@@ -254,6 +280,16 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleRenameSession(ctx, req.ID, req.Params, h)
 	case "agent.search_sessions":
 		return handleSearchSessions(ctx, req.ID, req.Params, h)
+	case "agent.save_message":
+		return handleSaveMessage(ctx, req.ID, req.Params, h)
+	case "agent.import_files":
+		return handleImportFiles(ctx, req.ID, req.Params, h)
+	case "agent.list_imported_files":
+		return handleListImportedFiles(ctx, req.ID, req.Params, h)
+	case "agent.remove_imported_file":
+		return handleRemoveImportedFile(ctx, req.ID, req.Params, h)
+	case "agent.get_workspace_info":
+		return handleGetWorkspaceInfo(ctx, req.ID, req.Params, h)
 	default:
 		return errorResp(req.ID, CodeMethodNotFound,
 			"Method not found: "+req.Method, nil)
@@ -539,6 +575,14 @@ func handleDeleteSession(ctx context.Context, id json.RawMessage, params json.Ra
 		}
 	}
 
+	// 级联删除该 session 的 imported_files 行;workspace 目录本身由 main
+	// 端在 darvin:delete_session handler 里 fs.rm(递归)清掉。
+	if h.ImportedFiles != nil {
+		if err := h.ImportedFiles.DeleteBySession(ctx, p.SessionID); err != nil {
+			return errorResp(id, CodeInternalError, "session imported files delete", err)
+		}
+	}
+
 	// 计算 nextActive:非删 active 时保持原 active;删 active 时取列表首条。
 	var next *string
 	if h.AppState != nil {
@@ -664,4 +708,313 @@ func toMessageRecord(r store.Message) store.MessageRecord {
 		Error:      r.Error,
 		ToolLabel:  r.ToolLabel,
 	}
+}
+
+// SaveMessageParams is the JSON-RPC params for agent.save_message. The role
+// is derived from meta.tag when present ('workspace_event' → system), else
+// taken from role with a 'user' fallback.
+type SaveMessageParams struct {
+	SessionID string `json:"sessionId"`
+	Content   string `json:"content"`
+	Role      string `json:"role"`
+	Meta      *struct {
+		Tag string `json:"tag"`
+	} `json:"meta"`
+}
+
+// SaveMessageResult is the JSON-RPC result for agent.save_message.
+type SaveMessageResult struct {
+	ID string `json:"id"`
+}
+
+// ImportFilesParams is the JSON-RPC params for agent.import_files. main
+// copies each file into the workspace first and passes the workspace-absolute
+// sourcePaths plus the workspace-relative names; the Go side only records
+// rows and re-validates containment.
+type ImportFilesParams struct {
+	SessionID         string   `json:"sessionId"`
+	SourcePaths       []string `json:"sourcePaths"`
+	WorkspaceRelPaths []string `json:"workspaceRelPaths"`
+	Shas              []string `json:"shas"`
+	Sizes             []int64  `json:"sizes"`
+	OriginalNames     []string `json:"originalNames"`
+}
+
+// ImportedFileWire is the renderer-facing imported file shape (matches
+// DarvinImportedFile in src/shared/darvin-api.ts). ImportedAt is unix
+// milliseconds.
+type ImportedFileWire struct {
+	ID           string  `json:"id"`
+	OriginalName string  `json:"originalName"`
+	RelativePath string  `json:"relativePath"`
+	Size         int64   `json:"size"`
+	MimeType     *string `json:"mimeType"`
+	Sha256       string  `json:"sha256"`
+	ImportedAt   int64   `json:"importedAt"`
+}
+
+// ImportSkipWire is one rejected import entry.
+type ImportSkipWire struct {
+	SourcePath string `json:"sourcePath"`
+	Reason     string `json:"reason"`
+	Message    string `json:"message"`
+}
+
+// ImportFilesResult is the JSON-RPC result for agent.import_files.
+type ImportFilesResult struct {
+	Imported []ImportedFileWire `json:"imported"`
+	Skipped  []ImportSkipWire   `json:"skipped"`
+}
+
+// ListImportedFilesParams is the JSON-RPC params for agent.list_imported_files.
+type ListImportedFilesParams struct {
+	SessionID string `json:"sessionId"`
+}
+
+// ListImportedFilesResult is the JSON-RPC result for agent.list_imported_files.
+type ListImportedFilesResult struct {
+	Files          []ImportedFileWire `json:"files"`
+	WorkspaceBytes int64              `json:"workspaceBytes"`
+}
+
+// RemoveImportedFileParams is the JSON-RPC params for agent.remove_imported_file.
+type RemoveImportedFileParams struct {
+	SessionID string `json:"sessionId"`
+	RelPath   string `json:"relPath"`
+}
+
+// RemoveImportedFileResult is the JSON-RPC result for agent.remove_imported_file.
+type RemoveImportedFileResult struct {
+	Removed bool `json:"removed"`
+}
+
+// GetWorkspaceInfoResult is the JSON-RPC result for agent.get_workspace_info.
+type GetWorkspaceInfoResult struct {
+	WorkspaceBytes int64 `json:"workspaceBytes"`
+}
+
+// handleSaveMessage inserts one message row. main 用它注入 workspace_event
+// system note(导入 / 移除文件),role 由 meta.tag 派生。
+func handleSaveMessage(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if len(params) == 0 {
+		return errorResp(id, CodeInvalidParams, "params required", nil)
+	}
+	var p SaveMessageParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if p.SessionID == "" {
+		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
+	}
+	if strings.TrimSpace(p.Content) == "" {
+		return errorResp(id, CodeInvalidParams, "content is required", nil)
+	}
+	if h.MessageStore == nil {
+		return errorResp(id, CodeInternalError, "message store not configured", nil)
+	}
+	role := p.Role
+	if p.Meta != nil && p.Meta.Tag == "workspace_event" {
+		role = "system"
+	}
+	if role == "" {
+		role = "user"
+	}
+	msgID := uuid.NewString()
+	if err := h.MessageStore.Save(ctx, &store.MessageRecord{
+		ID:        msgID,
+		SessionID: p.SessionID,
+		Role:      role,
+		Content:   p.Content,
+		Timestamp: time.Now().UnixMilli(),
+	}); err != nil {
+		return errorResp(id, CodeInternalError, "save message", err)
+	}
+	return successResp(id, SaveMessageResult{ID: msgID})
+}
+
+// handleImportFiles records already-copied workspace files as ImportedFile
+// rows. Each sourcePath is re-checked against WorkspaceRoot (realpath
+// containment) so an injected path cannot reference a file outside the
+// sandbox.
+func handleImportFiles(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if len(params) == 0 {
+		return errorResp(id, CodeInvalidParams, "params required", nil)
+	}
+	var p ImportFilesParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if p.SessionID == "" {
+		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
+	}
+	result := ImportFilesResult{Imported: []ImportedFileWire{}, Skipped: []ImportSkipWire{}}
+	if h.ImportedFiles == nil {
+		return successResp(id, result)
+	}
+	for i, src := range p.SourcePaths {
+		relPath := at(p.WorkspaceRelPaths, i)
+		if err := workspaceContained(h.WorkspaceRoot, src); err != nil {
+			result.Skipped = append(result.Skipped, ImportSkipWire{SourcePath: src, Reason: "path_escapes", Message: err.Error()})
+			continue
+		}
+		if relPath == "" || filepath.IsAbs(relPath) || strings.HasPrefix(relPath, "..") {
+			result.Skipped = append(result.Skipped, ImportSkipWire{SourcePath: src, Reason: "path_escapes", Message: "workspace-relative path is invalid"})
+			continue
+		}
+		info, err := os.Lstat(src)
+		if err != nil || !info.Mode().IsRegular() {
+			result.Skipped = append(result.Skipped, ImportSkipWire{SourcePath: src, Reason: "unsupported_type", Message: "not a regular file"})
+			continue
+		}
+		rec := store.ImportedFile{
+			ID:           uuid.NewString(),
+			SessionID:    p.SessionID,
+			OriginalName: at(p.OriginalNames, i),
+			RelativePath: relPath,
+			Size:         intAt(p.Sizes, i),
+			Sha256:       at(p.Shas, i),
+		}
+		if rec.OriginalName == "" {
+			rec.OriginalName = filepath.Base(relPath)
+		}
+		if rec.Size == 0 {
+			rec.Size = info.Size()
+		}
+		inserted, err := h.ImportedFiles.Insert(ctx, rec)
+		if err != nil {
+			reason := "import_failed"
+			switch {
+			case errors.Is(err, store.ErrWorkspaceFull):
+				reason = "workspace_full"
+			case errors.Is(err, store.ErrDuplicate):
+				reason = "duplicate"
+			}
+			result.Skipped = append(result.Skipped, ImportSkipWire{SourcePath: src, Reason: reason, Message: err.Error()})
+			continue
+		}
+		result.Imported = append(result.Imported, toImportedFileWire(inserted))
+	}
+	return successResp(id, result)
+}
+
+// handleListImportedFiles returns the session's imported files plus the
+// current workspace byte total.
+func handleListImportedFiles(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	var p ListImportedFilesParams
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+		}
+	}
+	if p.SessionID == "" {
+		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
+	}
+	result := ListImportedFilesResult{Files: []ImportedFileWire{}, WorkspaceBytes: 0}
+	if h.ImportedFiles == nil {
+		return successResp(id, result)
+	}
+	rows, err := h.ImportedFiles.List(ctx, p.SessionID)
+	if err != nil {
+		return errorResp(id, CodeInternalError, "list imported files", err)
+	}
+	sum, err := h.ImportedFiles.SumBytes(ctx, p.SessionID)
+	if err != nil {
+		return errorResp(id, CodeInternalError, "sum imported bytes", err)
+	}
+	out := make([]ImportedFileWire, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, toImportedFileWire(r))
+	}
+	result.Files = out
+	result.WorkspaceBytes = sum
+	return successResp(id, result)
+}
+
+// handleRemoveImportedFile deletes the ImportedFile row. The physical file
+// removal and the renderer-side system note are handled by main.
+func handleRemoveImportedFile(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if len(params) == 0 {
+		return errorResp(id, CodeInvalidParams, "params required", nil)
+	}
+	var p RemoveImportedFileParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if p.SessionID == "" || p.RelPath == "" {
+		return errorResp(id, CodeInvalidParams, "sessionId and relPath are required", nil)
+	}
+	if filepath.IsAbs(p.RelPath) || strings.HasPrefix(p.RelPath, "..") {
+		return errorResp(id, CodeInvalidParams, "relPath must be a workspace-relative path", nil)
+	}
+	if h.ImportedFiles == nil {
+		return successResp(id, RemoveImportedFileResult{Removed: false})
+	}
+	if err := h.ImportedFiles.Delete(ctx, p.SessionID, p.RelPath); err != nil {
+		return errorResp(id, CodeInternalError, "remove imported file", err)
+	}
+	return successResp(id, RemoveImportedFileResult{Removed: true})
+}
+
+// handleGetWorkspaceInfo returns the session's current workspace byte total
+// without exposing the workspace root path (main owns that).
+func handleGetWorkspaceInfo(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	var p ListImportedFilesParams
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+		}
+	}
+	if p.SessionID == "" {
+		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
+	}
+	if h.ImportedFiles == nil {
+		return successResp(id, GetWorkspaceInfoResult{WorkspaceBytes: 0})
+	}
+	sum, err := h.ImportedFiles.SumBytes(ctx, p.SessionID)
+	if err != nil {
+		return errorResp(id, CodeInternalError, "sum imported bytes", err)
+	}
+	return successResp(id, GetWorkspaceInfoResult{WorkspaceBytes: sum})
+}
+
+// toImportedFileWire projects a store.ImportedFile onto the wire shape.
+func toImportedFileWire(r store.ImportedFile) ImportedFileWire {
+	return ImportedFileWire{
+		ID:           r.ID,
+		OriginalName: r.OriginalName,
+		RelativePath: r.RelativePath,
+		Size:         r.Size,
+		MimeType:     r.MimeType,
+		Sha256:       r.Sha256,
+		ImportedAt:   r.ImportedAt.UnixMilli(),
+	}
+}
+
+// workspaceContained reports whether abs sits under the workspace root.
+func workspaceContained(root, abs string) error {
+	if root == "" {
+		return errors.New("workspace root not configured")
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return err
+	}
+	if filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return errors.New("source path escapes workspace root")
+	}
+	return nil
+}
+
+func at(xs []string, i int) string {
+	if i >= 0 && i < len(xs) {
+		return xs[i]
+	}
+	return ""
+}
+
+func intAt(xs []int64, i int) int64 {
+	if i >= 0 && i < len(xs) {
+		return xs[i]
+	}
+	return 0
 }

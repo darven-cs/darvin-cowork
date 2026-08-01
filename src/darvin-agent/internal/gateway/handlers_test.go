@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -88,14 +90,16 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 	if err != nil {
 		t.Fatalf("gorm.Open: %v", err)
 	}
-	if err := db.AutoMigrate(&store.Session{}, &store.Message{}, &store.CompactionCheckpoint{}, &store.SkillSnapshot{}, &store.AppState{}); err != nil {
+	if err := db.AutoMigrate(&store.Session{}, &store.Message{}, &store.CompactionCheckpoint{}, &store.SkillSnapshot{}, &store.AppState{}, &store.ImportedFile{}); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
 	sessStore := store.NewSQLiteStore(db)
 	msgStore := store.NewSQLiteMessageStore(db)
 	appState := store.NewAppStateStore(db)
+	ifs := store.NewImportedFileStore(db)
 
-	handler := NewHandler(sessions, ledger, steer, sessStore, msgStore, appState)
+	handler := NewHandler(sessions, ledger, steer, sessStore, msgStore, appState,
+		HandlerOptions{ImportedFiles: ifs, WorkspaceRoot: t.TempDir()})
 	client := &client{
 		sessions: sessions,
 		ledger:   ledger,
@@ -914,4 +918,190 @@ func (b *blockingProvider) Stream(ctx context.Context, _ *llm.CompletionRequest)
 		close(ch)
 	}()
 	return llm.NewStreamingResponse(ch, nil), nil
+}
+
+// newWorkspaceTestHandler builds a handler with a real SQLite store set plus
+// an ImportedFileStore bound to a known workspace root, returning the root so
+// tests can stage files.
+func newWorkspaceTestHandler(t *testing.T) (*Handler, *client, string) {
+	t.Helper()
+	root := t.TempDir()
+	dsn := filepath.Join(t.TempDir(), "sessions.db")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("gorm.Open: %v", err)
+	}
+	if err := db.AutoMigrate(&store.Session{}, &store.Message{}, &store.ImportedFile{}); err != nil {
+		t.Fatalf("AutoMigrate: %v", err)
+	}
+	sessStore := store.NewSQLiteStore(db)
+	msgStore := store.NewSQLiteMessageStore(db)
+	ifs := store.NewImportedFileStore(db)
+	ledger := NewEventLedger(zap.NewNop())
+	ledger.fakeDelay = 0
+	handler := NewHandler(NewSessionManager(), ledger, nil, sessStore, msgStore, nil,
+		HandlerOptions{ImportedFiles: ifs, WorkspaceRoot: root})
+	c := &client{sessions: handler.Sessions, ledger: ledger, handler: handler, log: zap.NewNop()}
+	return handler, c, root
+}
+
+func TestHandleSaveMessageWorkspaceEvent(t *testing.T) {
+	h, c, _ := newWorkspaceTestHandler(t)
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.save_message",
+		Params: json.RawMessage(`{"sessionId":"s1","content":"[系统] 用户导入了文件: a.md","meta":{"tag":"workspace_event"}}`),
+	}, c, h)
+	if resp.Error != nil {
+		t.Fatalf("save_message: %+v", resp.Error)
+	}
+	rows, err := h.MessageStore.List(context.Background(), "s1", 0, 0)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("List: rows=%d err=%v", len(rows), err)
+	}
+	if rows[0].Role != "system" {
+		t.Errorf("role = %q, want system", rows[0].Role)
+	}
+}
+
+func TestHandleSaveMessageDefaultRole(t *testing.T) {
+	h, c, _ := newWorkspaceTestHandler(t)
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.save_message",
+		Params: json.RawMessage(`{"sessionId":"s1","content":"hello"}`),
+	}, c, h)
+	if resp.Error != nil {
+		t.Fatalf("save_message: %+v", resp.Error)
+	}
+	rows, _ := h.MessageStore.List(context.Background(), "s1", 0, 0)
+	if rows[0].Role != "user" {
+		t.Errorf("role = %q, want user", rows[0].Role)
+	}
+}
+
+func TestHandleImportFilesHappyPath(t *testing.T) {
+	h, c, root := newWorkspaceTestHandler(t)
+	src := filepath.Join(root, "spec.md")
+	if err := os.WriteFile(src, []byte("# hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.import_files",
+		Params: json.RawMessage(`{"sessionId":"s1","sourcePaths":["` + src + `"],"workspaceRelPaths":["spec.md"],"shas":["abc"],"sizes":[5],"originalNames":["spec.md"]}`),
+	}, c, h)
+	if resp.Error != nil {
+		t.Fatalf("import_files: %+v", resp.Error)
+	}
+	res := resp.Result.(ImportFilesResult)
+	if len(res.Imported) != 1 || len(res.Skipped) != 0 {
+		t.Fatalf("imported=%d skipped=%d, want 1/0", len(res.Imported), len(res.Skipped))
+	}
+	if res.Imported[0].RelativePath != "spec.md" {
+		t.Errorf("relativePath = %q, want spec.md", res.Imported[0].RelativePath)
+	}
+}
+
+func TestHandleImportFilesPathTraversal(t *testing.T) {
+	h, c, root := newWorkspaceTestHandler(t)
+	_ = root
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.import_files",
+		Params: json.RawMessage(`{"sessionId":"s1","sourcePaths":["/etc/passwd"],"workspaceRelPaths":["passwd"],"shas":["x"],"sizes":[1],"originalNames":["passwd"]}`),
+	}, c, h)
+	if resp.Error != nil {
+		t.Fatalf("import_files: %+v", resp.Error)
+	}
+	res := resp.Result.(ImportFilesResult)
+	if len(res.Imported) != 0 || len(res.Skipped) != 1 || res.Skipped[0].Reason != "path_escapes" {
+		t.Fatalf("imported=%d skipped=%v, want 0/1 path_escapes", len(res.Imported), res.Skipped)
+	}
+}
+
+func TestHandleImportFilesWorkspaceFull(t *testing.T) {
+	h, c, root := newWorkspaceTestHandler(t)
+	half := store.MaxWorkspaceBytes / 2
+	if _, err := h.ImportedFiles.Insert(context.Background(), store.ImportedFile{
+		ID: "seed", SessionID: "s1", OriginalName: "seed.bin",
+		RelativePath: "seed.bin", Size: half, Sha256: "sha-seed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	big := filepath.Join(root, "big.bin")
+	if err := os.WriteFile(big, make([]byte, 1024), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// size half+1 pushes the session (already holding half) over the cap.
+	over := half + 1
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.import_files",
+		Params: json.RawMessage(`{"sessionId":"s1","sourcePaths":["` + big + `"],"workspaceRelPaths":["big.bin"],"shas":["sha-big"],"sizes":[` + strconv.FormatInt(over, 10) + `],"originalNames":["big.bin"]}`),
+	}, c, h)
+	if resp.Error != nil {
+		t.Fatalf("import_files: %+v", resp.Error)
+	}
+	res := resp.Result.(ImportFilesResult)
+	if len(res.Skipped) != 1 || res.Skipped[0].Reason != "workspace_full" {
+		t.Fatalf("skipped=%v, want workspace_full", res.Skipped)
+	}
+}
+
+func TestHandleListImportedFilesAndWorkspaceInfo(t *testing.T) {
+	h, c, root := newWorkspaceTestHandler(t)
+	src := filepath.Join(root, "a.md")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.import_files",
+		Params: json.RawMessage(`{"sessionId":"s1","sourcePaths":["` + src + `"],"workspaceRelPaths":["a.md"],"shas":["sha-a"],"sizes":[1],"originalNames":["a.md"]}`),
+	}, c, h)
+
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.list_imported_files",
+		Params: json.RawMessage(`{"sessionId":"s1"}`),
+	}, c, h)
+	if resp.Error != nil {
+		t.Fatalf("list_imported_files: %+v", resp.Error)
+	}
+	list := resp.Result.(ListImportedFilesResult)
+	if len(list.Files) != 1 || list.WorkspaceBytes != 1 {
+		t.Errorf("files=%d bytes=%d, want 1/1", len(list.Files), list.WorkspaceBytes)
+	}
+
+	resp = dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"3"`), Method: "agent.get_workspace_info",
+		Params: json.RawMessage(`{"sessionId":"s1"}`),
+	}, c, h)
+	if resp.Error != nil {
+		t.Fatalf("get_workspace_info: %+v", resp.Error)
+	}
+	if info := resp.Result.(GetWorkspaceInfoResult); info.WorkspaceBytes != 1 {
+		t.Errorf("workspaceBytes = %d, want 1", info.WorkspaceBytes)
+	}
+}
+
+func TestHandleRemoveImportedFile(t *testing.T) {
+	h, c, root := newWorkspaceTestHandler(t)
+	src := filepath.Join(root, "a.md")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.import_files",
+		Params: json.RawMessage(`{"sessionId":"s1","sourcePaths":["` + src + `"],"workspaceRelPaths":["a.md"],"shas":["sha-a"],"sizes":[1],"originalNames":["a.md"]}`),
+	}, c, h)
+
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.remove_imported_file",
+		Params: json.RawMessage(`{"sessionId":"s1","relPath":"a.md"}`),
+	}, c, h)
+	if resp.Error != nil {
+		t.Fatalf("remove_imported_file: %+v", resp.Error)
+	}
+	if !resp.Result.(RemoveImportedFileResult).Removed {
+		t.Error("expected removed=true")
+	}
+	rows, _ := h.ImportedFiles.List(context.Background(), "s1")
+	if len(rows) != 0 {
+		t.Errorf("rows after remove = %d, want 0", len(rows))
+	}
 }

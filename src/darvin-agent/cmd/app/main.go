@@ -99,6 +99,7 @@ func main() {
 		&store.CompactionCheckpoint{},
 		&store.SkillSnapshot{},
 		&store.AppState{},
+		&store.ImportedFile{},
 	); err != nil {
 		log.Error("auto migrate failed", zap.Error(err))
 		os.Exit(1)
@@ -108,6 +109,7 @@ func main() {
 	sqliteStore := store.NewSQLiteStore(database.Get())
 	msgStore := store.NewSQLiteMessageStore(database.Get())
 	appState := store.NewAppStateStore(database.Get())
+	importedFiles := store.NewImportedFileStore(database.Get())
 
 	provider, err := llm.NewProvider(rootCtx, cfg.LLM.Provider, llm.ProviderConfig{
 		APIKey:  cfg.LLM.APIKey,
@@ -118,10 +120,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// workspace 根优先取 Electron 注入的 DARVIN_AGENT_WORKSPACE(即 fsSandbox.root);
+	// 未设置时退回 config.yaml 的 workdir(dev `go run` 兜底)。日志同时打 env 与
+	// effective 两值,便于排查 env 与 main 端计算不一致。
+	workspaceRoot := os.Getenv("DARVIN_AGENT_WORKSPACE")
+	effectiveWorkdir := workspaceRoot
+	if effectiveWorkdir == "" {
+		effectiveWorkdir = cfg.Agent.Workdir
+	}
+	log.Info("workspace resolved",
+		zap.String("env", workspaceRoot),
+		zap.String("effective", effectiveWorkdir))
+
 	agentCfg := agent.Config{
 		MaxTurns:             cfg.Agent.MaxTurns,
 		ToolTimeout:          time.Duration(cfg.Agent.ToolTimeoutMS) * time.Millisecond,
-		Workdir:              cfg.Agent.Workdir,
+		Workdir:              effectiveWorkdir,
 		ShellAllowlist:       cfg.Agent.ShellAllowlist,
 		EventBuffer:          cfg.Agent.EventBuffer,
 		TokenBudget:          cfg.Agent.TokenBudget,
@@ -184,7 +198,11 @@ func main() {
 		}
 	}
 
-	handler := gateway.NewHandler(sessions, ledger, steer, sqliteStore, msgStore, appState)
+	handler := gateway.NewHandler(sessions, ledger, steer, sqliteStore, msgStore, appState,
+		gateway.HandlerOptions{
+			ImportedFiles: importedFiles,
+			WorkspaceRoot: effectiveWorkdir,
+		})
 	gs := gateway.NewServer(handler, log.Logger)
 	if err := gs.Start(rootCtx); err != nil {
 		log.Error("gateway start failed", zap.Error(err))
