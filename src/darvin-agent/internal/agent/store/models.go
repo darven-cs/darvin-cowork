@@ -5,13 +5,20 @@ import "time"
 // Session is the GORM row representation of a session.Session. The
 // store.SQLiteStore maps between session.Session and this struct on
 // every Save / Load. Messages are NOT stored here — see Message below.
+//
+// Title / ClaudeSessionID are renderer-facing metadata owned by the RPC
+// handlers (rename / claude bridge), NOT by the agent's session.Session
+// domain model. SQLiteStore.Save preserves them from the existing row so
+// a prompt's metadata save never clobbers a user rename.
 type Session struct {
-	ID        string    `gorm:"primaryKey"`
-	Key       string    `gorm:"index"`
-	AgentID   string    `gorm:"index"`
-	Status    string    `gorm:"default:active"`
-	CreatedAt time.Time `gorm:"autoCreateTime"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+	ID              string    `gorm:"primaryKey"`
+	Key             string    `gorm:"index"`
+	AgentID         string    `gorm:"index"`
+	Title           string    `gorm:"default:'新建会话'"`
+	ClaudeSessionID *string
+	Status          string    `gorm:"default:active"`
+	CreatedAt       time.Time `gorm:"autoCreateTime"`
+	UpdatedAt       time.Time `gorm:"autoUpdateTime"`
 }
 
 // TableName pins the SQL table name; GORM's default would be the struct
@@ -30,6 +37,12 @@ type Message struct {
 	Timestamp  int64  `gorm:"index"`
 	StopReason string `gorm:"default:stop"`
 	ParentID   string `gorm:"index"`
+	// Done / Error / ToolLabel 是 renderer 依赖的"封口"字段：Done 把
+	// streaming→done 状态切开、Error 画错误泡、ToolLabel 画工具标签。
+	// 由 dispatcher 的 MarkDone / MarkError 和 get_messages 落 / 读。
+	Done      bool     `gorm:"default:false"`
+	Error     *string
+	ToolLabel *string
 }
 
 func (Message) TableName() string { return "messages" }
@@ -61,3 +74,13 @@ type SkillSnapshot struct {
 }
 
 func (SkillSnapshot) TableName() string { return "skill_snapshots" }
+
+// AppState holds a small key/value store for process-scoped state that
+// must survive restarts. Currently only `active_session_id` is written
+// (see AppStateStore); the schema is intentionally open for future keys.
+type AppState struct {
+	Key   string `gorm:"primaryKey"`
+	Value string `gorm:"type:text"`
+}
+
+func (AppState) TableName() string { return "app_state" }

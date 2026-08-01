@@ -24,7 +24,7 @@ func newTestSQLiteStore(t *testing.T) *SQLiteStore {
 	if err != nil {
 		t.Fatalf("gorm.Open: %v", err)
 	}
-	if err := db.AutoMigrate(&Session{}, &Message{}, &CompactionCheckpoint{}, &SkillSnapshot{}); err != nil {
+	if err := db.AutoMigrate(&Session{}, &Message{}, &CompactionCheckpoint{}, &SkillSnapshot{}, &AppState{}); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
 	return NewSQLiteStore(db)
@@ -176,5 +176,171 @@ func TestSQLiteStoreSaveReplace(t *testing.T) {
 	}
 	if got.Status != session.StatusArchived {
 		t.Errorf("Status after second Save = %q, want %q", got.Status, session.StatusArchived)
+	}
+}
+
+// TestSessionStore_NewFieldsRoundTrip 覆盖统一数据库 spec FR-1：Title /
+// ClaudeSessionID 写入后 GetByID 读回；且重新 Save（模拟 prompt 的元数据
+// 保存）不会把 title 清掉 —— title 归 RPC handler 管，agent 的 Save 只刷
+// metadata。
+func TestSessionStore_NewFieldsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	store := newTestSQLiteStore(t)
+
+	if err := store.Save(ctx, session.NewSession("s1")); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := store.UpdateTitle(ctx, "s1", "我的会话"); err != nil {
+		t.Fatalf("UpdateTitle: %v", err)
+	}
+	claude := "claude-abc"
+	if err := store.SetClaudeSessionID(ctx, "s1", &claude); err != nil {
+		t.Fatalf("SetClaudeSessionID: %v", err)
+	}
+
+	row, err := store.GetByID(ctx, "s1")
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if row.Title != "我的会话" {
+		t.Errorf("Title = %q, want 我的会话", row.Title)
+	}
+	if row.ClaudeSessionID == nil || *row.ClaudeSessionID != "claude-abc" {
+		t.Errorf("ClaudeSessionID = %v, want claude-abc", row.ClaudeSessionID)
+	}
+
+	// 重新 Save 不能清掉 title / claude_session_id（Save 保留现有行）。
+	if err := store.Save(ctx, session.NewSession("s1")); err != nil {
+		t.Fatalf("re-Save: %v", err)
+	}
+	row2, err := store.GetByID(ctx, "s1")
+	if err != nil {
+		t.Fatalf("GetByID after re-Save: %v", err)
+	}
+	if row2.Title != "我的会话" {
+		t.Errorf("Title after re-Save = %q, want 我的会话 (Save must not clobber)", row2.Title)
+	}
+	if row2.ClaudeSessionID == nil || *row2.ClaudeSessionID != "claude-abc" {
+		t.Errorf("ClaudeSessionID after re-Save = %v, want claude-abc", row2.ClaudeSessionID)
+	}
+
+	// ListAll 也带 Title。
+	all, err := store.ListAll(ctx)
+	if err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+	if len(all) != 1 || all[0].Title != "我的会话" {
+		t.Errorf("ListAll = %+v, want 1 row titled 我的会话", all)
+	}
+}
+
+// TestSessionStore_TouchUpdatesOnlyUpdatedAt 覆盖 Touch 只刷 updated_at、
+// 不碰 title。
+func TestSessionStore_TouchUpdatesOnlyUpdatedAt(t *testing.T) {
+	ctx := context.Background()
+	store := newTestSQLiteStore(t)
+
+	if err := store.Save(ctx, session.NewSession("s1")); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := store.UpdateTitle(ctx, "s1", "标题A"); err != nil {
+		t.Fatalf("UpdateTitle: %v", err)
+	}
+	row1, err := store.GetByID(ctx, "s1")
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+
+	// SQLite DATETIME 是秒精度，至少等 1.1s 保证 touch 后时间前进。
+	time.Sleep(1100 * time.Millisecond)
+	now := time.Now().UnixMilli()
+	if err := store.Touch(ctx, "s1", now); err != nil {
+		t.Fatalf("Touch: %v", err)
+	}
+
+	row2, err := store.GetByID(ctx, "s1")
+	if err != nil {
+		t.Fatalf("GetByID after Touch: %v", err)
+	}
+	if row2.Title != "标题A" {
+		t.Errorf("Title after Touch = %q, want 标题A", row2.Title)
+	}
+	if row2.UpdatedAt.UnixMilli() <= row1.UpdatedAt.UnixMilli() {
+		t.Errorf("UpdatedAt did not advance: %v -> %v", row1.UpdatedAt, row2.UpdatedAt)
+	}
+}
+
+// TestSessionStore_SearchByTitleAndContent 覆盖标题 + 内容两条搜索路径：
+// SQL 注入字符不报错，空 query 返空。
+func TestSessionStore_SearchByTitleAndContent(t *testing.T) {
+	ctx := context.Background()
+	store := newTestSQLiteStore(t)
+
+	if err := store.Save(ctx, session.NewSession("a")); err != nil {
+		t.Fatalf("Save a: %v", err)
+	}
+	if err := store.Save(ctx, session.NewSession("b")); err != nil {
+		t.Fatalf("Save b: %v", err)
+	}
+	if err := store.UpdateTitle(ctx, "a", "kubernetes 排障"); err != nil {
+		t.Fatalf("UpdateTitle a: %v", err)
+	}
+	if err := store.UpdateTitle(ctx, "b", "日常闲聊"); err != nil {
+		t.Fatalf("UpdateTitle b: %v", err)
+	}
+
+	byTitle, err := store.SearchByTitle(ctx, "kubernetes")
+	if err != nil {
+		t.Fatalf("SearchByTitle: %v", err)
+	}
+	if len(byTitle) != 1 || byTitle[0].ID != "a" {
+		t.Errorf("SearchByTitle = %+v, want session a", byTitle)
+	}
+
+	// 内容命中：给 session b 写一条含 kubernetes 的消息。
+	msgStore := NewSQLiteMessageStore(store.db)
+	if err := msgStore.Save(ctx, &MessageRecord{
+		ID: "m1", SessionID: "b", Role: "assistant",
+		Content: "kubernetes 集群排障", Timestamp: 1000,
+	}); err != nil {
+		t.Fatalf("Save message: %v", err)
+	}
+	byContent, err := store.SearchByContent(ctx, "kubernetes", 100)
+	if err != nil {
+		t.Fatalf("SearchByContent: %v", err)
+	}
+	if len(byContent) != 1 {
+		t.Fatalf("SearchByContent len = %d, want 1", len(byContent))
+	}
+	if byContent[0].Message.SessionID != "b" {
+		t.Errorf("hit SessionID = %q, want b", byContent[0].Message.SessionID)
+	}
+	if byContent[0].SessionTitle != "日常闲聊" {
+		t.Errorf("hit SessionTitle = %q, want 日常闲聊", byContent[0].SessionTitle)
+	}
+
+	// SQL 注入字符当作字面量，不报错、不匹配。
+	inject := `'; DROP TABLE sessions; --`
+	if rows, err := store.SearchByTitle(ctx, inject); err != nil {
+		t.Fatalf("SearchByTitle with injection: %v", err)
+	} else if len(rows) != 0 {
+		t.Errorf("SearchByTitle injection matched %d rows", len(rows))
+	}
+	if hits, err := store.SearchByContent(ctx, inject, 100); err != nil {
+		t.Fatalf("SearchByContent with injection: %v", err)
+	} else if len(hits) != 0 {
+		t.Errorf("SearchByContent injection matched %d rows", len(hits))
+	}
+
+	// 空 query 返空。
+	if rows, err := store.SearchByTitle(ctx, ""); err != nil {
+		t.Fatalf("SearchByTitle empty: %v", err)
+	} else if len(rows) != 0 {
+		t.Errorf("SearchByTitle empty returned %d rows, want 0", len(rows))
+	}
+	if hits, err := store.SearchByContent(ctx, "   ", 100); err != nil {
+		t.Fatalf("SearchByContent whitespace: %v", err)
+	} else if len(hits) != 0 {
+		t.Errorf("SearchByContent whitespace returned %d rows, want 0", len(hits))
 	}
 }

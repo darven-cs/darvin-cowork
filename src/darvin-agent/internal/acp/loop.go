@@ -47,11 +47,15 @@ type RunTicket struct {
 	Queued    bool
 }
 
-// promptReq is a submitted turn plus the messageID Loop minted for it.
+// promptReq is a submitted turn plus the messageIDs Loop minted for it.
+// msgID keys the assistant message (events carry it for streaming append);
+// userMsgID keys the user message so persistUserMessage's row is not
+// overwritten by the assistant row that shares msgID (see dispatcher.go).
 type promptReq struct {
-	runID   string
-	content string
-	msgID   string
+	runID     string
+	content   string
+	msgID     string
+	userMsgID string
 }
 
 // activeRunState is the in-flight turn; cancelRun cuts the LLM stream.
@@ -80,6 +84,7 @@ type Loop struct {
 	steerQueue    []promptReq
 	followUpQueue []promptReq
 	curMsg        string
+	curUserMsg    string
 	curRunID      string
 	closed        bool
 
@@ -127,7 +132,12 @@ func (l *Loop) Steer(req PromptRequest) (RunTicket, error) {
 // steerQueue over followUpQueue and additionally cancels the in-flight
 // turn so the run goroutine reaches the new request immediately.
 func (l *Loop) admit(req PromptRequest, jumpQueue bool) (RunTicket, error) {
-	p := promptReq{runID: req.RunID, content: req.Content, msgID: l.idGen()}
+	p := promptReq{
+		runID:     req.RunID,
+		content:   req.Content,
+		msgID:     l.idGen(),
+		userMsgID: l.idGen(),
+	}
 	if p.runID == "" {
 		p.runID = l.idGen()
 	}
@@ -208,6 +218,16 @@ func (l *Loop) CurrentMessageID() string {
 	return l.curMsg
 }
 
+// CurrentUserMessageID returns the messageID minted for the current turn's
+// user message, or of the last one that ran when the session is idle. It is
+// distinct from CurrentMessageID so the persisted user row survives the
+// assistant row that shares CurrentMessageID (spec FR-4).
+func (l *Loop) CurrentUserMessageID() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.curUserMsg
+}
+
 // CurrentRunID returns the runID of the turn currently running, or of the
 // last one that ran when the session is idle. The executor and
 // dispatcher read this via Deps.CurrentRunID to stamp EventCommon.RunID
@@ -284,6 +304,7 @@ func (l *Loop) executeTurn(req promptReq) {
 	l.mu.Lock()
 	l.activeRun = &activeRunState{runID: req.runID, cancelRun: cancelRun}
 	l.curMsg = req.msgID
+	l.curUserMsg = req.userMsgID
 	l.curRunID = req.runID
 	l.mu.Unlock()
 

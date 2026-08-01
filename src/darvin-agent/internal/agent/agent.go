@@ -127,6 +127,12 @@ type Agent struct {
 	// the renderer store can demultiplex events by turn id.
 	runIDSrc func() string
 
+	// userMsgIDSrc is wired by the ACP loop via AttachUserMessageIDSrc.
+	// The dispatcher reads it through CurrentUserMessageID to key the
+	// persisted user row. It is distinct from msgIDSrc so the user row is
+	// not overwritten by the assistant row that shares the run's messageID.
+	userMsgIDSrc func() string
+
 	assembler        ctxengine.ContextEngine
 	assemblerEnabled bool
 
@@ -301,6 +307,13 @@ func (a *Agent) AttachRunIDSrc(src func() string) {
 	a.runIDSrc = src
 }
 
+// AttachUserMessageIDSrc wires the function the dispatcher queries (via
+// CurrentUserMessageID) to read the messageID minted for the current turn's
+// user message. main.go passes a method value of acp.Loop.CurrentUserMessageID.
+func (a *Agent) AttachUserMessageIDSrc(src func() string) {
+	a.userMsgIDSrc = src
+}
+
 // CurrentMessageID satisfies executor.Deps. Returns "" when no messageID
 // source has been wired or when the agent is idle.
 func (a *Agent) CurrentMessageID() string {
@@ -317,4 +330,14 @@ func (a *Agent) CurrentRunID() string {
 		return ""
 	}
 	return a.runIDSrc()
+}
+
+// CurrentUserMessageID returns the user-message id of the in-flight turn.
+// Returns "" when no userMsgID source has been wired (e.g. the steer agent
+// or the unit-test fast path, where nothing is persisted anyway).
+func (a *Agent) CurrentUserMessageID() string {
+	if a.userMsgIDSrc == nil {
+		return ""
+	}
+	return a.userMsgIDSrc()
 }

@@ -21,7 +21,7 @@ func newTestMessageStore(t *testing.T) *SQLiteMessageStore {
 	if err != nil {
 		t.Fatalf("gorm.Open: %v", err)
 	}
-	if err := db.AutoMigrate(&Session{}, &Message{}, &CompactionCheckpoint{}, &SkillSnapshot{}); err != nil {
+	if err := db.AutoMigrate(&Session{}, &Message{}, &CompactionCheckpoint{}, &SkillSnapshot{}, &AppState{}); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
 	return NewSQLiteMessageStore(db)
@@ -226,5 +226,88 @@ func TestSQLiteMessageStoreErrorMapping(t *testing.T) {
 	// log it.
 	if errors.Is(err, context.Canceled) {
 		t.Errorf("Save returned a context error: %v", err)
+	}
+}
+
+// TestMessageStore_AppendContent 覆盖 streaming 累加：同 id 多次 append
+// 顺序追加；空 delta 不报错；不存在的 id 是 no-op 不报错。
+func TestMessageStore_AppendContent(t *testing.T) {
+	ctx := context.Background()
+	store := newTestMessageStore(t)
+
+	rec := &MessageRecord{
+		ID: "m1", SessionID: "s1", Role: "assistant", Content: "Hel", Timestamp: 1,
+	}
+	if err := store.Save(ctx, rec); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	for _, d := range []string{"lo", " ", "world"} {
+		if err := store.AppendContent(ctx, "m1", d); err != nil {
+			t.Fatalf("AppendContent %q: %v", d, err)
+		}
+	}
+	got, err := store.List(ctx, "s1", 0, 0)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if got[0].Content != "Hello world" {
+		t.Errorf("Content = %q, want %q", got[0].Content, "Hello world")
+	}
+
+	// 空 delta 是 no-op。
+	if err := store.AppendContent(ctx, "m1", ""); err != nil {
+		t.Fatalf("AppendContent empty: %v", err)
+	}
+	got2, _ := store.List(ctx, "s1", 0, 0)
+	if got2[0].Content != "Hello world" {
+		t.Errorf("Content after empty append = %q, want unchanged", got2[0].Content)
+	}
+
+	// 不存在的 id：no-op，不报错。
+	if err := store.AppendContent(ctx, "never-existed", "x"); err != nil {
+		t.Fatalf("AppendContent missing id: %v", err)
+	}
+}
+
+// TestMessageStore_MarkDoneAndError 覆盖封口写入：MarkDone 只标 done；
+// MarkError 标 done + error 字段并读回。
+func TestMessageStore_MarkDoneAndError(t *testing.T) {
+	ctx := context.Background()
+	store := newTestMessageStore(t)
+
+	if err := store.Save(ctx, &MessageRecord{
+		ID: "m1", SessionID: "s1", Role: "assistant", Content: "partial", Timestamp: 1,
+	}); err != nil {
+		t.Fatalf("Save m1: %v", err)
+	}
+	if err := store.Save(ctx, &MessageRecord{
+		ID: "m2", SessionID: "s1", Role: "assistant", Content: "oops", Timestamp: 2,
+	}); err != nil {
+		t.Fatalf("Save m2: %v", err)
+	}
+
+	if err := store.MarkDone(ctx, "m1"); err != nil {
+		t.Fatalf("MarkDone: %v", err)
+	}
+	if err := store.MarkError(ctx, "m2", "llm stream failed"); err != nil {
+		t.Fatalf("MarkError: %v", err)
+	}
+
+	got, err := store.List(ctx, "s1", 0, 0)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if !got[0].Done {
+		t.Errorf("m1 Done = false, want true")
+	}
+	if got[0].Error != nil {
+		t.Errorf("m1 Error = %v, want nil", got[0].Error)
+	}
+	if !got[1].Done {
+		t.Errorf("m2 Done = false, want true")
+	}
+	if got[1].Error == nil || *got[1].Error != "llm stream failed" {
+		t.Errorf("m2 Error = %v, want llm stream failed", got[1].Error)
 	}
 }

@@ -57,6 +57,9 @@ func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
 // CurrentRunID 挂到 Agent 上,确保事件带的 messageID / runID 与 Loop 当前
 // 状态一致。顺序必须先建 Loop 再 AttachMessageIDSrc,否则 executor
 // Deps.Current* 解析时会拿到空字符串。
+//
+// MessageStore 注入时同时挂 TextDeltaHook(streaming 落库,spec FR-4);
+// hook 的订阅由 AcpSession.Close 在 evict 时清理。
 func (f *AgentFactory) NewAcpSession(sessionID string) (*AcpSession, error) {
 	a, err := f.Build(sessionID)
 	if err != nil {
@@ -65,9 +68,13 @@ func (f *AgentFactory) NewAcpSession(sessionID string) (*AcpSession, error) {
 	l := NewLoop(a)
 	a.AttachMessageIDSrc(l.CurrentMessageID)
 	a.AttachRunIDSrc(l.CurrentRunID)
+	a.AttachUserMessageIDSrc(l.CurrentUserMessageID)
+	deltaHook := agent.NewTextDeltaHook(f.MessageStore, f.Logger)
+	deltaHook.Attach(a)
 	return &AcpSession{
 		SessionID: sessionID,
 		Agent:     a,
 		Loop:      l,
+		DeltaHook: deltaHook,
 	}, nil
 }

@@ -3,9 +3,13 @@ package acp
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 
 	"darvin-cowork/backend/internal/agent"
 	"darvin-cowork/backend/internal/agent/event"
@@ -159,6 +163,102 @@ func TestLoopEnd2End(t *testing.T) {
 	if !sawLLMEnd {
 		t.Errorf("no llm_end in %v", gotNames)
 	}
+}
+
+// TestLoopPersistsUserAndAssistantWithDistinctIDs is the regression test
+// for the FR-4 user-message-loss bug: persistUserMessage used to key the
+// user row with the same messageID persistAssistantMessages uses for the
+// assistant row, so the assistant upsert silently overwrote the user's
+// question. The Loop must mint a distinct user message id per turn.
+func TestLoopPersistsUserAndAssistantWithDistinctIDs(t *testing.T) {
+	prov := &scriptedProvider{events: []llm.StreamEvent{
+		llm.TextDeltaEvent{Delta: "hello "},
+		llm.TextDeltaEvent{Delta: "world"},
+		llm.DoneEvent{Response: llm.CompletionResponse{
+			Model: "test", Content: "hello world", FinishReason: llm.FinishReasonStop,
+		}},
+	}}
+	ms := newLoopPersistStore(t)
+	a, err := agent.New(agent.NewAgentConfig{
+		Name:         "test",
+		Session:      session.NewSession("default"),
+		Provider:     prov,
+		Store:        store.NewMemoryStore(),
+		MessageStore: ms,
+	})
+	if err != nil {
+		t.Fatalf("agent.New: %v", err)
+	}
+	loop := NewLoop(a)
+	a.AttachMessageIDSrc(loop.CurrentMessageID)
+	a.AttachRunIDSrc(loop.CurrentRunID)
+	a.AttachUserMessageIDSrc(loop.CurrentUserMessageID)
+
+	ticket, err := loop.Submit(PromptRequest{Content: "what is 1+1"})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	sub := a.Subscribe(64)
+	got := collect(t, sub, 2*time.Second)
+	if len(got) == 0 || got[len(got)-1].EventName() != "agent_end" {
+		t.Fatalf("turn did not complete, last event %v", names(got))
+	}
+
+	rows, err := ms.List(context.Background(), "default", 0, 0)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("want 2 rows (user + assistant), got %d", len(rows))
+	}
+	var user, asst *store.MessageRecord
+	for i := range rows {
+		if rows[i].Role == "user" {
+			user = &rows[i]
+		} else {
+			asst = &rows[i]
+		}
+	}
+	if user == nil || asst == nil {
+		t.Fatalf("want both user and assistant rows, got %+v", rows)
+	}
+	if user.ID == asst.ID {
+		t.Fatalf("user and assistant rows share id %q: assistant upsert overwrote the user message", user.ID)
+	}
+	if user.Content != "what is 1+1" {
+		t.Errorf("user content = %q, want the prompt", user.Content)
+	}
+	// The user row must be sealed (done=true) from the start: StreamingText
+	// renders the "思考中" pulse when done=false, so an unsealed persisted
+	// user row would show as a spinner instead of the question after reload.
+	if !user.Done {
+		t.Errorf("user row done = false, want true so the reloaded renderer shows the question text")
+	}
+	if asst.Content != "hello world" {
+		t.Errorf("assistant content = %q, want \"hello world\"", asst.Content)
+	}
+	// The assistant row keeps the run's messageID so events (streaming
+	// append, done/error sealing) keep matching it after a reload.
+	if asst.ID != ticket.MessageID {
+		t.Errorf("assistant id = %q, want run messageID %q", asst.ID, ticket.MessageID)
+	}
+	if user.ID == ticket.MessageID {
+		t.Errorf("user id must differ from the run messageID %q", ticket.MessageID)
+	}
+}
+
+// newLoopPersistStore returns a fresh SQLiteMessageStore on a temp file.
+func newLoopPersistStore(t *testing.T) *store.SQLiteMessageStore {
+	t.Helper()
+	dsn := filepath.Join(t.TempDir(), "loop.db")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("gorm.Open: %v", err)
+	}
+	if err := db.AutoMigrate(&store.Session{}, &store.Message{}); err != nil {
+		t.Fatalf("AutoMigrate: %v", err)
+	}
+	return store.NewSQLiteMessageStore(db)
 }
 
 // TestSubmitHonoursCallerRunID: main mints the runId so Stop can target

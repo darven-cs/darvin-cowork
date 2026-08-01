@@ -98,6 +98,7 @@ func main() {
 		&store.Message{},
 		&store.CompactionCheckpoint{},
 		&store.SkillSnapshot{},
+		&store.AppState{},
 	); err != nil {
 		log.Error("auto migrate failed", zap.Error(err))
 		os.Exit(1)
@@ -106,6 +107,7 @@ func main() {
 
 	sqliteStore := store.NewSQLiteStore(database.Get())
 	msgStore := store.NewSQLiteMessageStore(database.Get())
+	appState := store.NewAppStateStore(database.Get())
 
 	provider, err := llm.NewProvider(rootCtx, cfg.LLM.Provider, llm.ProviderConfig{
 		APIKey:  cfg.LLM.APIKey,
@@ -170,7 +172,19 @@ func main() {
 	)
 	steer := acp.NewSteerControl(steerAgent)
 
-	handler := gateway.NewHandler(sessions, ledger, steer, sqliteStore, msgStore)
+	// FR-9:启动期 active session 同步 —— 从 app_state 读出上次的
+	// active_session_id,灌进 SessionManager。EnsureEntry 只建轻量
+	// SessionEntry、不触发 AcpSession 懒建(per-session spec 两阶段),
+	// 事件流由 main 端 connect → subscribeAllSessions 时覆盖。
+	if activeID, err := appState.GetActiveSession(rootCtx); err == nil && activeID != "" {
+		if _, err := sessions.EnsureEntry(activeID); err != nil {
+			log.Warn("bootstrap active session failed", zap.String("session_id", activeID), zap.Error(err))
+		} else {
+			log.Info("bootstrapped active session", zap.String("session_id", activeID))
+		}
+	}
+
+	handler := gateway.NewHandler(sessions, ledger, steer, sqliteStore, msgStore, appState)
 	gs := gateway.NewServer(handler, log.Logger)
 	if err := gs.Start(rootCtx); err != nil {
 		log.Error("gateway start failed", zap.Error(err))

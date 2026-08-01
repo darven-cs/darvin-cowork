@@ -82,6 +82,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	// defer reads the most recent snapshot so it always reflects the last
 	// prompt the run consumed (across FollowUp iterations).
 	var runMsgID string
+	// runUserMsgID mirrors runMsgID but carries the user message's own id
+	// (minted by the Loop), so persistUserMessage's row is not overwritten
+	// by the assistant row keyed by runMsgID (spec FR-4).
+	var runUserMsgID string
 	defer func() {
 		a.bus.Emit(event.AgentEndEvent{
 			EventBase: event.EventBase{EventCommon: event.EventCommon{
@@ -110,6 +114,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		// reads it via Deps.CurrentMessageID on every emit, so events
 		// tagged to this prompt all carry the same MessageID.
 		runMsgID = a.CurrentMessageID()
+		// Snapshot the user message's own id. Fall back to runMsgID for
+		// paths without a userMsgID src (steer agent / unit tests) so the
+		// old behaviour is preserved there.
+		runUserMsgID = a.CurrentUserMessageID()
+		if runUserMsgID == "" {
+			runUserMsgID = runMsgID
+		}
 		a.bus.Emit(event.PromptReceivedEvent{
 			EventBase: event.EventBase{EventCommon: event.EventCommon{
 				SessionID: a.session.ID,
@@ -121,8 +132,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		})
 		a.session.Append(llm.Message{Role: llm.RoleUser, Content: msg.Content})
 		// Hook 1 of 3: persist the user message before the LLM call so a
-		// crash mid-Run still leaves the question in sessions.db.
-		a.persistUserMessage(runCtx, runMsgID, msg.Content)
+		// crash mid-Run still leaves the question in sessions.db. The row is
+		// keyed by runUserMsgID (not runMsgID) so persistAssistantMessages
+		// cannot overwrite it with the assistant content (spec FR-4).
+		a.persistUserMessage(runCtx, runUserMsgID, msg.Content)
 
 		turnsBefore := a.session.Len()
 		// Hooks 2 and 3 must fire on every iteration — even when
@@ -143,6 +156,16 @@ func (a *Agent) Run(ctx context.Context) error {
 		// the new updated_at.
 		a.persistSession(runCtx)
 		if err != nil {
+			// Sealing write (FR-4): persist done=true + error so a reload
+			// paints an error bubble. Runs in the canceled branch too — an
+			// aborted turn is still a "sealed with error" row.
+			if a.msgStore != nil && runMsgID != "" {
+				errMsg := err.Error()
+				if markErr := a.msgStore.MarkError(runCtx, runMsgID, errMsg); markErr != nil {
+					a.logger.Warn("mark message error failed",
+						zap.String("message_id", runMsgID), zap.Error(markErr))
+				}
+			}
 			if errors.Is(err, context.Canceled) {
 				a.bus.Emit(event.AgentErrorEvent{
 					EventBase: event.EventBase{EventCommon: event.EventCommon{
@@ -163,6 +186,15 @@ func (a *Agent) Run(ctx context.Context) error {
 				Err: err,
 			})
 			return err
+		}
+		// Sealing write (FR-4): mark the run's message done so a reload
+		// sees done=true. RunEndEvent is still forwarded to the renderer
+		// via EventRouter; persistence is now purely a store concern.
+		if a.msgStore != nil && runMsgID != "" {
+			if err := a.msgStore.MarkDone(runCtx, runMsgID); err != nil {
+				a.logger.Warn("mark message done failed",
+					zap.String("message_id", runMsgID), zap.Error(err))
+			}
 		}
 		a.bus.Emit(event.RunEndEvent{
 			EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: a.session.ID, RunID: a.CurrentRunID()}},
@@ -187,11 +219,16 @@ func (a *Agent) persistUserMessage(ctx context.Context, msgID, content string) {
 	if a.msgStore == nil || msgID == "" {
 		return
 	}
+	// Done=true from the start: a user message is complete the moment it is
+	// sent — there is no streaming for it. The renderer (StreamingText) shows
+	// the "思考中" pulse only when done=false, so a persisted user row must be
+	// sealed or the question renders as a spinner after a session reload.
 	rec := &store.MessageRecord{
 		ID:        msgID,
 		SessionID: a.session.ID,
 		Role:      string(llm.RoleUser),
 		Content:   content,
+		Done:      true,
 		Timestamp: time.Now().UnixMilli(),
 	}
 	if err := a.msgStore.Save(ctx, rec); err != nil {

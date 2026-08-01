@@ -133,6 +133,36 @@ func NewSessionManager(opts ...SessionManagerOption) *SessionManager {
 // DefaultID 返回 DefaultSessionID。
 func (m *SessionManager) DefaultID() string { return DefaultSessionID }
 
+// MintSessionID 返回一个新会话 id(21 位 nanoid,与其它 id 同源)。
+// agent.create_session 用它生成 session id。
+func (m *SessionManager) MintSessionID() string { return m.idGen() }
+
+// Remove 把 session 从 SessionManager 中摘除:有 AcpSession 时先 Abort
+// in-flight run,再 cancel 触发 Close(关 DeltaHook + Loop),最后从 byID
+// / LRU 删除。与 evictLocked 不同,Remove 不跳 active run —— 删除语义
+// 就是要强制结束。未知 id 返 ErrSessionNotFound。
+func (m *SessionManager) Remove(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.byID[id]
+	if !ok {
+		return ErrSessionNotFound
+	}
+	if e.Acp != nil {
+		e.Acp.Loop.Abort(context.Background())
+	}
+	if e.cancel != nil {
+		e.cancel()
+		e.cancel = nil
+	}
+	delete(m.byID, id)
+	if e.idleElem != nil {
+		m.idleOrder.Remove(e.idleElem)
+		e.idleElem = nil
+	}
+	return nil
+}
+
 // Has 报告 id 是否已被 SessionManager 见过;subscribe handler 在触碰
 // ledger 前用它对未知 id 早失败。
 func (m *SessionManager) Has(id string) bool {
@@ -240,10 +270,11 @@ func (m *SessionManager) attachAcpLocked(e *SessionEntry) error {
 	e.Acp = acpSess
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
-	// Loop.Close 会阻塞到 run goroutine 退出,放后台跑避免拖 evict。
+	// Close 会关 DeltaHook 订阅 + Loop(阻塞到 run goroutine 退出),
+	// 放后台跑避免拖 evict。
 	go func() {
 		<-ctx.Done()
-		acpSess.Loop.Close()
+		acpSess.Close()
 	}()
 	if m.ledger != nil {
 		sub := acpSess.Agent.Subscribe(64)

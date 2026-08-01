@@ -12,11 +12,12 @@
  *   │   (Cache/ Cookies/ GPUCache/ ...)
  *   └── darvin-agent/                     ← agent 拥有的业务数据
  *       ├── config.yaml                   ← Electron 写入、Go 读合并
- *       ├── darvin-cowork.sqlite          ← Electron 主进程 SessionStore
- *       └── sessions.db                   ← Go agent sessions.db
+ *       └── sessions.db                   ← Go agent sessions.db（统一数据源）
  *
  * 与 Go 侧 config.UserDataDir() 落在同一绝对路径下；config.UserConfigPath()
- * 与 sessionStorePath() / agentSessionsDsnPath() 也对齐。
+ * 与 agentSessionsDsnPath() 也对齐。旧的 darvin-cowork.sqlite（Electron
+ * SessionStore）已随 merge-databases refactor 删除，dev 阶段由开发者人工
+ * rm 清掉（spec §4.7）。
  */
 import { app } from 'electron';
 import path from 'node:path';
@@ -31,10 +32,6 @@ export function agentDataDir(): string {
 
 export function userSettingsPath(): string {
   return path.join(agentDataDir(), 'config.yaml');
-}
-
-export function sessionStorePath(): string {
-  return path.join(agentDataDir(), 'darvin-cowork.sqlite');
 }
 
 export function agentSessionsDsnPath(): string {

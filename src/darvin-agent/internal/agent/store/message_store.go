@@ -11,15 +11,22 @@ import (
 // to a MessageStore. It is intentionally distinct from store.Message
 // (the GORM row) so callers don't depend on the persistence type. Mapping
 // between MessageRecord and Message happens inside SQLiteMessageStore.Save.
+//
+// JSON tags are the darvin-api wire shape: Timestamp serialises as
+// `createdAt` (matching renderer DarvinMessage) while the Go field keeps
+// its internal name so the dispatcher / Agent code isn't renamed.
 type MessageRecord struct {
-	ID         string
-	SessionID  string
-	Role       string
-	Content    string
-	ToolCalls  string // JSON string; empty for non-tool messages
-	Timestamp  int64  // unix milliseconds
-	StopReason string
-	ParentID   string
+	ID         string  `json:"id"`
+	SessionID  string  `json:"sessionId"`
+	Role       string  `json:"role"`
+	Content    string  `json:"content"`
+	ToolCalls  string  `json:"toolCalls,omitempty"`  // JSON string; empty for non-tool messages
+	Timestamp  int64   `json:"createdAt"`            // unix milliseconds
+	StopReason string  `json:"stopReason,omitempty"`
+	ParentID   string  `json:"parentId,omitempty"`
+	Done       bool    `json:"done"`
+	Error      *string `json:"error,omitempty"`
+	ToolLabel  *string `json:"toolLabel,omitempty"`
 }
 
 // MessageStore persists per-turn message rows. Implementations must be
@@ -40,6 +47,25 @@ type MessageStore interface {
 	// the list_sessions handler to populate a MessageCount field without
 	// issuing a full List per row.
 	Count(ctx context.Context, sessionID string) (int, error)
+
+	// AppendContent atomically appends delta to the content of the row
+	// with the given id (streaming accumulation). No-op when the row does
+	// not exist — the caller (TextDeltaHook) treats a missing row as a
+	// warn-and-continue, the final persistAssistantMessages upsert is the
+	// source of truth for a completed run.
+	AppendContent(ctx context.Context, messageID, delta string) error
+
+	// MarkDone flips done=true on the row, sealing a completed turn.
+	MarkDone(ctx context.Context, messageID string) error
+
+	// MarkError flips done=true and stores the error message, sealing a
+	// failed turn with a renderer-visible error.
+	MarkError(ctx context.Context, messageID, errMsg string) error
+
+	// DeleteBySession removes every message row belonging to sessionID.
+	// Called when a session is deleted so orphaned messages do not
+	// accumulate in sessions.db.
+	DeleteBySession(ctx context.Context, sessionID string) error
 }
 
 // SQLiteMessageStore is the GORM-backed MessageStore. The same *gorm.DB
@@ -79,6 +105,9 @@ func (s *SQLiteMessageStore) Save(ctx context.Context, m *MessageRecord) error {
 		Timestamp:  m.Timestamp,
 		StopReason: m.StopReason,
 		ParentID:   m.ParentID,
+		Done:       m.Done,
+		Error:      m.Error,
+		ToolLabel:  m.ToolLabel,
 	}
 	return s.db.WithContext(ctx).Save(&row).Error
 }
@@ -113,9 +142,50 @@ func (s *SQLiteMessageStore) List(ctx context.Context, sessionID string, limit, 
 			Timestamp:  r.Timestamp,
 			StopReason: r.StopReason,
 			ParentID:   r.ParentID,
+			Done:       r.Done,
+			Error:      r.Error,
+			ToolLabel:  r.ToolLabel,
 		})
 	}
 	return out, nil
+}
+
+// AppendContent atomically appends delta to the content of the row with
+// the given id. UPDATE ... content = content || ? is a single SQLite
+// statement, so concurrent deltas for the same message accumulate without
+// losing a chunk (SQLite serialises writers). A missing row is a no-op.
+func (s *SQLiteMessageStore) AppendContent(ctx context.Context, messageID, delta string) error {
+	return s.db.WithContext(ctx).
+		Model(&Message{}).
+		Where("id = ?", messageID).
+		UpdateColumn("content", gorm.Expr("content || ?", delta)).Error
+}
+
+// MarkDone flips done=true on the row, sealing a completed turn.
+func (s *SQLiteMessageStore) MarkDone(ctx context.Context, messageID string) error {
+	return s.db.WithContext(ctx).
+		Model(&Message{}).
+		Where("id = ?", messageID).
+		Update("done", true).Error
+}
+
+// MarkError flips done=true and stores the error message, sealing a
+// failed turn with a renderer-visible error.
+func (s *SQLiteMessageStore) MarkError(ctx context.Context, messageID, errMsg string) error {
+	return s.db.WithContext(ctx).
+		Model(&Message{}).
+		Where("id = ?", messageID).
+		Updates(map[string]any{"done": true, "error": errMsg}).Error
+}
+
+// DeleteBySession removes every message row for sessionID.
+func (s *SQLiteMessageStore) DeleteBySession(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return errors.New("store: sessionID is required")
+	}
+	return s.db.WithContext(ctx).
+		Where("session_id = ?", sessionID).
+		Delete(&Message{}).Error
 }
 
 // Count returns the number of message rows attached to sessionID.

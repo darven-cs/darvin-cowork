@@ -46,7 +46,7 @@ func newTestHandler(t *testing.T) (*Handler, *client) {
 	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
-	handler := NewHandler(sessions, ledger, steer, nil, nil)
+	handler := NewHandler(sessions, ledger, steer, nil, nil, nil)
 	client := &client{
 		sessions: sessions,
 		ledger:   ledger,
@@ -61,7 +61,7 @@ var idRe21 = regexp.MustCompile(`^[A-Za-z0-9]{21}$`)
 // newTestHandlerWithStores builds the same wiring as newTestHandler but
 // additionally plumbs in a real SQLite SessionStore + MessageStore so the
 // list_sessions / get_messages handlers can be exercised end-to-end.
-func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionStore, store.MessageStore) {
+func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionStore, store.MessageStore, *store.AppStateStore) {
 	t.Helper()
 	prov := &blockingProvider{}
 	memStore := store.NewMemoryStore()
@@ -88,20 +88,21 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 	if err != nil {
 		t.Fatalf("gorm.Open: %v", err)
 	}
-	if err := db.AutoMigrate(&store.Session{}, &store.Message{}, &store.CompactionCheckpoint{}, &store.SkillSnapshot{}); err != nil {
+	if err := db.AutoMigrate(&store.Session{}, &store.Message{}, &store.CompactionCheckpoint{}, &store.SkillSnapshot{}, &store.AppState{}); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
 	sessStore := store.NewSQLiteStore(db)
 	msgStore := store.NewSQLiteMessageStore(db)
+	appState := store.NewAppStateStore(db)
 
-	handler := NewHandler(sessions, ledger, steer, sessStore, msgStore)
+	handler := NewHandler(sessions, ledger, steer, sessStore, msgStore, appState)
 	client := &client{
 		sessions: sessions,
 		ledger:   ledger,
 		handler:  handler,
 		log:      zap.NewNop(),
 	}
-	return handler, client, sessStore, msgStore
+	return handler, client, sessStore, msgStore, appState
 }
 
 func TestDispatchPrompt(t *testing.T) {
@@ -356,7 +357,7 @@ func TestDispatchSteer(t *testing.T) {
 // TestDispatchListSessionsEmpty verifies list_sessions returns an empty
 // list (not nil, not an error) when the store is fresh.
 func TestDispatchListSessionsEmpty(t *testing.T) {
-	_, c, _, _ := newTestHandlerWithStores(t)
+	_, c, _, _, _ := newTestHandlerWithStores(t)
 	resp := dispatchRequest(context.Background(), &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.list_sessions",
 	}, c, c.handler)
@@ -375,7 +376,7 @@ func TestDispatchListSessionsEmpty(t *testing.T) {
 // TestDispatchListSessionsSeeded saves two sessions through the store
 // and confirms list_sessions surfaces both, with updatedAt preserved.
 func TestDispatchListSessionsSeeded(t *testing.T) {
-	_, c, sessStore, _ := newTestHandlerWithStores(t)
+	_, c, sessStore, _, _ := newTestHandlerWithStores(t)
 	ctx := context.Background()
 	a := session.NewSession("a")
 	b := session.NewSession("b")
@@ -410,7 +411,7 @@ func TestDispatchListSessionsSeeded(t *testing.T) {
 // TestDispatchGetMessagesEmpty returns an empty list for a session with
 // no messages (no error).
 func TestDispatchGetMessagesEmpty(t *testing.T) {
-	_, c, _, _ := newTestHandlerWithStores(t)
+	_, c, _, _, _ := newTestHandlerWithStores(t)
 	resp := dispatchRequest(context.Background(), &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.get_messages",
 		Params: json.RawMessage(`{"sessionId":"any"}`),
@@ -430,15 +431,15 @@ func TestDispatchGetMessagesEmpty(t *testing.T) {
 // TestDispatchGetMessagesSeeded writes two messages via the store and
 // confirms get_messages replays them in timestamp order.
 func TestDispatchGetMessagesSeeded(t *testing.T) {
-	_, c, _, msgStore := newTestHandlerWithStores(t)
+	_, c, _, msgStore, _ := newTestHandlerWithStores(t)
 	ctx := context.Background()
 	if err := msgStore.Save(ctx, &store.MessageRecord{
-		ID: "m1", SessionID: "s1", Role: "user", Content: "hi", Timestamp: 1000,
+		ID: "m1", SessionID: "s1", Role: "user", Content: "hi", Timestamp: 1000, Done: true,
 	}); err != nil {
 		t.Fatalf("Save m1: %v", err)
 	}
 	if err := msgStore.Save(ctx, &store.MessageRecord{
-		ID: "m2", SessionID: "s1", Role: "assistant", Content: "hello", Timestamp: 1100,
+		ID: "m2", SessionID: "s1", Role: "assistant", Content: "hello", Timestamp: 1100, Done: true,
 	}); err != nil {
 		t.Fatalf("Save m2: %v", err)
 	}
@@ -464,14 +465,16 @@ func TestDispatchGetMessagesSeeded(t *testing.T) {
 	if res.Messages[0].Role != "user" || res.Messages[1].Role != "assistant" {
 		t.Errorf("role mapping wrong: %+v", res.Messages)
 	}
-	if res.Messages[0].CreatedAt != 1000 {
-		t.Errorf("createdAt = %d, want 1000", res.Messages[0].CreatedAt)
+	// get_messages is a transparent MessageRecord passthrough now; the
+	// field is Timestamp (JSON tag createdAt).
+	if res.Messages[0].Timestamp != 1000 {
+		t.Errorf("Timestamp = %d, want 1000", res.Messages[0].Timestamp)
 	}
 }
 
 // TestDispatchGetMessagesRequiresSessionID covers the input validation.
 func TestDispatchGetMessagesRequiresSessionID(t *testing.T) {
-	_, c, _, _ := newTestHandlerWithStores(t)
+	_, c, _, _, _ := newTestHandlerWithStores(t)
 	resp := dispatchRequest(context.Background(), &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.get_messages",
 		Params: json.RawMessage(`{}`),
@@ -664,6 +667,229 @@ func waitForSubEvent(t *testing.T, sub *event.Subscription) {
 	case <-sub.C():
 	case <-time.After(2 * time.Second):
 		t.Fatal("agent did not start running")
+	}
+}
+
+// TestHandler_CreateSession covers agent.create_session: it walks the
+// factory lazy-build path, returns a session carrying the caller title,
+// and persists the new session as active in app_state.
+func TestHandler_CreateSession(t *testing.T) {
+	ctx := context.Background()
+	_, c, _, _, appState := newTestHandlerWithStores(t)
+
+	resp := dispatchRequest(ctx, &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.create_session",
+		Params: json.RawMessage(`{"title":"我的会话"}`),
+	}, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res := resp.Result.(CreateSessionResult)
+	if !idRe21.MatchString(res.Session.ID) {
+		t.Errorf("session id = %q, want 21-char nanoid", res.Session.ID)
+	}
+	if res.Session.Title != "我的会话" {
+		t.Errorf("Title = %q, want 我的会话", res.Session.Title)
+	}
+	if !c.sessions.Has(res.Session.ID) {
+		t.Errorf("session %q not registered in SessionManager", res.Session.ID)
+	}
+	active, err := appState.GetActiveSession(ctx)
+	if err != nil {
+		t.Fatalf("GetActiveSession: %v", err)
+	}
+	if active != res.Session.ID {
+		t.Errorf("active = %q, want %q (create_session persists active)", active, res.Session.ID)
+	}
+}
+
+// TestHandler_ListSessionsReturnsTitle covers agent.list_sessions returning
+// the renderer-facing Title (not the old empty SessionSummary shape).
+func TestHandler_ListSessionsReturnsTitle(t *testing.T) {
+	ctx := context.Background()
+	_, c, sessStore, _, _ := newTestHandlerWithStores(t)
+
+	if err := sessStore.Save(ctx, session.NewSession("a")); err != nil {
+		t.Fatalf("Save a: %v", err)
+	}
+	if err := sessStore.UpdateTitle(ctx, "a", "kubernetes 排障"); err != nil {
+		t.Fatalf("UpdateTitle a: %v", err)
+	}
+	if err := sessStore.Save(ctx, session.NewSession("b")); err != nil {
+		t.Fatalf("Save b: %v", err)
+	}
+
+	resp := dispatchRequest(ctx, &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.list_sessions",
+	}, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res := resp.Result.(ListSessionsResult)
+	if len(res.Sessions) != 2 {
+		t.Fatalf("len = %d, want 2", len(res.Sessions))
+	}
+	byID := map[string]string{}
+	for _, s := range res.Sessions {
+		byID[s.ID] = s.Title
+	}
+	if byID["a"] != "kubernetes 排障" {
+		t.Errorf("title for a = %q, want kubernetes 排障", byID["a"])
+	}
+	if byID["b"] == "" {
+		t.Errorf("title for b is empty; want non-empty default")
+	}
+}
+
+// TestHandler_DeleteSessionAdvancesActive covers the active-advance rule:
+// deleting the active session returns the next list entry and persists it;
+// deleting the last session returns null and clears active.
+func TestHandler_DeleteSessionAdvancesActive(t *testing.T) {
+	ctx := context.Background()
+	_, c, sessStore, _, appState := newTestHandlerWithStores(t)
+
+	for _, id := range []string{"a", "b"} {
+		if err := sessStore.Save(ctx, session.NewSession(id)); err != nil {
+			t.Fatalf("Save %s: %v", id, err)
+		}
+	}
+	if err := appState.SetActiveSession(ctx, "a"); err != nil {
+		t.Fatalf("SetActiveSession a: %v", err)
+	}
+
+	delA := dispatchRequest(ctx, &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.delete_session",
+		Params: json.RawMessage(`{"sessionId":"a"}`),
+	}, c, c.handler)
+	if delA.Error != nil {
+		t.Fatalf("delete a: %+v", delA.Error)
+	}
+	resA := delA.Result.(DeleteSessionResult)
+	if !resA.Deleted {
+		t.Error("Deleted = false, want true")
+	}
+	if resA.NextActiveSessionID == nil || *resA.NextActiveSessionID != "b" {
+		t.Errorf("NextActiveSessionID = %v, want b (next list entry)", resA.NextActiveSessionID)
+	}
+	if active, _ := appState.GetActiveSession(ctx); active != "b" {
+		t.Errorf("active after delete a = %q, want b", active)
+	}
+
+	delB := dispatchRequest(ctx, &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.delete_session",
+		Params: json.RawMessage(`{"sessionId":"b"}`),
+	}, c, c.handler)
+	if delB.Error != nil {
+		t.Fatalf("delete b: %+v", delB.Error)
+	}
+	resB := delB.Result.(DeleteSessionResult)
+	if resB.NextActiveSessionID != nil {
+		t.Errorf("NextActiveSessionID after deleting last = %v, want null", resB.NextActiveSessionID)
+	}
+	if active, _ := appState.GetActiveSession(ctx); active != "" {
+		t.Errorf("active after deleting last = %q, want cleared", active)
+	}
+}
+
+// TestHandler_RenameUpdatesTitle covers agent.rename_session: a non-empty
+// title is persisted; an empty / whitespace title falls back to 新建会话.
+func TestHandler_RenameUpdatesTitle(t *testing.T) {
+	ctx := context.Background()
+	_, c, sessStore, _, _ := newTestHandlerWithStores(t)
+
+	if err := sessStore.Save(ctx, session.NewSession("a")); err != nil {
+		t.Fatalf("Save a: %v", err)
+	}
+
+	// Empty title → fallback.
+	empty := dispatchRequest(ctx, &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.rename_session",
+		Params: json.RawMessage(`{"sessionId":"a","title":"   "}`),
+	}, c, c.handler)
+	if empty.Error != nil {
+		t.Fatalf("rename empty: %+v", empty.Error)
+	}
+	if got := empty.Result.(RenameSessionResult).Session.Title; got != "新建会话" {
+		t.Errorf("Title after empty rename = %q, want 新建会话", got)
+	}
+	if row, _ := sessStore.GetByID(ctx, "a"); row.Title != "新建会话" {
+		t.Errorf("persisted Title = %q, want 新建会话", row.Title)
+	}
+
+	// Real rename.
+	named := dispatchRequest(ctx, &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.rename_session",
+		Params: json.RawMessage(`{"sessionId":"a","title":"生产排障"}`),
+	}, c, c.handler)
+	if named.Error != nil {
+		t.Fatalf("rename named: %+v", named.Error)
+	}
+	if got := named.Result.(RenameSessionResult).Session.Title; got != "生产排障" {
+		t.Errorf("Title after rename = %q, want 生产排障", got)
+	}
+	if row, _ := sessStore.GetByID(ctx, "a"); row.Title != "生产排障" {
+		t.Errorf("persisted Title = %q, want 生产排障", row.Title)
+	}
+}
+
+// TestHandler_SearchReturnsBothBuckets covers agent.search_sessions: title
+// hits land in sessions, content hits land in messages (with the owning
+// session title). Empty query returns empty.
+func TestHandler_SearchReturnsBothBuckets(t *testing.T) {
+	ctx := context.Background()
+	_, c, sessStore, msgStore, _ := newTestHandlerWithStores(t)
+
+	if err := sessStore.Save(ctx, session.NewSession("a")); err != nil {
+		t.Fatalf("Save a: %v", err)
+	}
+	if err := sessStore.Save(ctx, session.NewSession("b")); err != nil {
+		t.Fatalf("Save b: %v", err)
+	}
+	if err := sessStore.UpdateTitle(ctx, "a", "kubernetes 排障"); err != nil {
+		t.Fatalf("UpdateTitle a: %v", err)
+	}
+	if err := sessStore.UpdateTitle(ctx, "b", "日常闲聊"); err != nil {
+		t.Fatalf("UpdateTitle b: %v", err)
+	}
+	if err := msgStore.Save(ctx, &store.MessageRecord{
+		ID: "m1", SessionID: "b", Role: "assistant", Content: "kubernetes 集群排障", Timestamp: 1000,
+	}); err != nil {
+		t.Fatalf("Save message: %v", err)
+	}
+
+	resp := dispatchRequest(ctx, &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.search_sessions",
+		Params: json.RawMessage(`{"query":"kubernetes"}`),
+	}, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res := resp.Result.(SearchSessionsResult)
+	if len(res.Sessions) != 1 || res.Sessions[0].ID != "a" {
+		t.Errorf("sessions bucket = %+v, want [a]", res.Sessions)
+	}
+	if len(res.Messages) != 1 {
+		t.Fatalf("messages bucket len = %d, want 1", len(res.Messages))
+	}
+	if res.Messages[0].Message.SessionID != "b" {
+		t.Errorf("hit SessionID = %q, want b", res.Messages[0].Message.SessionID)
+	}
+	if res.Messages[0].SessionTitle != "日常闲聊" {
+		t.Errorf("hit SessionTitle = %q, want 日常闲聊", res.Messages[0].SessionTitle)
+	}
+
+	// Empty query → both buckets empty.
+	emptyResp := dispatchRequest(ctx, &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.search_sessions",
+		Params: json.RawMessage(`{"query":"   "}`),
+	}, c, c.handler)
+	if emptyResp.Error != nil {
+		t.Fatalf("empty search: %+v", emptyResp.Error)
+	}
+	empty := emptyResp.Result.(SearchSessionsResult)
+	if len(empty.Sessions) != 0 || len(empty.Messages) != 0 {
+		t.Errorf("empty query returned %d sessions / %d messages, want 0/0",
+			len(empty.Sessions), len(empty.Messages))
 	}
 }
 
