@@ -144,10 +144,48 @@ export interface DarvinLocaleResponse {
   locale: DarvinLocale;
 }
 
+/** 用户导入到 session workspace 的文件（renderer 视图）。 */
+export interface DarvinImportedFile {
+  id: string;
+  originalName: string; // basename
+  relativePath: string;
+  size: number;
+  mimeType: string | null;
+  sha256: string;
+  importedAt: number;
+}
+
+export type DarvinImportErrorCode =
+  | 'too_large'
+  | 'unsupported_type'
+  | 'workspace_full'
+  | 'source_unreadable'
+  | 'copy_failed'
+  | 'name_conflict';
+
+export interface DarvinImportFilesResponse {
+  imported: DarvinImportedFile[];
+  skipped: Array<{ sourcePath: string; reason: DarvinImportErrorCode; message: string }>;
+}
+
+export interface DarvinListImportedFilesResponse {
+  files: DarvinImportedFile[];
+  workspaceBytes: number;
+}
+
+export interface DarvinRemoveImportedFileResponse {
+  removed: boolean;
+}
+
+export interface DarvinWorkspaceInfoResponse {
+  workspaceBytes: number;
+}
+
 export const DarvinPushEvent = {
   SessionsChanged: 'darvin:push:sessions-changed',
   ActiveSessionChanged: 'darvin:push:active-session-changed',
   SessionEvent: 'darvin:push:session-event',
+  WorkspaceChanged: 'darvin:push:workspace-changed',
 } as const;
 export type DarvinPushEvent = typeof DarvinPushEvent[keyof typeof DarvinPushEvent];
 
@@ -181,4 +219,17 @@ export interface DarvinApi {
 
   /** 走 IPC 异步查询：sendSync 会阻塞 renderer 线程，不用。 */
   status(): Promise<DarvinRuntimeStatus>;
+
+  /** 弹系统文件选择框导入文件到当前 session workspace；返回导入/跳过明细。 */
+  importFiles(): Promise<DarvinImportFilesResponse>;
+  /** 列出当前 session workspace 已导入文件 + 已用字节数。 */
+  listImportedFiles(): Promise<DarvinListImportedFilesResponse>;
+  /** 从 workspace 移除一个已导入文件（含 DB 行与磁盘文件）。 */
+  removeImportedFile(relativePath: string): Promise<DarvinRemoveImportedFileResponse>;
+  /** 查询当前 session workspace 已用字节数（不透传 workspace 绝对路径）。 */
+  getWorkspaceInfo(): Promise<DarvinWorkspaceInfoResponse>;
+  /** 在系统文件管理器中打开 workspace 目录（main 端执行）。 */
+  revealWorkspace(): Promise<void>;
+  /** workspace 内容变更 push（import / remove 后 main 广播）。 */
+  onWorkspaceChanged(handler: (info: { sessionId: string; files: DarvinImportedFile[] }) => void): () => void;
 }

@@ -18,16 +18,21 @@ import type {
   DarvinActiveSessionResponse,
   DarvinEvent,
   DarvinGetMessagesResponse,
+  DarvinImportedFile,
+  DarvinImportFilesResponse,
+  DarvinListImportedFilesResponse,
   DarvinListSessionsResponse,
   DarvinLLMConfig,
   DarvinLocaleResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
+  DarvinRemoveImportedFileResponse,
   DarvinRenameSessionResponse,
   DarvinRuntimeStatus,
   DarvinSearchSessionsResponse,
   DarvinSetLLMConfigResponse,
   DarvinSession,
+  DarvinWorkspaceInfoResponse,
 } from '../shared/darvin-api';
 import { DarvinPushEvent } from '../shared/darvin-api';
 
@@ -103,6 +108,29 @@ const api: DarvinApi = {
 
   async status(): Promise<DarvinRuntimeStatus> {
     return ipcRenderer.invoke('darvin:status');
+  },
+
+  async importFiles(): Promise<DarvinImportFilesResponse> {
+    return ipcRenderer.invoke('darvin:import_files');
+  },
+  async listImportedFiles(): Promise<DarvinListImportedFilesResponse> {
+    return ipcRenderer.invoke('darvin:list_imported_files');
+  },
+  async removeImportedFile(relativePath: string): Promise<DarvinRemoveImportedFileResponse> {
+    return ipcRenderer.invoke('darvin:remove_imported_file', relativePath);
+  },
+  async getWorkspaceInfo(): Promise<DarvinWorkspaceInfoResponse> {
+    return ipcRenderer.invoke('darvin:get_workspace_info');
+  },
+  async revealWorkspace(): Promise<void> {
+    return ipcRenderer.invoke('darvin:reveal_workspace');
+  },
+  onWorkspaceChanged(handler: (info: { sessionId: string; files: DarvinImportedFile[] }) => void): () => void {
+    const wrap = (_e: unknown, info: { sessionId: string; files: DarvinImportedFile[] }) => handler(info);
+    ipcRenderer.on(DarvinPushEvent.WorkspaceChanged, wrap);
+    return () => {
+      ipcRenderer.off(DarvinPushEvent.WorkspaceChanged, wrap);
+    };
   },
 };
 
