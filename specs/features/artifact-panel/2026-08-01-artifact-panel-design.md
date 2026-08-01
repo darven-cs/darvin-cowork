@@ -14,7 +14,7 @@
 |---|------|------|
 | G1 | 协议：`artifact` 事件 + `DarvinArtifact` 类型 | 00 spec 落地 |
 | G2 | `artifactSlice`（或 darvin 风格的 composable `useArtifacts`）状态机 | artifactsBySession / previewTabsBySession / activePreviewTabId / panelWidth |
-| G3 | 3 个特殊 tab：`fileList` / `browser` / `subagents` | 替代现有空 tab |
+| G3 | artifact 面板内层 tab（照 LobsterAI）：per-artifact 预览 tab + 特殊 tab `fileList` / `browser` / `subagents` | 替换 artifact 空 tab；外层 tools/thinking 保留 |
 | G4 | 10 种 artifact 渲染器：html / svg / image / video / mermaid / code / markdown / text / document / local-service | 全部 sandbox 隔离 |
 | G5 | Inline HTML：`sandbox="allow-scripts"`（不加 allow-same-origin） | `HtmlRenderer` 复用 AGENTS.md 规则 |
 | G6 | File-based HTML：走 `darvin.artifact.createPreviewSession` 本地服务（main 端启动） | 主进程开端口 |
@@ -35,6 +35,21 @@
 
 ```ts
 // src/renderer/composables/useArtifacts.ts
+// 特殊 tab（参考 LobsterAI ArtifactSpecialTab，见 artifactSlice.ts:25-27）
+export const ArtifactSpecialTab = {
+  FileList: 'fileList',
+  Browser: 'browser',
+  Subagents: 'subagents',
+} as const;
+export type ArtifactSpecialTab = typeof ArtifactSpecialTab[keyof typeof ArtifactSpecialTab];
+
+// 单个 artifact 的内容视图（参考 LobsterAI ArtifactContentView）
+export const ArtifactContentView = {
+  Preview: 'preview',
+  Code: 'code',
+} as const;
+export type ArtifactContentView = typeof ArtifactContentView[keyof typeof ArtifactContentView];
+
 interface ArtifactState {
   artifactsBySession: Record<string, Artifact[]>;
   previewTabsBySession: Record<string, ArtifactPreviewTab[]>;
@@ -46,9 +61,11 @@ interface ArtifactState {
 interface ArtifactPreviewTab {
   id: string;
   artifactId: string;
-  contentView: 'preview' | 'code';
+  contentView: ArtifactContentView;
 }
 ```
+
+> `Artifact`（renderer 本地类型）由 `artifact` 事件的 `artifactId` / `kind` / `name` / `content` / `createdAt` 直接构建，无需共享的 `DarvinArtifact` 类型（见 §4.4）。
 
 ### 4.2 渲染器路由
 
@@ -105,6 +122,16 @@ case 'artifact': {
 }
 ```
 
+### 4.5 tab 结构决议（照 LobsterAI）
+
+现状 side panel 外层是 3 tab（tools / thinking / artifact，`useSidePanel` 的 `SidePanelTab`，`sidepanel.tabs.*` i18n key）。决议：
+
+- **外层保留** `tools` / `thinking` / `artifact` 3 tab 不变：tools 由 spec 02 的 `ToolCallGroup` 在 turn 内渲染，thinking 暂留空态；i18n key 不动。
+- **artifact tab 内嵌 ArtifactPanel**，内层 tab 结构照 LobsterAI：
+  - per-artifact 预览 tab：来自 `previewTabsBySession`，每个 artifact 一个 tab，带 `preview` / `code` 内容视图切换（`ArtifactContentView`）。
+  - 3 个特殊 tab：`fileList` / `browser` / `subagents`（`ArtifactSpecialTab`，参考 LobsterAI `artifactSlice.ts:25-27`）。
+- 状态机字段对齐 LobsterAI `artifactSlice.ts:48-63`：`artifactsBySession` / `previewTabsBySession` / `activePreviewTabIdBySession` / `isPanelOpenBySession` / `panelWidth`（默认 180-1000 可拖拽）。
+
 ## 5. 用户场景
 
 ### 场景 1：agent 产出 HTML artifact
@@ -155,6 +182,9 @@ case 'artifact': {
 - AGENTS.md § 「Artifact 渲染器」约束
 
 ### LobsterAI（借鉴）
+
+> 参考项目根目录：`~/桌面/github-project/LobsterAI`（下述路径均相对该项目根）。组件实现遇阻时直接查该项目源码。
+
 - `src/renderer/components/artifacts/ArtifactPanel.tsx`（258KB，看 tab 切分即可）
 - `src/renderer/store/slices/artifactSlice.ts:46-54` — 状态机
 - `src/renderer/services/artifactParser.ts` — 解析

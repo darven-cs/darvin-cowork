@@ -10,11 +10,11 @@
 
 ## 当前进度
 
-**已完成 0 / 9。下一个该做的：00（darvin-api-extension）**（前置协议，必须先动）。
+**已完成 1 / 9。下一个该做的：01（agent-output-rendering）**（依赖 00）。
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
-| 00 | [darvin-api-extension](./../darvin-api-extension/2026-08-01-darvin-api-extension-design.md) | ⏳ 待启动 | 0/5 | 协议先行 |
+| 00 | [darvin-api-extension](./../darvin-api-extension/2026-08-01-darvin-api-extension-design.md) | ✅ 完成 | 9/9 | 协议先行 |
 | 01 | [agent-output-rendering](./../agent-output-rendering/2026-08-01-agent-output-rendering-design.md) | ⬜ 未启动 | 0/8 | 依赖 00 |
 | 02 | [tool-result-rendering](./../tool-result-rendering/2026-08-01-tool-result-rendering-design.md) | ⬜ 未启动 | 0/7 | 依赖 00 |
 | 03 | [token-context-usage](./../token-context-usage/2026-08-01-token-context-usage-design.md) | ⬜ 未启动 | 0/6 | 依赖 00 |
@@ -53,16 +53,16 @@
 
 > 协议层扩展，是后续 8 份的前置。
 
-- [ ] `DarvinMessage` 改为 discriminated union（5 种 type）
-- [ ] `DarvinToolKind` 枚举（bash / read / write / edit / todowrite / web_search / web_fetch / image_gen / video_gen / 兜底 string）
-- [ ] `DarvinUsage` 补 `cacheReadTokens` / `cacheWriteTokens`
-- [ ] 新增 `DarvinContextUsage` 类型（含 status 五态 + compactionCount + model）
-- [ ] `DarvinEvent` 新增 3 个 union 成员：`compaction` / `context_usage` / `artifact`
-- [ ] `DarvinAttachment` 类型（user 消息附件）
-- [ ] `client.ts:245` `LIFECYCLE_EVENT_TYPES` 移除 `'compaction'` 静默丢弃
-- [ ] `assertNever(msg)` 兜底编译检查
-- [ ] `mock-data.ts` 不报错（向后兼容）
-- [ ] 状态：**⏳ 待启动**
+- [x] `DarvinMessage` 改为 discriminated union（5 种 type）
+- [x] `DarvinToolKind` 枚举（bash / read / write / edit / todowrite / web_search / web_fetch / image_gen / video_gen / 兜底 string）
+- [x] `DarvinUsage` 补 `cacheReadTokens` / `cacheWriteTokens`
+- [x] 新增 `DarvinContextUsage` 类型（含 status 五态 + compactionCount + model）
+- [x] `DarvinEvent` 新增 3 个 union 成员：`compaction` / `context_usage` / `artifact`
+- [x] `DarvinAttachment` 类型（user 消息附件）
+- [x] `client.ts` `LIFECYCLE_EVENT_TYPES` 移除 `'compaction'` 静默丢弃
+- [x] `assertNever(msg)` 兜底编译检查
+- [x] `mock-data.ts` 不报错（向后兼容）
+- [x] 状态：**✅ 完成**
 
 ### 01 · agent-output-rendering
 
@@ -172,4 +172,4 @@
 
 > 每次勾完一组 FR，在此处记一行：日期 / spec / 「完成说明」。
 
-（暂无记录）
+- 2026-08-01 · 00 darvin-api-extension · 协议层完成：`DarvinMessage` union 化（5 态）+ `DarvinToolKind` / `DarvinContextUsage` / `DarvinAttachment` + `DarvinEvent` 新增 compaction / context_usage / artifact + `client.ts` 移除 compaction 静默丢弃 + `assertNever` 兜底。lint / test 通过；⏳ 待人工 `npm start` 验证现有会话 / 历史消息渲染行为不变。

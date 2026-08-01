@@ -119,6 +119,9 @@ const expanded = ref(props.isCurrentlyStreaming);  // 流式时强制展开
 - `src/renderer/composables/useChatActions.ts`
 
 ### LobsterAI（借鉴）
+
+> 参考项目根目录：`~/桌面/github-project/LobsterAI`（下述路径均相对该项目根）。组件实现遇阻时直接查该项目源码。
+
 - `src/renderer/components/MarkdownContent.tsx` — 渲染主入口 + `shouldUseLargeMarkdownPreview`
 - `src/renderer/components/CodeBlock.tsx` — CodeMirror 6（**darvin-cowork 改用 Shiki**）
 - `src/renderer/components/cowork/ThinkingBlock.tsx:12-72`

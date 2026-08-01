@@ -117,7 +117,7 @@ export interface DarvinAttachment {
 
 - [ ] `darvin-api.ts` 编译通过；现有 `MessageItem` / `useMessages` 行为不变（向后兼容）
 - [ ] 新类型可被 `MessageItem.vue` 用 `v-if="msg.type === 'tool_use'"` 分发
-- [ ] `LIFECYCLE_EVENT_TYPES` 移除 `'compaction'` 静默丢弃（`client.ts:245`），改为正常 push
+- [ ] `LIFECYCLE_EVENT_TYPES` 移除 `'compaction'` 静默丢弃，改为正常 push
 - [ ] 在 `src/shared/darvin-api.ts` 顶部加 `assertNever(msg)` 兜底
 - [ ] 协议变更后不破坏现有 mock（`mock-data.ts` 不报错）
 
@@ -125,7 +125,7 @@ export interface DarvinAttachment {
 
 - **被依赖**：01 / 02 / 03 / 04 / 05 全部需要本 spec 落地后才能开工
 - **依赖**：无（可作为首个 spec 启动）
-- **可参考的 LobsterAI 协议类型**：
+- **可参考的 LobsterAI 协议类型**（参考项目根：`~/桌面/github-project/LobsterAI`，下述路径均相对该项目根）：
   - `src/renderer/types/cowork.ts:65-137` — `CoworkMessageMetadata` + `CoworkContextUsage` + `CoworkMessage` 完整定义
   - `src/shared/cowork/constants.ts` — `CoworkContextUsageSource` / `CoworkForkMode` 等枚举
 

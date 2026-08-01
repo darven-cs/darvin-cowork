@@ -4,13 +4,13 @@
 
 ## 1. 背景
 
-`darvin-api.ts:61-62` 已定义 `tool_start { tool, input }` / `tool_end { tool, output }` 事件，但 `useMessages.appendToBucket` 完全不消费这两个事件，`SidePanelContent.vue` 的 tools tab 是空态占位。LobsterAI 在 turn 内部按 `toolKind` 分发专门渲染器（Bash 仿终端 / TodoWrite checkbox / Edit DiffView）。
+`darvin-api.ts` 已定义 `tool_start { tool, input }` / `tool_end { tool, output }` 事件（事件侧 `toolUseId` 补丁见 §4.5），但 `useMessages.appendToBucket` 完全不消费这两个事件，`SidePanelContent.vue` 的 tools tab 是空态占位。LobsterAI 在 turn 内部按 `toolKind` 分发专门渲染器（Bash 仿终端 / TodoWrite checkbox / Edit DiffView）。
 
 ## 2. 目标
 
 | # | 目标 | 度量 |
 |---|------|------|
-| G1 | 协议扩展：`tool_use` / `tool_result` 消息类型 + `toolUseId` 配对 | 00 spec 落地后自动满足 |
+| G1 | 协议扩展：`tool_use` / `tool_result` 消息类型 + `toolUseId` 配对 | 00 已落地消息类型；事件侧 `toolUseId` 由本 spec 前置补丁落地（见 §4.5） |
 | G2 | `ToolCallGroup` 组件：按 `toolKind` 选渲染器，默认折叠 | Bash / Read / Edit / TodoWrite / Web 5 个分支 |
 | G3 | Bash 渲染：仿终端（三色圆点 + 黑底 + `$ ` 前缀） | `kind='bash'` 触发 |
 | G4 | TodoWrite 渲染：三态 checkbox（completed/in_progress/pending） | `kind='todowrite'` 触发 |
@@ -98,6 +98,23 @@ export function getToolResultCollapsedDisplay(output: unknown): {
 }
 ```
 
+### 4.5 事件侧 `toolUseId` 补丁（spec 00 遗留，本 spec 的前置）
+
+spec 00 把 `tool_use` / `tool_result` 加进了 `DarvinMessage` 消息 union（自带 `toolUseId`），但**没有改 `tool_start` / `tool_end` 事件类型**。当前事件 wire 与「按 `toolUseId` 配对」的需求不一致：
+
+| 层 | tool 事件字段 |
+|---|---|
+| Go `eventledger.go` | `tool_start { tool, input, message: { id: CallID } }` / `tool_end { tool, output, message: { id } }` |
+| TS `DarvinEvent.tool_start / tool_end` | 声明 `messageId: string`（字段名与 Go 的 `message.id` 不一致，且无 `toolUseId`） |
+
+**决议**：
+
+1. 扩展 `DarvinEvent` 的 `tool_start` / `tool_end` 成员，增加 `toolUseId?: string`。
+2. `parseDarvinEvent` 对这两个 type 从 raw 的 `message.id`（Go 注入的 CallID）提升出 `toolUseId` 附加到事件对象上，**不改 Go**。
+3. `useMessages` 接管 `tool_start` / `tool_end`，按 `toolUseId` 配对 `tool_use → tool_result`（参考 LobsterAI `cowork/messageDisplayUtils.ts:540-552` 按 `message.metadata.toolUseId` 分组）。
+
+> 实现顺序：先改 `src/shared/darvin-api.ts` 事件类型 + `src/main/runtime/client.ts` 的 `parseDarvinEvent`，再写 `ToolCallGroup` 配对逻辑。`toolUseId` 缺失时按 messageId 兜底（保持向后兼容）。
+
 ## 5. 用户场景
 
 ### 场景 1：agent 跑 bash 命令
@@ -142,11 +159,14 @@ export function getToolResultCollapsedDisplay(output: unknown): {
 ## 8. 参考
 
 ### darvin-cowork
-- `src/shared/darvin-api.ts:61-62` — `tool_start` / `tool_end` 事件（要被替换成消息类型）
-- `src/renderer/composables/useMessages.ts:49-63` — `appendToBucket`（当前不处理工具事件）
-- `src/renderer/components/side-panel/SidePanelContent.vue:17` — 空态占位
+- `src/shared/darvin-api.ts` — `tool_start` / `tool_end` 事件（§4.5 需补 `toolUseId`）
+- `src/renderer/composables/useMessages.ts` — `appendToBucket`（当前不处理工具事件）
+- `src/renderer/components/side-panel/SidePanelContent.vue` — 空态占位
 
 ### LobsterAI（借鉴）
+
+> 参考项目根目录：`~/桌面/github-project/LobsterAI`（下述路径均相对该项目根）。组件实现遇阻时直接查该项目源码。
+
 - `src/renderer/components/cowork/ToolCallGroup.tsx:83-387` — 核心
 - `src/renderer/components/cowork/messageDisplayUtils.ts:93-189` — `getToolDisplayName` / `formatToolInput` / `getToolResultDisplay` / `getToolResultCollapsedDisplay` / `getLargeToolResultSummary`
 - `src/renderer/components/cowork/DiffView.tsx`

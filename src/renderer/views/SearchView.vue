@@ -72,7 +72,7 @@
                     {{ hit.sessionTitle }}
                   </span>
                   <span class="block truncate text-xs text-text-muted">
-                    {{ roleLabel(hit.message.role) }} · {{ snippet(hit.message.content) }}
+                    {{ roleLabel(darvinMessageRole(hit.message)) }} · {{ snippet(darvinMessageContent(hit.message)) }}
                   </span>
                 </button>
               </li>
@@ -90,6 +90,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import type { DarvinSearchSessionsResponse } from '../../shared/darvin-api';
+import { darvinMessageRole, darvinMessageContent } from '../../shared/darvin-api';
 import ChatHeader from '../components/chat/ChatHeader.vue';
 import Icon from '../components/common/Icon.vue';
 import { useSession } from '../composables/useSession';

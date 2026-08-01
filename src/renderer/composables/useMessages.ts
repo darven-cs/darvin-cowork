@@ -16,6 +16,7 @@
 
 import { computed, ref, watch } from 'vue';
 import type { DarvinEvent, DarvinMessage } from '../../shared/darvin-api';
+import { assertNever } from '../../shared/darvin-api';
 import { useSession } from './useSession';
 
 export interface Message {
@@ -33,17 +34,76 @@ const messagesBySessionId = ref<Record<string, Message[]>>({});
 const streamingSessionIds = ref<Set<string>>(new Set());
 const unreadSessionIds = ref<Set<string>>(new Set());
 
+/** 老 Go 的扁平 wire shape（role 在顶层，无 type 判别）。 */
+interface LegacyFlatMessage {
+  id: string;
+  sessionId: string;
+  role: string;
+  content: string;
+  done: boolean;
+  error?: string;
+  toolLabel?: string;
+  createdAt: number;
+}
+
 function toMessage(m: DarvinMessage): Message {
-  return {
-    id: m.id,
-    sessionId: m.sessionId,
-    role: m.role,
-    content: m.content,
-    done: m.done,
-    error: m.error,
-    toolLabel: m.toolLabel,
-    createdAt: m.createdAt,
-  };
+  const legacy = m as unknown as LegacyFlatMessage;
+  if (legacy.role !== undefined) {
+    return {
+      id: legacy.id,
+      sessionId: legacy.sessionId,
+      role: legacy.role === 'user' ? 'user' : 'assistant',
+      content: legacy.content,
+      done: legacy.done,
+      error: legacy.error,
+      toolLabel: legacy.toolLabel,
+      createdAt: legacy.createdAt,
+    };
+  }
+  switch (m.type) {
+    case 'user':
+      return {
+        id: m.id,
+        sessionId: m.sessionId,
+        role: 'user',
+        content: m.content,
+        done: m.done,
+        error: m.error,
+        createdAt: m.createdAt,
+      };
+    case 'assistant':
+      return {
+        id: m.id,
+        sessionId: m.sessionId,
+        role: 'assistant',
+        content: m.content,
+        done: m.done,
+        error: m.error,
+        toolLabel: m.toolLabel,
+        createdAt: m.createdAt,
+      };
+    case 'tool_use':
+    case 'tool_result':
+      return {
+        id: m.id,
+        sessionId: m.sessionId,
+        role: 'assistant',
+        content: `[${m.tool}]`,
+        done: true,
+        createdAt: m.createdAt,
+      };
+    case 'system':
+      return {
+        id: m.id,
+        sessionId: m.sessionId,
+        role: 'assistant',
+        content: m.content,
+        done: true,
+        createdAt: m.createdAt,
+      };
+    default:
+      return assertNever(m);
+  }
 }
 
 function appendToBucket(list: Message[], ev: DarvinEvent): void {

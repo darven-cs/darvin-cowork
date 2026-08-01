@@ -13,7 +13,7 @@ darvin-cowork 没有 IM / 多 Agent 引擎 / dreaming 概念，本 spec 只扩�
 | # | 目标 | 度量 |
 |---|------|------|
 | G1 | 新增 tab：**通用**（autoLaunch / SQLite backup / 通知 / 代理） | 落地至少 2 个开关 |
-| G2 | **外观** tab 升级：UI 字号 11-16 / 代码字号 8-24 / 主题色 3 选 1 | 与 09-theme-token 联动 |
+| G2 | **外观** tab 升级：UI 字号 11-16 / 代码字号 8-24 / 主题色 3 选 1 | UI/代码字号与主题色通过 `styles/theme.css` 的 `@theme` token 驱动并持久化 |
 | G3 | **模型** tab：多 provider 列表（Anthropic / OpenAI / 自定义） | 当前硬编码 anthropic 要松绑 |
 | G4 | **快捷键** tab：从 06-sidebar 同步实际绑定 | 真绑定 |
 | G5 | **记忆** tab：memory 启用 + embedding provider 配置 | 与 Go agent 协议对接 |
@@ -111,7 +111,7 @@ export const ModelProvider = {
 ## 7. 依赖
 
 - **前置**：04-context-compaction-ui（关于 tab 用压缩次数）
-- **可并行**：06 / 08 / 09
+- **可并行**：06 / 08
 - **后置**：无
 
 ## 8. 参考
@@ -125,6 +125,9 @@ export const ModelProvider = {
 - `src/main/libs/user-settings.ts`
 
 ### LobsterAI（借鉴）
+
+> 参考项目根目录：`~/桌面/github-project/LobsterAI`（下述路径均相对该项目根）。组件实现遇阻时直接查该项目源码。
+
 - `src/renderer/components/Settings.tsx`（242KB，只看 tab 入口与面板映射）
 - `src/renderer/components/Settings/ModelSettingsSection.tsx`（119KB）
 - `src/renderer/components/Settings/DreamingSettingsSection.tsx`

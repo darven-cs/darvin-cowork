@@ -12,11 +12,11 @@
 
 | 维度 | darvin-cowork 现状 | LobsterAI 现状 | 差距性质 |
 |---|---|---|---|
-| 消息类型 | 2 种（user / assistant） | 5 种（user / assistant / tool_use / tool_result / system） | 协议字段 + 渲染组件两层缺 |
+| 消息类型 | 协议已扩 5 种 union（spec 00），渲染仍只画 2 种 | 5 种（user / assistant / tool_use / tool_result / system） | 协议已补齐，渲染层缺 |
 | 流式渲染 | 纯文本 + 三点动画 | react-markdown + KaTeX + GFM + CodeMirror | 渲染层整层缺 |
 | 工具结果 | `tool_start`/`tool_end` 事件定义存在但 UI **完全不消费** | `ToolCallGroup` + Bash/TodoWrite/Edit/Diff 多种专门渲染 | 整层缺 |
-| Token 用量 | `DarvinUsage` 类型在契约层定义，UI **完全无展示** | `CoworkMessageMetadata.usage` + `ContextUsageIndicator` 圆环可视化 | 数据已通，UI 整层缺 |
-| 上下文压缩 | `compaction` 生命周期事件在 client.ts 被静默丢弃 | 圆环点击 → 手动压缩 / `status='compacting'` 旋转 / `AssistantTurnBlock` 压缩分隔符 | 整层缺 |
+| Token 用量 | `DarvinUsage` 已补 cache 字段（spec 00），UI **完全无展示** | `CoworkMessageMetadata.usage` + `ContextUsageIndicator` 圆环可视化 | 数据已通，UI 整层缺 |
+| 上下文压缩 | `compaction` 事件已进 `DarvinEvent`（spec 00 不再静默丢弃），UI 入口/动画/分隔符缺 | 圆环点击 → 手动压缩 / `status='compacting'` 旋转 / `AssistantTurnBlock` 压缩分隔符 | 协议已通，UI 缺 |
 | 侧栏 | 简单会话列表 + 静态 Agent 卡片 | 树形 Agent + 会话 + 子会话 + 拖拽 + pin + parent session | 复杂，差异化重 |
 | 右侧面板 | 三个 tab 全空态占位 | `ArtifactPanel` + artifactSlice + 10 种 artifact 渲染器 | 整层缺 |
 | 设置 | 5 个 tab，3 个有占位 | 12 个 tab，IM/MCP/dreaming/embedding 等深度功能 | 广度差距大 |
@@ -33,7 +33,7 @@
 |---|---|---|
 | 协议字段 | `DarvinEvent.text_delta / thinking_delta / tool_start / tool_end / done / error / agent_end` | `CoworkMessageType = 'user' \| 'assistant' \| 'tool_use' \| 'tool_result' \| 'system'` + `CoworkMessageMetadata.usage/isStreaming/isThinking/toolName/toolInput/toolResult/error/...` |
 | 消息结构 | `Message { id, sessionId, role, content, done, error?, toolLabel?, createdAt }` | `CoworkMessage { id, type, content, timestamp, metadata? }` |
-| 流式 | `text_delta` 累积到 `message.content`（useMessages.ts:50-52） | 同上，但走 Redux `coworkSlice.upsertMessage` + `turnById` 模型 |
+| 流式 | `text_delta` 累积到 `message.content`（`useMessages`） | 同上，但走 Redux `coworkSlice.upsertMessage` + `turnById` 模型 |
 | Markdown | ❌ 纯 `whitespace-pre-wrap` | ✅ `react-markdown + remark-gfm + remarkMath + rehypeKatex`（`MarkdownContent.tsx`） |
 | 代码块 | ❌ 无 | ✅ CodeMirror 6（`CodeBlock.tsx`，支持高亮/折叠/搜索/diff） |
 | 大文档 | ❌ 无 | ✅ 8KB 阈值切头 4KB + 尾 8KB（`shouldUseLargeMarkdownPreview()`） |
@@ -46,10 +46,10 @@
 | 时间戳 / 模型标签 | hover 显示 message id | hover 显示时间戳 + 模型名 + fork 按钮 |
 
 **关键 darvin-cowork 文件**：
-- `src/shared/darvin-api.ts:36-65` — 协议 union（已含 tool_start/end，缺 type 字段）
-- `src/renderer/composables/useMessages.ts:49-63` — `appendToBucket` 只处理 text/thinking/done/error
-- `src/renderer/components/chat/MessageItem.vue:17-27` — 纯文本 bubble
-- `src/renderer/components/chat/StreamingText.vue:6` — 纯文本白板
+- `src/shared/darvin-api.ts` — 协议 union（spec 00 已扩 5 种 type + cache / attachment / compaction / context_usage / artifact）
+- `src/renderer/composables/useMessages.ts` — `appendToBucket` 只处理 text/thinking/done/error
+- `src/renderer/components/chat/MessageItem.vue` — 纯文本 bubble
+- `src/renderer/components/chat/StreamingText.vue` — 纯文本白板
 
 **LobsterAI 借鉴目标**：
 - `src/renderer/components/MarkdownContent.tsx`
@@ -91,8 +91,8 @@
 
 | 项 | darvin-cowork | LobsterAI |
 |---|---|---|
-| 协议 | `DarvinUsage { inputTokens, outputTokens, totalTokens }`（`darvin-api.ts:47`） | `CoworkMessageMetadata.usage { inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens? }` |
-| 事件 | `done` 携带 `usage?`（`darvin-api.ts:63`） | `done` 携带 `usage` + 额外 push `CoworkContextUsage` |
+| 协议 | `DarvinUsage { inputTokens, outputTokens, cacheReadTokens?, cacheWriteTokens?, totalTokens }`（spec 00 已补 cache 字段） | `CoworkMessageMetadata.usage { inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens? }` |
+| 事件 | `done` 携带 `usage?`；`context_usage` 事件已进 union（spec 00） | `done` 携带 `usage` + 额外 push `CoworkContextUsage` |
 | 上下文容量 | ❌ 无 | ✅ `CoworkContextUsage { usedTokens, contextTokens, percent, compactionCount, status, latestCompactionCheckpointId, latestCompactionReason, latestCompactionCreatedAt, model, updatedAt }` |
 | 状态机 | ❌ 无 | ✅ `status: 'unknown' \| 'normal' \| 'warning' \| 'danger' \| 'compacting'` |
 | 圆环可视化 | ❌ 无 | ✅ `ContextUsageIndicator` SVG 圆环（`RADIUS=7, CIRCUMFERENCE=43.96`），12 点方向起笔 |
@@ -119,7 +119,7 @@
 |---|---|---|
 | 宽度 | 220px 固定 | 220-420px 可拖拽，MIN 220 / MAX 420 |
 | 折叠 | ✅ 折叠时整列 `0px`（会跳） | ✅ 折叠时图标模式 |
-| 导航 | 5 个：新建任务/搜索/定时任务/专家套件/技能/MCP（**后三个仅 warn**） | 5 个：cowork / skills / scheduledTasks / kits / mcp + 全部有真实面板 |
+| 导航 | 6 个：新建任务/搜索/定时任务/专家套件/技能/MCP（scheduled / skill / mcp 仅 warn） | 5 个：cowork / skills / scheduledTasks / kits / mcp + 全部有真实面板 |
 | 会话列表 | ✅ `SessionList` + `SessionItem` | ✅ `CoworkSessionList` + `CoworkSessionItem`（含 status: idle/running/completed/error, pinned, parentSessionId, forkMode, goal） |
 | 拖拽排序 | ❌ 无 | ✅ 支持 |
 | Agent 卡片 | ❌ 静态 `SidebarAgentCard` | ✅ 树形 `MyAgentSidebarTree` → `AgentTreeNode` → `AgentTaskRow`（多层嵌套 + batch selection） |
@@ -165,7 +165,7 @@
 | 项 | darvin-cowork | LobsterAI |
 |---|---|---|
 | 容器 | ✅ `SidePanel.vue` 300px | ✅ `ArtifactPanel.tsx`（258KB，宽度 180-1000 可调） |
-| Tab | tools / thinking / artifact（**全空态占位**） | 3 个特殊 tab：`fileList` / `browser` / `subagents` + 每 artifact 一个 preview tab |
+| Tab | tools / thinking / artifact（tools 空态占位；artifact 待 spec 05 内嵌 LobsterAI 式面板） | 3 个特殊 tab：`fileList` / `browser` / `subagents` + 每 artifact 一个 preview tab |
 | 状态 | 单一 `isOpen` ref + localStorage | `artifactSlice` 完整状态机：artifactsBySession / previewTabsBySession / activePreviewTabIdBySession / panelOpenBySession / panelWidth / selectedArtifactId |
 | 内容 | 空 | 10 种 artifact 渲染器 |
 | 持久化 | localStorage 一项 | Redux 状态 + session 维度 |
@@ -224,7 +224,7 @@
 | 项 | darvin-cowork | LobsterAI |
 |---|---|---|
 | 结构 | `dictZh` + `dictEn` 平铺 key-value，约 140 key | 单文件 `translations: Record<LanguageType, Record<string, string>>`，zh+en 等量 |
-| 切换 | `setLang()` 改 ref，**不响应式**（已渲染的不会重渲） | 响应式（依赖 Redux + ref 订阅） |
+| 切换 | `setLang()` 改 ref，已响应式（`t()` 在 render 期读 `ref.value`，Vue 自动 re-render） | 响应式（依赖 Redux + ref 订阅） |
 | 校验 | ✅ dev-mode `assertSameKeys` | 同 |
 | 插值 | ❌ 仅字面量 | ✅ `replace('{placeholder}', value)` |
 | 覆盖范围 | app/sidebar/chat/sidepanel/home/expert/settings/model/plus/imported | cowork/tool/skill/mcp/im/scheduled/agent/artifacts/context 全面 |
@@ -236,17 +236,19 @@
 
 ## 3. 协议层 gap 摘要（写 spec 时第一关要解决的）
 
-darvin-cowork 的 `DarvinEvent` 已经在 `darvin-api.ts:58-65` 定义了 `tool_start` / `tool_end`，但：
+> 状态标记：`✅ 已落地（spec 00）` / `⚠️ 部分（spec 02 §4.5 补齐）` / `⛔ 仍缺`
 
-1. **缺 `messageId ↔ toolUseId` 关联**：`tool_start` 只给 `messageId`，没有独立 `toolUseId`，LobsterAI 用 `toolUseId` 把 `tool_use` 和 `tool_result` 配对。
-2. **没有 tool 类型**：`tool: string` 是裸字符串，LobsterAI 走 `metadata.toolName` + 业务层归一化（`getToolDisplayName`）。
-3. **没有 `isError` 字段**：`tool_end` 只有 `output: unknown`，区分不了正常输出与错误。
-4. **没有 cache token**：`DarvinUsage` 只有 input/output/total，缺 `cacheRead / cacheWrite`。
-5. **没有 compaction 事件**：在 client.ts 里有 `compaction` 但被静默丢弃；`DarvinEvent` 缺 `{ type: 'compaction', ... }` 正式 union 成员。
-6. **没有 `contextUsage` push**：完全缺。
-7. **没有 `isThinking` / `isStreaming` 元数据**：assistant 消息只通过 `done: false` 推断流式状态，没有更细粒度的区分。
-8. **没有 artifact 事件**：缺 `{ type: 'artifact', kind: 'html'|'svg'|..., content: string, name?: string }`。
-9. **没有 image / local-media attachment 元数据**：user 消息只支持纯文本 `content`。
+darvin-cowork 的 `DarvinEvent` 在 `darvin-api.ts` 定义 `tool_start` / `tool_end`，逐项 gap 状态如下：
+
+1. **`messageId ↔ toolUseId` 关联** ⚠️ 部分：spec 00 已给 `tool_use` / `tool_result` **消息类型**补 `toolUseId`，但 `tool_start` / `tool_end` **事件**仍不带；由 spec 02 §4.5 在 `parseDarvinEvent` 从 `message.id` 提升。
+2. **tool 类型** ⚠️ 部分：spec 00 新增 `DarvinToolKind`（消息类型用）；事件侧仍是裸 `tool: string`。
+3. **`isError` 字段** ⚠️ 部分：spec 00 已给 `tool_result` 消息类型补 `isError`；`tool_end` 事件仍只有 `output`。
+4. **cache token** ✅ 已落地：`DarvinUsage` 已补 `cacheReadTokens` / `cacheWriteTokens`。
+5. **compaction 事件** ✅ 已落地：`DarvinEvent.compaction` 正式成员 + `client.ts` 不再静默丢弃。
+6. **`contextUsage` push** ✅ 已落地（协议层）：`DarvinEvent.context_usage` 成员 + `DarvinContextUsage` 类型。
+7. **`isThinking` / `isStreaming` 元数据** ✅ 已落地（协议层）：`DarvinMessage.assistant` 成员含 `isStreaming` / `isThinking`。
+8. **artifact 事件** ✅ 已落地：`DarvinEvent.artifact` 成员 + `DarvinArtifactKind`。
+9. **image / local-media attachment 元数据** ✅ 已落地（协议层）：`DarvinAttachment` 类型 + `DarvinMessage.user.attachments?`。
 
 ---
 
@@ -258,7 +260,7 @@ darvin-cowork 的 `DarvinEvent` 已经在 `darvin-api.ts:58-65` 定义了 `tool_
 
 | # | spec | 一句话范围 | 依赖 | 优先级 |
 |---|------|-----------|------|--------|
-| 00 | [darvin-api-extension](../darvin-api-extension/2026-08-01-darvin-api-extension-design.md) | 扩 `DarvinMessage` 为 discriminated union + 新增 `compaction` / `context_usage` / `artifact` 事件 + 补 cache / toolUseId / isError 字段 | — | **P0（前置）** |
+| 00 | [darvin-api-extension](../darvin-api-extension/2026-08-01-darvin-api-extension-design.md) | ✅ 已完成：扩 `DarvinMessage` 为 discriminated union + 新增 `compaction` / `context_usage` / `artifact` 事件 + 补 cache / toolUseId / isError | — | **P0（前置）** |
 | 01 | [agent-output-rendering](../agent-output-rendering/2026-08-01-agent-output-rendering-design.md) | Markdown / Shiki 代码块 / ThinkingBlock / turn 模型 / hover 元信息 / 大文档截断 / 图片附件 | 00 | P1 |
 | 02 | [tool-result-rendering](../tool-result-rendering/2026-08-01-tool-result-rendering-design.md) | `ToolCallGroup` + Bash 仿终端 / TodoWrite checkbox / Edit DiffView / 状态点 / 折叠 / 大文本截断 / 工具归一化 | 00 | P1 |
 | 03 | [token-context-usage](../token-context-usage/2026-08-01-token-context-usage-design.md) | 单条消息 token 展示 + chat header 圆环可视化 + 5 态颜色 + tooltip | 00 | P1 |

@@ -4,7 +4,7 @@
 
 ## 1. 背景
 
-`client.ts:245` 提到 `'compaction'` 事件在 `LIFECYCLE_EVENT_TYPES` 里被静默丢弃；UI 无入口、无反馈、无历史。LobsterAI 把压缩做成端到端体验：圆环点击 → 手动压缩；自动压缩时圆环旋转 + `AssistantTurnBlock` 在 turn 之间插入 `ContextCompactionDivider`；i18n 4 态文案。
+spec 00 已把 `'compaction'` 从 `LIFECYCLE_EVENT_TYPES` 静默丢弃中移除（事件现已正常流入 renderer）；本 spec 剩余工作 = UI 无入口、无反馈、无历史。LobsterAI 把压缩做成端到端体验：圆环点击 → 手动压缩；自动压缩时圆环旋转 + `AssistantTurnBlock` 在 turn 之间插入 `ContextCompactionDivider`；i18n 4 态文案。
 
 ## 2. 目标
 
@@ -51,6 +51,11 @@ async function onCompactClick() {
 // 00 spec + 本 spec 共同加：
 compactContext(sessionId: string): Promise<{ accepted: boolean }>;
 ```
+
+**Go 端落地决策**：Go 侧压缩逻辑已存在（`internal/agent/event/event.go:202` 的 `CompactionEvent` + `ContextEngine.Compact()`，配置 `compact_tail_keep` / `compact_max_retries`），但由 ACP loop 的预算检查**自动触发，没有手动 gateway RPC**（仅有 `store.CompactionCheckpoint` 落库）。手动压缩要真实生效必须补一个 Go 端点：
+
+1. Go 加轻量 `agent.compact_context` RPC（参数 `{ sessionId }`），触发既有 `Compact()` 流程（**不改压缩策略本身**），返回 `{ accepted: true }`；主进程 `darvin:compact_context` IPC 转发，preload 暴露 `window.darvin.compactContext(sessionId)`。
+2. Go 未就绪 / 离线时：IPC 返回 `{ accepted: false }`，UI **不进入 compacting 动画、不 toast**，圆环保持当前状态（避免假压缩）。
 
 ### 4.3 压缩边界分隔
 
@@ -115,11 +120,14 @@ compactContext(sessionId: string): Promise<{ accepted: boolean }>;
 ## 8. 参考
 
 ### darvin-cowork
-- `src/main/runtime/client.ts:245` — `LIFECYCLE_EVENT_TYPES` 静默丢弃（要被去掉）
+- `src/main/runtime/client.ts` — `LIFECYCLE_EVENT_TYPES`（spec 00 已移除 `'compaction'`，事件现已正常 push）
 - `src/renderer/components/chat/ChatHeader.vue` — 圆环挂载点
 - `src/renderer/composables/useMessages.ts` — 接收 `compaction` 事件
 
 ### LobsterAI（借鉴）
+
+> 参考项目根目录：`~/桌面/github-project/LobsterAI`（下述路径均相对该项目根）。组件实现遇阻时直接查该项目源码。
+
 - `src/renderer/components/cowork/AssistantTurnBlock.tsx` — `ContextCompactionDivider` 位置
 - `src/renderer/components/cowork/ContextUsageIndicator.tsx` — `onCompact` 回调
 - `src/shared/cowork/constants.ts` — `CoworkContextUsageRefreshMode`

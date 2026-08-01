@@ -4,7 +4,7 @@
 
 ## 1. 背景
 
-`DarvinUsage` 在 `darvin-api.ts:47-51` 已定义 `inputTokens/outputTokens/totalTokens`，但 UI 完全不消费。LobsterAI 把单条消息的 `usage` 放 hover 浮层，把 session 级别的 `contextUsage` 放 chat header 圆环（`ContextUsageIndicator.tsx`）。
+`DarvinUsage` 在 `darvin-api.ts` 已定义 `inputTokens/outputTokens/totalTokens`（spec 00 已补 `cacheReadTokens` / `cacheWriteTokens`），但 UI 完全不消费。LobsterAI 把单条消息的 `usage` 放 hover 浮层，把 session 级别的 `contextUsage` 放 chat header 圆环（`ContextUsageIndicator.tsx`）。
 
 ## 2. 目标
 
@@ -124,12 +124,15 @@
 ## 8. 参考
 
 ### darvin-cowork
-- `src/shared/darvin-api.ts:47-51` — `DarvinUsage`（要被扩展）
+- `src/shared/darvin-api.ts` — `DarvinUsage`（spec 00 已补 cache 字段）
 - `src/renderer/composables/useMessages.ts` — 加 `contextUsageBySessionId` 状态
 - `src/renderer/components/chat/ChatHeader.vue` — 圆环挂载点
 - `src/renderer/components/runtime/RuntimeStatusBadge.vue` — 同位置小徽章参考
 
 ### LobsterAI（借鉴）
+
+> 参考项目根目录：`~/桌面/github-project/LobsterAI`（下述路径均相对该项目根）。组件实现遇阻时直接查该项目源码。
+
 - `src/renderer/components/cowork/ContextUsageIndicator.tsx:40-121` — 圆环
 - `src/renderer/types/cowork.ts:103-116` — `CoworkContextUsage`
 - `src/renderer/store/slices/coworkSlice.ts` — `contextUsageBySessionId` 状态

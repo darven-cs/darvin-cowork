@@ -242,7 +242,6 @@ const LIFECYCLE_EVENT_TYPES = new Set([
   'turn_start',
   'turn_end',
   'llm_start',
-  'compaction',
 ]);
 
 /**
@@ -262,6 +261,9 @@ export function parseDarvinEvent(
     case 'done':
     case 'error':
     case 'agent_end':
+    case 'compaction':
+    case 'context_usage':
+    case 'artifact':
       return raw as unknown as DarvinEvent;
     default:
       return null;

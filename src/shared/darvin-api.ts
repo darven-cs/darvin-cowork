@@ -13,6 +13,14 @@
  * 修改这里 = 改契约。
  */
 
+/**
+ * 穷尽检查兜底：switch 覆盖全部 union 成员后 default 分支调用它，编译期保证
+ * 新增成员时必须显式处理，否则落进这个 throw。
+ */
+export function assertNever(x: never): never {
+  throw new Error(`unhandled union member: ${JSON.stringify(x)}`);
+}
+
 export type DarvinRuntimeStatus = 'ready' | 'offline' | 'no-binary' | 'online';
 
 export type DarvinModelId =
@@ -33,21 +41,139 @@ export interface DarvinSession {
   claudeSessionId?: string | null;
 }
 
-export interface DarvinMessage {
+/** 工具种类。兜底 `string & { __brand?: never }` 允许自定义工具名。 */
+export type DarvinToolKind =
+  | 'bash' | 'read' | 'write' | 'edit' | 'todowrite'
+  | 'web_search' | 'web_fetch' | 'image_gen' | 'video_gen'
+  | (string & { __brand?: never });
+
+/** artifact 渲染种类（spec 05 artifact-panel 的 10 种渲染器）。 */
+export type DarvinArtifactKind =
+  | 'html' | 'svg' | 'image' | 'video' | 'mermaid'
+  | 'code' | 'markdown' | 'text' | 'document' | 'local-service'
+  | (string & { __brand?: never });
+
+/**
+ * user 消息附件：image 用 base64 / dataURL（src），file 用相对 workspace 路径。
+ */
+export interface DarvinAttachment {
   id: string;
-  sessionId: string;
-  role: 'user' | 'assistant';
-  content: string;
-  done: boolean;
-  error?: string;
-  toolLabel?: string;
-  createdAt: number;
+  kind: 'image' | 'file';
+  name: string;
+  size: number;
+  mimeType: string | null;
+  src: string;
 }
+
+/**
+ * discriminated union：渲染层按 `type` 分发（MessageItem / ToolCallGroup /
+ * ArtifactRenderer）。user / assistant 成员保留 done / error / toolLabel 作为
+ * 老 Go wire 的向后兼容超集；tool_use / tool_result / system 为协议层新增形态。
+ */
+export type DarvinMessage =
+  | {
+      id: string;
+      sessionId: string;
+      type: 'user';
+      content: string;
+      done: boolean;
+      error?: string;
+      createdAt: number;
+      attachments?: DarvinAttachment[];
+    }
+  | {
+      id: string;
+      sessionId: string;
+      type: 'assistant';
+      content: string;
+      isStreaming: boolean;
+      isThinking?: boolean;
+      done: boolean;
+      error?: string;
+      toolLabel?: string;
+      usage?: DarvinUsage;
+      model?: string;
+      createdAt: number;
+    }
+  | {
+      id: string;
+      sessionId: string;
+      type: 'tool_use';
+      toolUseId: string;
+      tool: string;
+      toolKind: DarvinToolKind;
+      input: unknown;
+      createdAt: number;
+    }
+  | {
+      id: string;
+      sessionId: string;
+      type: 'tool_result';
+      toolUseId: string;
+      tool: string;
+      output: unknown;
+      isError: boolean;
+      createdAt: number;
+    }
+  | {
+      id: string;
+      sessionId: string;
+      type: 'system';
+      content: string;
+      createdAt: number;
+    };
 
 export interface DarvinUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   totalTokens: number;
+}
+
+/** 上下文占用 5 态（spec 03 / 04 的圆环 + 压缩联动）。 */
+export type DarvinContextUsageStatus =
+  | 'unknown' | 'normal' | 'warning' | 'danger' | 'compacting';
+
+/**
+ * 单 session 的上下文用量快照。main / Go 按 session 推送，renderer 以
+ * contextUsageBySessionId 维护（spec 03）。
+ */
+export interface DarvinContextUsage {
+  sessionId: string;
+  usedTokens?: number;
+  contextTokens?: number;
+  percent?: number;
+  status: DarvinContextUsageStatus;
+  compactionCount?: number;
+  latestCompactionAt?: number;
+  latestCompactionReason?: string;
+  model?: string;
+  updatedAt: number;
+}
+
+/**
+ * 归一化 helper：老 Go 的扁平 wire（role 在顶层，无 type）与新 union 都收敛
+ * 成 renderer 能直接消费的 role / content。协议切换期两种 shape 并存。
+ */
+export function darvinMessageRole(m: DarvinMessage): 'user' | 'assistant' {
+  const legacy = m as DarvinMessage & { role?: string };
+  if (legacy.role !== undefined) return legacy.role === 'user' ? 'user' : 'assistant';
+  return m.type === 'user' ? 'user' : 'assistant';
+}
+
+export function darvinMessageContent(m: DarvinMessage): string {
+  const role = (m as unknown as { role?: string }).role;
+  if (role !== undefined) return (m as unknown as { content: string }).content;
+  switch (m.type) {
+    case 'user':
+    case 'assistant':
+    case 'system':
+      return m.content;
+    case 'tool_use':
+    case 'tool_result':
+      return `[${m.tool}]`;
+  }
 }
 
 /**
@@ -62,7 +188,10 @@ export type DarvinEvent =
   | { type: 'tool_end'; sessionId?: string; runId?: string; messageId: string; tool: string; output: unknown }
   | { type: 'done'; sessionId?: string; runId?: string; messageId: string; usage?: DarvinUsage }
   | { type: 'error'; sessionId?: string; runId?: string; messageId: string; message: string }
-  | { type: 'agent_end'; sessionId?: string; runId?: string };
+  | { type: 'agent_end'; sessionId?: string; runId?: string }
+  | { type: 'compaction'; sessionId: string; runId: string; reason: 'auto' | 'manual'; checkpointId: string; createdAt: number }
+  | { type: 'context_usage'; sessionId: string; usage: DarvinContextUsage }
+  | { type: 'artifact'; sessionId: string; artifactId: string; kind: DarvinArtifactKind; name?: string; content: string; createdAt: number };
 
 export interface DarvinPromptRequest {
   content: string;

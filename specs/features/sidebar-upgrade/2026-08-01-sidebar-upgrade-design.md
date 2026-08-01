@@ -5,7 +5,7 @@
 ## 1. 背景
 
 `src/renderer/components/sidebar/*` 现状：
-- 5 个 nav 按钮（新建任务/搜索/定时任务/专家套件/技能/MCP），后 3 个仅 `console.warn`
+- 6 个 nav 按钮（新建任务/搜索/定时任务/专家套件/技能/MCP），其中 scheduled / skill / mcp 仅 `console.warn`
 - `SidebarAgentCard.vue` 静态卡，无切换
 - 220px 固定宽，折叠时整列 `0px`（`AppShell.vue` 布局会跳）
 - 6 个快捷键仅 `SettingsPanelShortcuts` 展示，无绑定
@@ -137,7 +137,7 @@ export function useShortcuts() {
 
 - [ ] 拖拽 handle 流畅，220-420px 边界正确
 - [ ] 宽度持久化（localStorage）
-- [ ] 5 个 nav tab 全部可点（即使内容是空态面板，不是 warn）
+- [ ] 6 个 nav tab 全部可点（即使内容是空态面板，不是 warn）
 - [ ] `Cmd+1-5` / `Ctrl+1-5` 快捷键生效
 - [ ] 会话项 5 种 status 正确显示
 - [ ] 折叠态：220px → 56px 紧凑模式
@@ -155,11 +155,14 @@ export function useShortcuts() {
 - `src/renderer/components/sidebar/SidebarAgentCard.vue` — 静态卡
 - `src/renderer/components/sidebar/SidebarNav.vue` — 5 nav（3 个 warn）
 - `src/renderer/components/sidebar/SessionItem.vue` — 会话项
-- `src/renderer/layout/AppShell.vue:15` — `gridTemplateColumns`
+- `src/renderer/layout/AppShell.vue` — `gridTemplateColumns`
 - `src/renderer/composables/useSidebar.ts` / `useSession.ts` / `useViewMode.ts`
 - `src/renderer/components/settings/SettingsPanelShortcuts.vue` — 6 个绑定面板
 
 ### LobsterAI（借鉴）
+
+> 参考项目根目录：`~/桌面/github-project/LobsterAI`（下述路径均相对该项目根）。组件实现遇阻时直接查该项目源码。
+
 - `src/renderer/components/Sidebar.tsx` — 拖拽 + 宽度范围
 - `src/renderer/components/agentSidebar/MyAgentSidebarTree.tsx` — 树形
 - `src/renderer/components/agentSidebar/AgentTreeNode.tsx`

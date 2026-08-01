@@ -6,7 +6,7 @@
 
 `src/renderer/services/i18n.ts` 现状：
 - `dictZh` + `dictEn` 平铺，约 140 key
-- `setLang()` 改 `currentLang` ref，**不响应式**（已渲染的不会重渲）
+- `setLang()` 已**响应式**：`currentLang` 是 ref，`t()` 在 render 期读取 `ref.value`，Vue 自动追踪依赖并整树 re-render
 - 无插值
 - 散落 hardcoded 字符串（shortcut 标签、expert 分类等）
 - 缺本轮 7 个新 spec 涉及的所有 key
@@ -16,12 +16,12 @@
 | # | 目标 | 度量 |
 |---|------|------|
 | G1 | `t(key, params?)` 支持 `{name}` 插值 | 简单 `replace('{key}', value)` |
-| G2 | `setLang()` 改 ref 后已渲染的组件自动重渲 | `currentLang` 改为 `ref` + `triggerRef` |
+| G2 | `setLang()` 改 ref 后已渲染的组件自动重渲 | 已满足：`currentLang` 已是 ref，模板内 `{{ t('xxx') }}` 自动追踪 |
 | G3 | 补齐 01-07 spec 涉及的所有 i18n key | zh/en 各 60+ 新 key |
 | G4 | 净化 hardcoded 字符串（shortcut 标签 / expert 分类 / 错误兜底） | 全文搜 `'.*[\u4e00-\u9fff].*'` 找漏网 |
 | G5 | 引入 `Intl.NumberFormat` / `Intl.DateTimeFormat` 工具方法 | `formatNumber` / `formatDate` / `formatRelativeTime` |
-| G6 | `en` 字典 key 集合与 `zh` 完全一致（`assertSameKeys` 强约束） | 已有 dev-mode 校验 |
-| G7 | 缺失 key 在 dev 环境 `console.warn`，不静默回退 | 防止翻译漂移 |
+| G6 | `en` 字典 key 集合与 `zh` 完全一致（`assertSameKeys` 强约束） | 已落地：dev 期 `assertSameKeys` 抛错拦截（`i18n.ts`） |
+| G7 | 缺失 key 在 dev 环境 `console.warn`，不静默回退 | 已落地：`i18n.ts` 的 `t()` 未命中时 dev `console.warn` |
 
 ## 3. 非目标
 
@@ -56,7 +56,7 @@ export function setLang(lang: Lang) {
 }
 ```
 
-注意：AGENTS.md § i18n 提到当前「不响应式」，要升级为响应式时，确保所有 `t()` 调用都在 `<template>` 渲染函数中，**不要**在 `<script setup>` 顶层缓存（缓存会断响应式链）。
+注意：响应式已满足（`currentLang` 是 ref，模板内 `{{ t('xxx') }}` 自动 re-render）。唯一要守的纪律：**不要**在 `<script setup>` 顶层缓存 `t()` 的结果（缓存会断响应式链），一律在 `<template>` 里直接调用。
 
 ### 4.3 格式化工具
 
@@ -121,11 +121,11 @@ export function t(key: string, params?): string {
 ## 6. 验收
 
 - [ ] `t(key, params)` 插值单元测试覆盖 3 种情况
-- [ ] `setLang('en')` 触发已渲染组件 re-render（手动验证）
+- [ ] `setLang('en')` 触发已渲染组件 re-render（能力已具备，仅需手动复核一次）
 - [ ] 01-07 spec 涉及的 60+ 新 key 在 zh + en 双语中齐全
 - [ ] AGENTS.md 散落 hardcoded 字符串全部走 `t()`
-- [ ] 缺 key dev warn 生效
-- [ ] `assertSameKeys(dictZh, dictEn)` 通过
+- [ ] 缺 key dev warn 生效（已落地，新增 key 时复核）
+- [ ] `assertSameKeys(dictZh, dictEn)` 通过（已落地，dev 期自动校验）
 
 ## 7. 依赖
 
@@ -140,6 +140,9 @@ export function t(key: string, params?): string {
 - AGENTS.md § 「国际化」全节约束（特别是「不引入 vue-i18n」）
 
 ### LobsterAI（借鉴）
+
+> 参考项目根目录：`~/桌面/github-project/LobsterAI`（下述路径均相对该项目根）。组件实现遇阻时直接查该项目源码。
+
 - `src/renderer/services/i18n.ts`（314KB，仅看头部结构 + `replace('{placeholder}', value)` 模式）
 
 ## 9. 关联调研
