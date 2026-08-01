@@ -261,7 +261,7 @@ darvin-cowork 的 `DarvinEvent` 在 `darvin-api.ts` 定义 `tool_start` / `tool_
 | # | spec | 一句话范围 | 依赖 | 优先级 |
 |---|------|-----------|------|--------|
 | 00 | [darvin-api-extension](../darvin-api-extension/2026-08-01-darvin-api-extension-design.md) | ✅ 已完成：扩 `DarvinMessage` 为 discriminated union + 新增 `compaction` / `context_usage` / `artifact` 事件 + 补 cache / toolUseId / isError | — | **P0（前置）** |
-| 01 | [agent-output-rendering](../agent-output-rendering/2026-08-01-agent-output-rendering-design.md) | Markdown / Shiki 代码块 / ThinkingBlock / turn 模型 / hover 元信息 / 大文档截断 / 图片附件 | 00 | P1 |
+| 01 | [agent-output-rendering](../agent-output-rendering/2026-08-01-agent-output-rendering-design.md) | ✅ 已完成：Markdown（markdown-it+KaTeX） / Shiki 代码块 / ThinkingBlock / turn 模型 / hover 元信息 / 大文档截断 / 图片附件 | 00 | P1 |
 | 02 | [tool-result-rendering](../tool-result-rendering/2026-08-01-tool-result-rendering-design.md) | `ToolCallGroup` + Bash 仿终端 / TodoWrite checkbox / Edit DiffView / 状态点 / 折叠 / 大文本截断 / 工具归一化 | 00 | P1 |
 | 03 | [token-context-usage](../token-context-usage/2026-08-01-token-context-usage-design.md) | 单条消息 token 展示 + chat header 圆环可视化 + 5 态颜色 + tooltip | 00 | P1 |
 | 04 | [context-compaction-ui](../context-compaction-ui/2026-08-01-context-compaction-ui-design.md) | 手动压缩入口 + 自动压缩动画 + `ContextCompactionDivider` + 失败回退 | 00 + 03 | P1 |

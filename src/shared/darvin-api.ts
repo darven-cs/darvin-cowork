@@ -66,7 +66,7 @@ export interface DarvinAttachment {
 }
 
 /**
- * discriminated union：渲染层按 `type` 分发（MessageItem / ToolCallGroup /
+ * discriminated union：渲染层按 `type` 分发（ConversationTurn / ToolCallGroup /
  * ArtifactRenderer）。user / assistant 成员保留 done / error / toolLabel 作为
  * 老 Go wire 的向后兼容超集；tool_use / tool_result / system 为协议层新增形态。
  */

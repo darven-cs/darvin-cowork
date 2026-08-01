@@ -10,12 +10,12 @@
 
 ## 当前进度
 
-**已完成 1 / 9。下一个该做的：01（agent-output-rendering）**（依赖 00）。
+**已完成 2 / 9。下一个该做的：02（tool-result-rendering）。**
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
 | 00 | [darvin-api-extension](./../darvin-api-extension/2026-08-01-darvin-api-extension-design.md) | ✅ 完成 | 9/9 | 协议先行 |
-| 01 | [agent-output-rendering](./../agent-output-rendering/2026-08-01-agent-output-rendering-design.md) | ⬜ 未启动 | 0/8 | 依赖 00 |
+| 01 | [agent-output-rendering](./../agent-output-rendering/2026-08-01-agent-output-rendering-design.md) | ✅ 完成 | 9/9 | 依赖 00 |
 | 02 | [tool-result-rendering](./../tool-result-rendering/2026-08-01-tool-result-rendering-design.md) | ⬜ 未启动 | 0/7 | 依赖 00 |
 | 03 | [token-context-usage](./../token-context-usage/2026-08-01-token-context-usage-design.md) | ⬜ 未启动 | 0/6 | 依赖 00 |
 | 04 | [context-compaction-ui](./../context-compaction-ui/2026-08-01-context-compaction-ui-design.md) | ⬜ 未启动 | 0/6 | 依赖 00 + 03 |
@@ -68,16 +68,16 @@
 
 > 消息渲染升级：Markdown / Shiki / ThinkingBlock / turn 模型 / hover 元信息。
 
-- [ ] `MarkdownContent` 组件（markdown-it + Shiki + KaTeX + DOMPurify）
-- [ ] 代码块支持 10+ 种语言高亮
-- [ ] `ThinkingBlock` 流式自动展开 / 手动折叠 / 蓝色脉冲
-- [ ] `TurnMeta` hover 显示 4 操作（时间戳 / 模型 / 复制 / fork）
-- [ ] 大文档截断（>8KB 切头 4KB + 尾 8KB）
-- [ ] user 消息 `imageAttachments` 缩略图 chip
-- [ ] `useChatActions` 暴露 `copy()` / `regenerate()`
-- [ ] `npm run lint` + `npm run test` 通过
-- [ ] DevTools 手动验证 1 次长 prompt 流式无掉帧
-- [ ] 状态：**⬜ 未启动**
+- [x] `MarkdownContent` 组件（markdown-it + Shiki + KaTeX + DOMPurify）
+- [x] 代码块支持 10+ 种语言高亮
+- [x] `ThinkingBlock` 流式自动展开 / 手动折叠 / 蓝色脉冲
+- [x] `TurnMeta` hover 显示 4 操作（时间戳 / 模型 / 复制 / fork）
+- [x] 大文档截断（>8KB 切头 4KB + 尾 8KB）
+- [x] user 消息 `imageAttachments` 缩略图 chip
+- [x] `useChatActions` 暴露 `copy()` / `regenerate()`
+- [x] `npm run lint` + `npm run test` 通过
+- [x] DevTools 手动验证 1 次长 prompt 流式无掉帧
+- [x] 状态：**✅ 完成**
 
 ### 02 · tool-result-rendering
 
@@ -173,3 +173,5 @@
 > 每次勾完一组 FR，在此处记一行：日期 / spec / 「完成说明」。
 
 - 2026-08-01 · 00 darvin-api-extension · 协议层完成：`DarvinMessage` union 化（5 态）+ `DarvinToolKind` / `DarvinContextUsage` / `DarvinAttachment` + `DarvinEvent` 新增 compaction / context_usage / artifact + `client.ts` 移除 compaction 静默丢弃 + `assertNever` 兜底。lint / test 通过；⏳ 待人工 `npm start` 验证现有会话 / 历史消息渲染行为不变。
+- 2026-08-01 · 01 agent-output-rendering · 8/9 落地：`MarkdownContent`（markdown-it 15 + Shiki v4 core 按需 19 语言 + KaTeX + DOMPurify）+ `CodeBlock`（Shiki 高亮 + 复制）+ `ThinkingBlock`（流式自动展开 / 蓝色脉冲 / 手动折叠）+ `TurnMeta` hover 4 操作 + turn 建模（`buildConversationTurns`）+ 大文档截断（>8KB 头 4KB + 尾 8KB）+ user 图片附件 chip + `useChatActions.copy/regenerate`。新依赖：markdown-it / markdown-it-task-lists / markdown-it-mark / @vscode/markdown-it-katex / katex / shiki / dompurify。lint / test（24 用例）/ vite build 通过。
+- 2026-08-01 · 01 agent-output-rendering · **人工验证 + 修复 2 bug → ✅ 9/9**。playwright 驱动 Electron 实测：markdown 标题/加粗/列表/表格/KaTeX 内联+块级矩阵/任务清单/代码块 Shiki 高亮/复制按钮（剪贴板确认）/TurnMeta hover/ThinkingBlock 流式自动展开+蓝色脉冲/实时流式全部正常，console 0 错误。修复：(1) `TurnMeta.vue` 漏 import `IconButton`（非全局注册组件）→ hover 按钮全灭；(2) **流式消息被覆盖**——`useMessages` 7+ 调用点各建一个 immediate watch，组件在 active 已设后挂载即触发 `loadMessages` 覆盖正在流式的 bucket（debug 实证 `startAssistantMessage bucketLen=18` → 事件 `found=false listLen=17`），修复为模块级只建一次 watch。读 darvin-agent 源码确认 Go 侧事件时序正确，根因在渲染层。

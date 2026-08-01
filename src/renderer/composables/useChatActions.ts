@@ -39,5 +39,55 @@ export function useChatActions() {
     }
   }
 
-  return { send };
+  async function copy(text: string): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Electron file:// 下 clipboard API 可能不可用，退回 execCommand
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  /** 在 turn 内重新生成：找到含 messageId 的 turn 的 user 消息，重发 prompt。 */
+  async function regenerate(messageId: string): Promise<void> {
+    const target = findTurnUserMessage(messageId);
+    if (!target) return;
+    try {
+      const r = await window.darvin.prompt({ content: target.content });
+      messages.startAssistantMessage(target.sessionId, r.messageId);
+    } catch (err) {
+      const mid = `m-err-${Date.now().toString(36)}`;
+      messages.startAssistantMessage(target.sessionId, mid);
+      messages.appendEvent({ type: 'error', messageId: mid, message: (err as Error).message });
+    }
+  }
+
+  function findTurnUserMessage(messageId: string): { content: string; sessionId: string } | null {
+    const buckets = messages.messagesBySessionId.value;
+    for (const [sid, list] of Object.entries(buckets)) {
+      let lastUser: { content: string } | null = null;
+      for (const m of list) {
+        if (m.role === 'user') lastUser = m;
+        if (m.id === messageId) {
+          return lastUser ? { content: lastUser.content, sessionId: sid } : null;
+        }
+      }
+    }
+    return null;
+  }
+
+  return { send, copy, regenerate };
 }

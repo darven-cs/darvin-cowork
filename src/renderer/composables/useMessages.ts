@@ -15,7 +15,7 @@
  */
 
 import { computed, ref, watch } from 'vue';
-import type { DarvinEvent, DarvinMessage } from '../../shared/darvin-api';
+import type { DarvinAttachment, DarvinEvent, DarvinMessage } from '../../shared/darvin-api';
 import { assertNever } from '../../shared/darvin-api';
 import { useSession } from './useSession';
 
@@ -24,15 +24,87 @@ export interface Message {
   sessionId: string;
   role: 'user' | 'assistant';
   content: string;
+  thinking?: string;
   done: boolean;
   error?: string;
   toolLabel?: string;
+  attachments?: DarvinAttachment[];
+  model?: string;
   createdAt: number;
+}
+
+/** 一个 turn = user 消息 + 其后所有 assistant 消息；无 user 的 assistant 归入 orphan turn。 */
+export interface ConversationTurn {
+  id: string;
+  userMessage: Message | null;
+  assistantItems: Message[];
+}
+
+export function buildConversationTurns(messages: Message[]): ConversationTurn[] {
+  const turns: ConversationTurn[] = [];
+  let current: ConversationTurn | null = null;
+  let orphanIndex = 0;
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      current = { id: msg.id, userMessage: msg, assistantItems: [] };
+      turns.push(current);
+    } else {
+      if (!current) {
+        current = { id: `orphan-${orphanIndex++}`, userMessage: null, assistantItems: [] };
+        turns.push(current);
+      }
+      current.assistantItems.push(msg);
+    }
+  }
+  return turns;
 }
 
 const messagesBySessionId = ref<Record<string, Message[]>>({});
 const streamingSessionIds = ref<Set<string>>(new Set());
 const unreadSessionIds = ref<Set<string>>(new Set());
+
+const session = useSession();
+
+const currentMessages = computed<Message[]>(
+  () => messagesBySessionId.value[session.activeSessionId.value ?? ''] ?? [],
+);
+
+/**
+ * 从 main 拉指定 session 的历史消息。
+ */
+async function loadMessages(sessionId: string): Promise<void> {
+  if (typeof window === 'undefined' || !window.darvin) return;
+  try {
+    const r = await window.darvin.getMessages(sessionId);
+    messagesBySessionId.value = {
+      ...messagesBySessionId.value,
+      [sessionId]: r.messages.map(toMessage),
+    };
+  } catch {
+    messagesBySessionId.value = {
+      ...messagesBySessionId.value,
+      [sessionId]: [],
+    };
+  }
+}
+
+// 切 active session 时清 unread + 拉历史。watch 只在此处建一次，避免每个
+// useMessages() 调用点都注册一个 immediate watch、在组件挂载时重复触发
+// loadMessages 覆盖正在流式的 bucket。
+watch(
+  () => session.activeSessionId.value,
+  (newId, oldId) => {
+    if (newId !== null && unreadSessionIds.value.has(newId)) {
+      const next = new Set(unreadSessionIds.value);
+      next.delete(newId);
+      unreadSessionIds.value = next;
+    }
+    if (newId !== null && newId !== oldId) {
+      void loadMessages(newId);
+    }
+  },
+  { immediate: true },
+);
 
 /** 老 Go 的扁平 wire shape（role 在顶层，无 type 判别）。 */
 interface LegacyFlatMessage {
@@ -69,6 +141,7 @@ function toMessage(m: DarvinMessage): Message {
         content: m.content,
         done: m.done,
         error: m.error,
+        attachments: m.attachments,
         createdAt: m.createdAt,
       };
     case 'assistant':
@@ -80,6 +153,7 @@ function toMessage(m: DarvinMessage): Message {
         done: m.done,
         error: m.error,
         toolLabel: m.toolLabel,
+        model: m.model,
         createdAt: m.createdAt,
       };
     case 'tool_use':
@@ -107,9 +181,12 @@ function toMessage(m: DarvinMessage): Message {
 }
 
 function appendToBucket(list: Message[], ev: DarvinEvent): void {
-  if (ev.type === 'text_delta' || ev.type === 'thinking_delta') {
+  if (ev.type === 'text_delta') {
     const msg = list.find((m) => m.id === ev.messageId);
     if (msg) msg.content += ev.delta;
+  } else if (ev.type === 'thinking_delta') {
+    const msg = list.find((m) => m.id === ev.messageId);
+    if (msg) msg.thinking = (msg.thinking ?? '') + ev.delta;
   } else if (ev.type === 'done') {
     const msg = list.find((m) => m.id === ev.messageId);
     if (msg) msg.done = true;
@@ -123,37 +200,11 @@ function appendToBucket(list: Message[], ev: DarvinEvent): void {
 }
 
 export function useMessages() {
-  const session = useSession();
-
-  const currentMessages = computed<Message[]>(
-    () => messagesBySessionId.value[session.activeSessionId.value ?? ''] ?? [],
-  );
-
-  /**
-   * 从 main 拉指定 session 的历史消息。调用前应清空该 bucket，否则新
-   * 事件与历史消息会叠在一起。
-   */
-  async function loadMessages(sessionId: string): Promise<void> {
-    if (typeof window === 'undefined' || !window.darvin) return;
-    try {
-      const r = await window.darvin.getMessages(sessionId);
-      messagesBySessionId.value = {
-        ...messagesBySessionId.value,
-        [sessionId]: r.messages.map(toMessage),
-      };
-    } catch {
-      messagesBySessionId.value = {
-        ...messagesBySessionId.value,
-        [sessionId]: [],
-      };
-    }
-  }
-
-  function appendUserMessage(sessionId: string, content: string, id?: string): string {
+  function appendUserMessage(sessionId: string, content: string, id?: string, attachments?: DarvinAttachment[]): string {
     const mid = id ?? `m-${Math.random().toString(36).slice(2, 10)}`;
     const bucket = messagesBySessionId.value[sessionId] ?? [];
     bucket.push({
-      id: mid, sessionId, role: 'user', content, done: true, createdAt: Date.now(),
+      id: mid, sessionId, role: 'user', content, done: true, attachments, createdAt: Date.now(),
     });
     messagesBySessionId.value = { ...messagesBySessionId.value, [sessionId]: bucket };
     return mid;
@@ -208,25 +259,6 @@ export function useMessages() {
       unreadSessionIds.value = new Set([...unreadSessionIds.value, sid]);
     }
   }
-
-  // 切到新 active session 时清 unread —— sidebar 不再显示红点，主区开始
-  // 显示该 session 的内容。
-  watch(
-    () => session.activeSessionId.value,
-    (newId, oldId) => {
-      if (newId !== null && unreadSessionIds.value.has(newId)) {
-        const next = new Set(unreadSessionIds.value);
-        next.delete(newId);
-        unreadSessionIds.value = next;
-      }
-      if (newId !== null && newId !== oldId) {
-        void loadMessages(newId);
-      } else if (newId === null) {
-        // active 切空（最后一个 session 被删）：保留所有 bucket 以备 undo
-      }
-    },
-    { immediate: true },
-  );
 
   /** 会话删除后清掉其消息缓存与 streaming/unread 标记，避免残留。 */
   function removeSession(sessionId: string): void {
