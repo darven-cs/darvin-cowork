@@ -35,6 +35,8 @@ export interface Artifact {
   content: string;
   /** html 引用 workspace 内文件时携带（相对 workspace 根），走本地预览服务。 */
   filePath?: string;
+  /** 产出该 artifact 的 assistant 消息 id；聊天消息内卡片组按它挂载。 */
+  messageId?: string;
   createdAt: number;
 }
 
@@ -127,7 +129,6 @@ export function useArtifacts() {
       artifactsBySession.value = { ...artifactsBySession.value, [sid]: [...list, artifact] };
     }
     openPreviewTab(sid, artifact.id);
-    if (session.activeSessionId.value === sid) sidePanel.switchTab('artifact');
   }
 
   function activateTab(sid: string, tabId: string): void {

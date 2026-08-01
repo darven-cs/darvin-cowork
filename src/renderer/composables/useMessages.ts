@@ -19,6 +19,7 @@ import type { DarvinAttachment, DarvinContextUsage, DarvinEvent, DarvinMessage, 
 import { assertNever } from '../../shared/darvin-api';
 import { useSession } from './useSession';
 import { useArtifacts } from './useArtifacts';
+import type { Artifact } from './useArtifacts';
 import { getToolKind } from '../services/toolDisplay';
 import { t } from '../services/i18n';
 import { showToast } from '../services/toast';
@@ -45,6 +46,8 @@ export interface Message {
   input?: unknown;
   output?: unknown;
   isError?: boolean;
+  /** spec 11 — 本 assistant 消息产出的 artifact（按 artifact 事件 messageId 挂载）。 */
+  artifacts?: Artifact[];
 }
 
 /** AssistantTurnBlock 的条目：普通 assistant 消息或一组配对的工具调用。 */
@@ -420,16 +423,26 @@ export function useMessages() {
     }
 
     if (ev.type === 'artifact') {
-      // artifact 不落消息 bucket，走 useArtifacts 面板状态机；后台 session 仍
-      // 触发 unread（继续走下面的 bucket append + unread 逻辑，append 无副作用）
-      artifacts.addArtifact(sid, {
+      // artifact 进 useArtifacts 面板状态机；带 messageId 时同时挂到对应
+      // assistant 消息，聊天流里渲染卡片组（老事件缺 messageId 只进面板，兼容）。
+      const artifact: Artifact = {
         id: ev.artifactId,
         kind: ev.kind,
         name: ev.name,
         content: ev.content,
         filePath: ev.filePath,
+        messageId: ev.messageId,
         createdAt: ev.createdAt,
-      });
+      };
+      artifacts.addArtifact(sid, artifact);
+      if (ev.messageId) {
+        const bucket = messagesBySessionId.value[sid] ?? [];
+        const msg = bucket.find((m) => m.id === ev.messageId && m.role === 'assistant');
+        if (msg) {
+          msg.artifacts = [...(msg.artifacts ?? []), artifact];
+          messagesBySessionId.value = { ...messagesBySessionId.value, [sid]: bucket };
+        }
+      }
     }
 
     if (ev.type === 'compaction') {

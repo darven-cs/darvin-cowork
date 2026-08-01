@@ -212,6 +212,8 @@ export type DarvinEvent =
       content: string;
       /** html 引用 workspace 内文件时携带（相对 workspace 根）；走本地预览服务。 */
       filePath?: string;
+      /** 产出该 artifact 的 assistant 消息 id；聊天消息内卡片组按它挂载（向后兼容，可缺省）。 */
+      messageId?: string;
       createdAt: number;
     };
 
@@ -355,6 +357,32 @@ export interface DarvinWorkspaceInfoResponse {
   label?: string;
 }
 
+/** workspace 目录里单个文件的 renderer 视图（list_workspace_files 返回）。 */
+export interface DarvinWorkspaceFileInfo {
+  /** 相对 workspace 根（`/` 分隔），绝对路径不下发。 */
+  relativePath: string;
+  name: string;
+  kind: DarvinArtifactKind;
+  size: number;
+  modifiedAt: number;
+}
+
+export interface DarvinListWorkspaceFilesResponse {
+  files: DarvinWorkspaceFileInfo[];
+}
+
+export interface DarvinReadWorkspaceFileResponse {
+  success: boolean;
+  content?: string;
+  size?: number;
+  error?: string;
+}
+
+export interface DarvinOpenWorkspaceFileResponse {
+  success: boolean;
+  error?: string;
+}
+
 export const DarvinPushEvent = {
   SessionsChanged: 'darvin:push:sessions-changed',
   ActiveSessionChanged: 'darvin:push:active-session-changed',
@@ -407,6 +435,14 @@ export interface DarvinApi {
   getWorkspaceInfo(): Promise<DarvinWorkspaceInfoResponse>;
   /** 在系统文件管理器中打开 workspace 目录（main 端执行）。 */
   revealWorkspace(): Promise<void>;
+  /** 递归列 workspace 目录文件（深度≤3、文件数≤500，超出静默截断）。 */
+  listWorkspaceFiles(): Promise<DarvinListWorkspaceFilesResponse>;
+  /** 读 workspace 内文本文件（≤256KB；非文本类型返回 unsupported）。 */
+  readWorkspaceFile(relativePath: string): Promise<DarvinReadWorkspaceFileResponse>;
+  /** 在系统文件管理器中定位 workspace 内文件。 */
+  revealWorkspaceFile(relativePath: string): Promise<void>;
+  /** 用系统默认应用打开 workspace 内文件。 */
+  openWorkspaceFile(relativePath: string): Promise<DarvinOpenWorkspaceFileResponse>;
   /** workspace 内容变更 push（import / remove 后 main 广播）。 */
   onWorkspaceChanged(handler: (info: { sessionId: string; files: DarvinImportedFile[] }) => void): () => void;
 

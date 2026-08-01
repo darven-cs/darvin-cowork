@@ -22,6 +22,7 @@ import { AgentClient } from './runtime/client';
 import { EventRouter } from './store/EventRouter';
 import { runImport } from './libs/importFiles';
 import { ensureWorkspaceRoot, resolveWorkspaceRoot, type WorkspaceLocation } from './libs/user-paths';
+import { readWorkspaceTextFile, resolveWorkspacePath, walkWorkspace } from './libs/workspaceFiles';
 import { artifactPreviewServer } from './services/artifact-preview-server';
 import type {
   DarvinActiveSessionResponse,
@@ -34,12 +35,15 @@ import type {
   DarvinImportFilesResponse,
   DarvinListImportedFilesResponse,
   DarvinListSessionsResponse,
+  DarvinListWorkspaceFilesResponse,
+  DarvinOpenWorkspaceFileResponse,
   DarvinLLMConfig,
   DarvinLocale,
   DarvinLocaleResponse,
   DarvinMessage,
   DarvinPromptRequest,
   DarvinPromptResponse,
+  DarvinReadWorkspaceFileResponse,
   DarvinRemoveImportedFileResponse,
   DarvinRenameSessionResponse,
   DarvinRuntimeStatus,
@@ -464,6 +468,40 @@ ipcMain.handle('darvin:reveal_workspace', async (): Promise<void> => {
   await ensureWorkspaceRoot(workspaceLoc);
   shell.showItemInFolder(workspaceLoc.rootPath);
 });
+
+ipcMain.handle(
+  'darvin:list_workspace_files',
+  async (): Promise<DarvinListWorkspaceFilesResponse> => {
+    if (!workspaceLoc) return { files: [] };
+    await ensureWorkspaceRoot(workspaceLoc);
+    return { files: await walkWorkspace(workspaceLoc.rootPath) };
+  },
+);
+
+ipcMain.handle(
+  'darvin:read_workspace_file',
+  async (_e, relativePath: string): Promise<DarvinReadWorkspaceFileResponse> => {
+    if (!workspaceLoc) return { success: false, error: 'workspace not ready' };
+    return readWorkspaceTextFile(workspaceLoc.rootPath, relativePath);
+  },
+);
+
+ipcMain.handle('darvin:reveal_workspace_file', async (_e, relativePath: string): Promise<void> => {
+  if (!workspaceLoc) return;
+  const abs = await resolveWorkspacePath(workspaceLoc.rootPath, relativePath);
+  if (abs) shell.showItemInFolder(abs);
+});
+
+ipcMain.handle(
+  'darvin:open_workspace_file',
+  async (_e, relativePath: string): Promise<DarvinOpenWorkspaceFileResponse> => {
+    if (!workspaceLoc) return { success: false, error: 'workspace not ready' };
+    const abs = await resolveWorkspacePath(workspaceLoc.rootPath, relativePath);
+    if (!abs) return { success: false, error: 'invalid_path' };
+    const err = await shell.openPath(abs);
+    return err ? { success: false, error: err } : { success: true };
+  },
+);
 
 ipcMain.handle(
   'darvin:artifact:create_preview_session',

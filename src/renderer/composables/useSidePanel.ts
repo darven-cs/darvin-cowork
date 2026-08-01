@@ -1,9 +1,13 @@
 import { ref, watch } from 'vue';
 
-export type SidePanelTab = 'tools' | 'thinking' | 'artifact';
+/**
+ * useSidePanel — 右侧工具面板开关。
+ *
+ * spec 11 后右侧面板就是纯 Artifact 面板（外层 Tools/Thinking tab 已随
+ * LobsterAI 对齐移除），这里只保留 open 状态，没有 tab 概念。
+ */
 
 const KEY_OPEN = 'darvin.sidepanel.open';
-const KEY_TAB = 'darvin.sidepanel.tab';
 
 function readOpen(): boolean {
   if (typeof localStorage === 'undefined') return true;
@@ -11,24 +15,11 @@ function readOpen(): boolean {
   return raw === null ? true : raw === 'true';
 }
 
-function readTab(): SidePanelTab {
-  if (typeof localStorage === 'undefined') return 'tools';
-  const raw = localStorage.getItem(KEY_TAB);
-  return raw === 'thinking' || raw === 'artifact' ? raw : 'tools';
-}
-
 const open = ref<boolean>(readOpen());
-const tab = ref<SidePanelTab>(readTab());
 
 watch(open, (v) => {
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem(KEY_OPEN, v ? 'true' : 'false');
-  }
-});
-
-watch(tab, (v) => {
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(KEY_TAB, v);
   }
 });
 
@@ -39,8 +30,5 @@ export function useSidePanel() {
   function set(v: boolean) {
     open.value = v;
   }
-  function switchTab(t: SidePanelTab) {
-    tab.value = t;
-  }
-  return { open, tab, toggle, set, switchTab };
+  return { open, toggle, set };
 }

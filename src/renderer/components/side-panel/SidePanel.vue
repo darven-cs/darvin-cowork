@@ -1,7 +1,9 @@
 <template>
   <aside class="relative flex h-full flex-col border-l border-border bg-bg" :style="{ width: `${panelWidth}px` }">
-    <SidePanelTabs :active="tab" @switch="onSwitch" />
-    <SidePanelContent :tab="tab" />
+    <ArtifactPanel v-if="sessionId" :session-id="sessionId" />
+    <div v-else class="flex flex-1 items-center justify-center px-6 text-center" data-testid="artifact-empty">
+      <p class="font-display text-base italic text-text-muted">{{ t('artifact.empty') }}</p>
+    </div>
     <div
       class="absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize"
       :aria-label="t('artifact.drag.resize')"
@@ -13,20 +15,15 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import SidePanelTabs from './SidePanelTabs.vue';
-import SidePanelContent from './SidePanelContent.vue';
-import { useSidePanel } from '../../composables/useSidePanel';
+import ArtifactPanel from './ArtifactPanel.vue';
 import { useArtifacts } from '../../composables/useArtifacts';
+import { useSession } from '../../composables/useSession';
 import { t } from '../../services/i18n';
 
-const panel = useSidePanel();
 const artifacts = useArtifacts();
-const tab = computed(() => panel.tab.value);
+const session = useSession();
 const panelWidth = computed(() => artifacts.panelWidth.value);
-
-function onSwitch(t: Parameters<typeof panel.switchTab>[0]) {
-  panel.switchTab(t);
-}
+const sessionId = computed(() => session.activeSessionId.value);
 
 function onDragStart(e: MouseEvent) {
   e.preventDefault();

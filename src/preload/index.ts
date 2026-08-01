@@ -25,10 +25,13 @@ import type {
   DarvinImportFilesResponse,
   DarvinListImportedFilesResponse,
   DarvinListSessionsResponse,
+  DarvinListWorkspaceFilesResponse,
+  DarvinOpenWorkspaceFileResponse,
   DarvinLLMConfig,
   DarvinLocaleResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
+  DarvinReadWorkspaceFileResponse,
   DarvinRemoveImportedFileResponse,
   DarvinRenameSessionResponse,
   DarvinRuntimeStatus,
@@ -130,6 +133,18 @@ const api: DarvinApi = {
   },
   async revealWorkspace(): Promise<void> {
     return ipcRenderer.invoke('darvin:reveal_workspace');
+  },
+  async listWorkspaceFiles(): Promise<DarvinListWorkspaceFilesResponse> {
+    return ipcRenderer.invoke('darvin:list_workspace_files');
+  },
+  async readWorkspaceFile(relativePath: string): Promise<DarvinReadWorkspaceFileResponse> {
+    return ipcRenderer.invoke('darvin:read_workspace_file', relativePath);
+  },
+  async revealWorkspaceFile(relativePath: string): Promise<void> {
+    return ipcRenderer.invoke('darvin:reveal_workspace_file', relativePath);
+  },
+  async openWorkspaceFile(relativePath: string): Promise<DarvinOpenWorkspaceFileResponse> {
+    return ipcRenderer.invoke('darvin:open_workspace_file', relativePath);
   },
   onWorkspaceChanged(handler: (info: { sessionId: string; files: DarvinImportedFile[] }) => void): () => void {
     const wrap = (_e: unknown, info: { sessionId: string; files: DarvinImportedFile[] }) => handler(info);

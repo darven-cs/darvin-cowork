@@ -1,5 +1,16 @@
 <template>
   <iframe
+    v-if="url"
+    :src="url"
+    class="h-full w-full border-0"
+    sandbox="allow-scripts"
+    :title="artifact.name ?? 'svg'"
+  />
+  <div v-else-if="loadError" class="flex h-full items-center justify-center px-4 text-center text-sm text-text-muted">
+    {{ loadError }}
+  </div>
+  <iframe
+    v-else
     class="h-full w-full border-0"
     :srcdoc="srcdoc"
     sandbox="allow-scripts"
@@ -11,8 +22,11 @@
 import { computed } from 'vue';
 import dompurify from 'dompurify';
 import type { Artifact } from '../../../composables/useArtifacts';
+import { useArtifactPreviewUrl } from '../../../composables/useArtifactPreviewUrl';
 
 const props = defineProps<{ artifact: Artifact }>();
+
+const { url, loadError } = useArtifactPreviewUrl(() => props.artifact);
 
 const srcdoc = computed(() => {
   const sanitized = dompurify.sanitize(props.artifact.content, {

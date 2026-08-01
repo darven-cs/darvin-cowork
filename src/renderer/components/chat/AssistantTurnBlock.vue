@@ -30,6 +30,11 @@
           <MarkdownContent :content="r.message.content" :done="r.message.done" />
           <TurnMeta :message="r.message" />
         </template>
+        <ArtifactCardGroup
+          v-if="r.message.artifacts?.length"
+          :session-id="r.message.sessionId"
+          :artifacts="r.message.artifacts"
+        />
       </template>
     </div>
   </div>
@@ -43,6 +48,7 @@ import ThinkingBlock from './ThinkingBlock.vue';
 import MarkdownContent from './MarkdownContent.vue';
 import TurnMeta from './TurnMeta.vue';
 import ToolCallGroup from './tools/ToolCallGroup.vue';
+import ArtifactCardGroup from './ArtifactCardGroup.vue';
 import { t } from '../../services/i18n';
 
 /**

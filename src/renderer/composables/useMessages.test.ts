@@ -290,6 +290,50 @@ describe('useMessages artifact events (spec 05)', () => {
     messages.removeSession('s1');
     expect(artifacts.artifactsBySession.value.s1).toBeUndefined();
   });
+
+  it('attaches an artifact with messageId to the matching assistant message', () => {
+    messages.startAssistantMessage('s1', 'm1');
+    messages.appendEvent({
+      type: 'artifact',
+      sessionId: 's1',
+      messageId: 'm1',
+      artifactId: 'art-1',
+      kind: 'html',
+      name: 'page',
+      content: '<html></html>',
+      createdAt: 1,
+    });
+    const msg = messages.messagesBySessionId.value.s1[0];
+    expect(msg.artifacts).toHaveLength(1);
+    expect(msg.artifacts?.[0].id).toBe('art-1');
+    expect(msg.artifacts?.[0].messageId).toBe('m1');
+    // 同时仍进 useArtifacts 面板状态机
+    expect(artifacts.artifactsBySession.value.s1).toHaveLength(1);
+  });
+
+  it('keeps artifacts without messageId out of the message bucket', () => {
+    messages.startAssistantMessage('s1', 'm1');
+    messages.appendEvent({
+      type: 'artifact', sessionId: 's1', artifactId: 'art-1', kind: 'text', content: 'x', createdAt: 1,
+    });
+    const msg = messages.messagesBySessionId.value.s1[0];
+    expect(msg.artifacts).toBeUndefined();
+    expect(artifacts.artifactsBySession.value.s1).toHaveLength(1);
+  });
+
+  it('does not attach when messageId does not match an assistant message', () => {
+    messages.appendEvent({
+      type: 'artifact',
+      sessionId: 's1',
+      messageId: 'ghost',
+      artifactId: 'art-1',
+      kind: 'text',
+      content: 'x',
+      createdAt: 1,
+    });
+    expect(messages.messagesBySessionId.value.s1 ?? []).toHaveLength(0);
+    expect(artifacts.artifactsBySession.value.s1).toHaveLength(1);
+  });
 });
 
 describe('buildConversationTurns compaction dividers', () => {
