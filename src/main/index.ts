@@ -42,6 +42,7 @@ import type {
   DarvinOpenWorkspaceFileResponse,
   DarvinLLMConfig,
   DarvinLocale,
+  DarvinModelProvider,
   DarvinLocaleResponse,
   DarvinMessage,
   DarvinPromptRequest,
@@ -605,8 +606,13 @@ ipcMain.handle('darvin:get_llm_config', async (): Promise<DarvinLLMConfig> => {
   }
   const activeProvider = cfg?.llm?.provider ?? 'anthropic';
   const active = providers[activeProvider];
+  // yaml 里可能是任意字符串；只认 UI 支持的三个 provider，未知值回落 anthropic。
+  const provider: DarvinModelProvider =
+    activeProvider === 'anthropic' || activeProvider === 'openai' || activeProvider === 'custom'
+      ? activeProvider
+      : 'anthropic';
   return {
-    provider: activeProvider,
+    provider,
     activeProvider,
     apiKey: active?.apiKey ?? cfg?.llm?.api_key ?? '',
     baseUrl: active?.baseUrl ?? cfg?.llm?.base_url ?? '',

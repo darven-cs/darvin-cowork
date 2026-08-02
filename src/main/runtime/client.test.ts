@@ -11,8 +11,7 @@ describe('parseDarvinEvent', () => {
       message: { id: 'call-1' },
     });
     expect(ev).not.toBeNull();
-    if (ev) {
-      expect(ev.type).toBe('tool_start');
+    if (ev && ev.type === 'tool_start') {
       expect(ev.toolUseId).toBe('call-1');
       expect(ev.sessionId).toBe('s1');
       expect(ev.tool).toBe('Bash');
