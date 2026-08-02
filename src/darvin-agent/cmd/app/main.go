@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,15 +17,20 @@ import (
 	"darvin-cowork/backend/internal/agent/llm"
 	"darvin-cowork/backend/internal/agent/session"
 	"darvin-cowork/backend/internal/agent/store"
+	"darvin-cowork/backend/internal/agent/tool"
 	"darvin-cowork/backend/internal/config"
 	"darvin-cowork/backend/internal/database"
 	"darvin-cowork/backend/internal/gateway"
 	"darvin-cowork/backend/internal/logger"
+	"darvin-cowork/backend/internal/skills"
 
 	// Blank import triggers anthropic.init() which registers the provider
 	// with llm.NewProvider's name-based factory registry.
 	_ "darvin-cowork/backend/internal/agent/llm/anthropic"
 )
+
+//go:embed resources/skills-bundled
+var skillsBundled embed.FS
 
 // configPath resolves config.yaml in three places, in order:
 //  1. $DARVIN_CONFIG, if set (lets Electron point at a project-local file)
@@ -178,6 +184,23 @@ func main() {
 		Config:           agentCfg,
 		AssemblerEnabled: cfg.Agent.AssemblerEnabled,
 	}
+
+	// spec 31: bootstrap the skills registry + runner. Built-in tools are
+	// auto-registered inside agent.New; the agent we keep here only exists
+	// for type-compat with the steer control. The real tools registry is
+	// built on demand by the executor when an AcpSession is created — until
+	// spec 38 lands, the runner sees an empty tool set, which is fine.
+	toolsReg, toolsErr := tool.NewBuiltins(effectiveWorkdir, cfg.Agent.ShellAllowlist)
+	if toolsErr != nil {
+		log.Warn("skills: tool registry init failed, using empty registry", zap.Error(toolsErr))
+		toolsReg = tool.NewRegistry()
+	}
+	skillsResult := skills.Bootstrap(rootCtx, log.Logger, skills.BootstrapConfig{
+		Bundle:      skills.Bundle{FS: skillsBundled, Dir: "resources/skills-bundled"},
+		UserDataDir: effectiveWorkdir,
+		ToolReg:     toolsReg,
+	})
+	_ = skillsResult
 
 	ledger := gateway.NewEventLedger(log.Logger)
 	sessions := gateway.NewSessionManager(

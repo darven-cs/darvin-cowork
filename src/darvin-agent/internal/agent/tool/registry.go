@@ -109,3 +109,19 @@ func (r *Registry) Specs() []llm.Tool {
 	}
 	return out
 }
+
+// ToolsForSkill returns the tools a skill is allowed to invoke. The skill
+// system only filters by metadata today; spec 38 will add per-skill tool
+// scoping (e.g. tool_use with "skill_id" tag). Until then, every active
+// tool is returned so the runner can present the LLM with the full surface
+// when the skill is enabled.
+func (r *Registry) ToolsForSkill(skillID string) []Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]Tool, 0, len(r.tools))
+	for _, t := range r.tools {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
+	return out
+}
