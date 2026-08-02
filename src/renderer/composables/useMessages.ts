@@ -15,7 +15,7 @@
  */
 
 import { computed, ref, watch } from 'vue';
-import type { DarvinAttachment, DarvinContextUsage, DarvinEvent, DarvinMessage, DarvinToolKind, DarvinUsage } from '../../shared/darvin-api';
+import type { DarvinAttachment, DarvinAttachmentRef, DarvinContextUsage, DarvinEvent, DarvinImageRef, DarvinMessage, DarvinToolKind, DarvinUsage } from '../../shared/darvin-api';
 import { assertNever } from '../../shared/darvin-api';
 import { useSession } from './useSession';
 import { useArtifacts } from './useArtifacts';
@@ -35,6 +35,10 @@ export interface Message {
   error?: string;
   toolLabel?: string;
   attachments?: DarvinAttachment[];
+  /** spec 13 — 本条 user 消息附带的文件路径引用（气泡上方 chip；内存态，不随 Go 持久化）。 */
+  attachmentRefs?: DarvinAttachmentRef[];
+  /** spec 13 — 本条 user 消息附带的图片（含 base64 dataUrl；气泡上方缩略图；内存态）。 */
+  imageRefs?: DarvinImageRef[];
   model?: string;
   usage?: DarvinUsage;
   createdAt: number;
@@ -539,11 +543,18 @@ function appendToBucket(list: Message[], sid: string, ev: DarvinEvent): void {
 }
 
 export function useMessages() {
-  function appendUserMessage(sessionId: string, content: string, id?: string, attachments?: DarvinAttachment[]): string {
+  function appendUserMessage(
+    sessionId: string,
+    content: string,
+    id?: string,
+    attachments?: DarvinAttachment[],
+    attachmentRefs?: DarvinAttachmentRef[],
+    imageRefs?: DarvinImageRef[],
+  ): string {
     const mid = id ?? `m-${Math.random().toString(36).slice(2, 10)}`;
     const bucket = messagesBySessionId.value[sessionId] ?? [];
     bucket.push({
-      id: mid, sessionId, role: 'user', content, done: true, attachments, createdAt: Date.now(),
+      id: mid, sessionId, role: 'user', content, done: true, attachments, attachmentRefs, imageRefs, createdAt: Date.now(),
     });
     messagesBySessionId.value = { ...messagesBySessionId.value, [sessionId]: bucket };
     return mid;

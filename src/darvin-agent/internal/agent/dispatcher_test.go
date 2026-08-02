@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"darvin-cowork/backend/internal/agent/llm"
+	"darvin-cowork/backend/internal/agent/queue"
 	"darvin-cowork/backend/internal/agent/session"
 )
 
@@ -41,7 +42,7 @@ func newAgentForTest(t *testing.T, p llm.ModelProvider) *Agent {
 
 func TestPromptBusy(t *testing.T) {
 	a := newAgentForTest(t, &blockingProvider{})
-	if err := a.Prompt(context.Background(), "first"); err != nil {
+	if err := a.Prompt(context.Background(), "first", nil); err != nil {
 		t.Fatal(err)
 	}
 	// can't call Run synchronously; simulate "already running" by manually
@@ -63,7 +64,7 @@ func TestPromptBusy(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if err := a.Prompt(context.Background(), "second"); !errors.Is(err, ErrAgentBusy) {
+	if err := a.Prompt(context.Background(), "second", nil); !errors.Is(err, ErrAgentBusy) {
 		t.Errorf("Prompt while running: err = %v, want ErrAgentBusy", err)
 	}
 	cancel()
@@ -76,7 +77,7 @@ func TestSteerInterrupts(t *testing.T) {
 	defer cancel()
 
 	// Start a run that will block inside the provider stream.
-	if err := a.Prompt(ctx, "first"); err != nil {
+	if err := a.Prompt(ctx, "first", nil); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
@@ -115,7 +116,7 @@ func TestRunNaturalStop(t *testing.T) {
 		llm.DoneEvent{Response: llm.CompletionResponse{FinishReason: llm.FinishReasonStop}},
 	}}
 	a := newAgentForTest(t, prov)
-	if err := a.Prompt(context.Background(), "hello"); err != nil {
+	if err := a.Prompt(context.Background(), "hello", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.Run(context.Background()); err != nil {
@@ -144,6 +145,20 @@ func TestFollowUpAfterRun(t *testing.T) {
 	}
 }
 
+func TestToLLMImages_SplitsDataURL(t *testing.T) {
+	got := toLLMImages([]queue.ImageRef{
+		{Path: "/a.png", DataURL: "data:image/png;base64,cG5nZGF0YQ=="},
+		{Path: "/bad", DataURL: "not-a-data-url"},
+		{Path: "/jpg", DataURL: "data:image/jpeg;base64,"}, // empty payload → skipped
+	})
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1 (malformed skipped)", len(got))
+	}
+	if got[0].MediaType != "image/png" || got[0].Data != "cG5nZGF0YQ==" {
+		t.Errorf("got %+v, want image/png block", got[0])
+	}
+}
+
 func TestSubscribeReceivesEvents(t *testing.T) {
 	prov := &scriptedProvider{events: []llm.StreamEvent{
 		llm.TextDeltaEvent{Delta: "ok"},
@@ -152,7 +167,7 @@ func TestSubscribeReceivesEvents(t *testing.T) {
 	a := newAgentForTest(t, prov)
 	sub := a.Subscribe(16)
 	defer sub.Unsubscribe()
-	_ = a.Prompt(context.Background(), "hi")
+	_ = a.Prompt(context.Background(), "hi", nil)
 	if err := a.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}

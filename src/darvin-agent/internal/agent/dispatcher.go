@@ -21,13 +21,14 @@ import (
 // if the Agent is already running; callers should use Steer / FollowUp
 // instead. attachments are absolute paths staged for this one message (the
 // LLM is told about them via a transient system note, and read_file may
-// access them via the run's granted-read set).
-func (a *Agent) Prompt(_ context.Context, content string, attachments ...[]string) error {
+// access them via the run's granted-read set). images are base64-encoded
+// image attachments; the dispatcher turns them into LLM image content blocks.
+func (a *Agent) Prompt(_ context.Context, content string, images []queue.ImageRef, attachments ...[]string) error {
 	var files []string
 	if len(attachments) > 0 {
 		files = attachments[0]
 	}
-	return a.enqueue(queue.ModePrompt, content, files)
+	return a.enqueue(queue.ModePrompt, content, files, images)
 }
 
 // Steer enqueues content for the next iteration, cancelling any current
@@ -36,7 +37,7 @@ func (a *Agent) Prompt(_ context.Context, content string, attachments ...[]strin
 func (a *Agent) Steer(ctx context.Context, content string) error {
 	// cancel any in-flight run so the current turn's ctx fires
 	a.Abort(ctx)
-	return a.enqueue(queue.ModeSteer, content, nil)
+	return a.enqueue(queue.ModeSteer, content, nil, nil)
 }
 
 // FollowUp enqueues content to be processed after the current Run ends.
@@ -44,7 +45,7 @@ func (a *Agent) Steer(ctx context.Context, content string) error {
 // caller's subsequent Run() invocation; FollowUp itself does not start
 // a goroutine.
 func (a *Agent) FollowUp(_ context.Context, content string) error {
-	return a.enqueue(queue.ModeFollowUp, content, nil)
+	return a.enqueue(queue.ModeFollowUp, content, nil, nil)
 }
 
 // Abort cancels the current Run's context. It does not modify the queue.
@@ -139,7 +140,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			Content: msg.Content,
 			Mode:    event.Mode(mode),
 		})
-		a.session.Append(llm.Message{Role: llm.RoleUser, Content: msg.Content})
+		a.session.Append(llm.Message{Role: llm.RoleUser, Content: msg.Content, Images: toLLMImages(msg.Images)})
 		// Hook 1 of 3: persist the user message before the LLM call so a
 		// crash mid-Run still leaves the question in sessions.db. The row is
 		// keyed by runUserMsgID (not runMsgID) so persistAssistantMessages
@@ -375,7 +376,7 @@ func formatImportedNote(files []string) string {
 	return "[系统] 用户在本消息附加了以下文件（绝对路径，已授权读取，可用 read_file 读取）：\n- " + strings.Join(files, "\n- ")
 }
 
-func (a *Agent) enqueue(mode queue.Mode, content string, attachments []string) error {
+func (a *Agent) enqueue(mode queue.Mode, content string, attachments []string, images []queue.ImageRef) error {
 	// Prompt is the only mode that requires the agent to be idle. Steer and
 	// FollowUp can both be issued while a Run is in progress: Steer cancels
 	// the current run, FollowUp queues for after it returns.
@@ -385,7 +386,7 @@ func (a *Agent) enqueue(mode queue.Mode, content string, attachments []string) e
 	if mode == queue.ModePrompt && running {
 		return ErrAgentBusy
 	}
-	err := a.queue.Enqueue(mode, queue.Message{Content: content, Attachments: attachments})
+	err := a.queue.Enqueue(mode, queue.Message{Content: content, Attachments: attachments, Images: images})
 	if err != nil {
 		if errors.Is(err, queue.ErrQueueFull) {
 			return ErrAgentBusy
@@ -393,4 +394,34 @@ func (a *Agent) enqueue(mode queue.Mode, content string, attachments []string) e
 		return err
 	}
 	return nil
+}
+
+// toLLMImages converts base64 image data URLs into provider-facing image
+// blocks, splitting "data:<mime>;base64,<data>" into {MediaType, Data}.
+// Malformed URLs are skipped so a bad attachment cannot break a run.
+func toLLMImages(refs []queue.ImageRef) []llm.ImageBlock {
+	out := make([]llm.ImageBlock, 0, len(refs))
+	for _, r := range refs {
+		mediaType, data := splitDataURL(r.DataURL)
+		if mediaType == "" || data == "" {
+			continue
+		}
+		out = append(out, llm.ImageBlock{MediaType: mediaType, Data: data})
+	}
+	return out
+}
+
+// splitDataURL parses a `data:<mime>;base64,<payload>` URL. It returns
+// ("", "") for anything that does not match that exact shape.
+func splitDataURL(dataURL string) (string, string) {
+	const prefix = "data:"
+	if !strings.HasPrefix(dataURL, prefix) {
+		return "", ""
+	}
+	rest := dataURL[len(prefix):]
+	sep := strings.Index(rest, ";base64,")
+	if sep < 0 {
+		return "", ""
+	}
+	return rest[:sep], rest[sep+len(";base64,"):]
 }

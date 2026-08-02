@@ -59,6 +59,46 @@ func TestConvertMessages_User(t *testing.T) {
 	}
 }
 
+func TestConvertMessages_UserWithImage(t *testing.T) {
+	got := convertMessages([]llm.Message{{
+		Role:    llm.RoleUser,
+		Content: "what color is this logo?",
+		Images: []llm.ImageBlock{
+			{MediaType: "image/png", Data: "aGVsbG8="},
+		},
+	}})
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	content, ok := got[0]["content"].([]map[string]any)
+	if !ok {
+		t.Fatalf("content type %T, want []map[string]any", got[0]["content"])
+	}
+	if len(content) != 2 {
+		t.Fatalf("content blocks = %d, want 2 (image + text)", len(content))
+	}
+	if content[0]["type"] != "image" {
+		t.Fatalf("block 0 type = %v, want image", content[0]["type"])
+	}
+	source, ok := content[0]["source"].(map[string]any)
+	if !ok {
+		t.Fatalf("source type %T", content[0]["source"])
+	}
+	if source["type"] != "base64" || source["media_type"] != "image/png" || source["data"] != "aGVsbG8=" {
+		t.Errorf("source = %+v, want base64 image/png block", source)
+	}
+	if content[1]["type"] != "text" || content[1]["text"] != "what color is this logo?" {
+		t.Errorf("text block = %+v", content[1])
+	}
+}
+
+func TestConvertMessages_UserWithoutImage_StaysString(t *testing.T) {
+	got := convertMessages([]llm.Message{{Role: llm.RoleUser, Content: "hi"}})
+	if _, ok := got[0]["content"].(string); !ok {
+		t.Errorf("content type %T, want string when no images attached", got[0]["content"])
+	}
+}
+
 func TestConvertMessages_SystemDropped(t *testing.T) {
 	// System must live on req.System, not in the messages array; convert
 	// should silently drop it.

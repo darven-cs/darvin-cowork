@@ -14,6 +14,7 @@ import (
 
 	"darvin-cowork/backend/internal/agent"
 	"darvin-cowork/backend/internal/agent/event"
+	"darvin-cowork/backend/internal/agent/queue"
 )
 
 const (
@@ -34,10 +35,13 @@ var ErrLoopClosed = errors.New("acp: loop closed")
 // up front so a later Stop can target exactly it; an empty RunID makes
 // Loop mint one. Attachments are absolute paths staged for this message:
 // the dispatcher injects a transient system note and grants read_file access.
+// Images are base64-encoded image attachments; the dispatcher converts them
+// into LLM image content blocks.
 type PromptRequest struct {
 	RunID       string
 	Content     string
 	Attachments []string
+	Images      []queue.ImageRef
 }
 
 // RunTicket correlates a submitted turn with the events it will emit.
@@ -57,6 +61,7 @@ type promptReq struct {
 	runID       string
 	content     string
 	attachments []string
+	images      []queue.ImageRef
 	msgID       string
 	userMsgID   string
 }
@@ -139,6 +144,7 @@ func (l *Loop) admit(req PromptRequest, jumpQueue bool) (RunTicket, error) {
 		runID:       req.RunID,
 		content:     req.Content,
 		attachments: req.Attachments,
+		images:      req.Images,
 		msgID:       l.idGen(),
 		userMsgID:   l.idGen(),
 	}
@@ -319,7 +325,7 @@ func (l *Loop) executeTurn(req promptReq) {
 		cancelRun()
 	}()
 
-	if err := l.agent.Prompt(runCtx, req.content, req.attachments); err != nil {
+	if err := l.agent.Prompt(runCtx, req.content, req.images, req.attachments); err != nil {
 		// The Agent rejected the enqueue, so no run will emit an error
 		// for this messageID. Surface it here or the renderer's bubble
 		// stays stuck in a streaming state.

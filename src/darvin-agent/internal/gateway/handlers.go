@@ -16,6 +16,7 @@ import (
 	"darvin-cowork/backend/internal/agent/ctxengine"
 	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/executor"
+	"darvin-cowork/backend/internal/agent/queue"
 	"darvin-cowork/backend/internal/agent/store"
 )
 
@@ -24,10 +25,11 @@ import (
 // runId is optional; when omitted the gateway mints one so the result
 // always carries a non-empty correlation token.
 type PromptParams struct {
-	Content     string   `json:"content"`
-	SessionID   string   `json:"sessionId,omitempty"`
-	RunID       string   `json:"runId,omitempty"`
-	Attachments []string `json:"attachments,omitempty"`
+	Content     string           `json:"content"`
+	SessionID   string           `json:"sessionId,omitempty"`
+	RunID       string           `json:"runId,omitempty"`
+	Attachments []string         `json:"attachments,omitempty"`
+	Images      []queue.ImageRef `json:"images,omitempty"`
 }
 
 // PromptResult is the JSON-RPC result for agent.prompt. sessionId and
@@ -337,7 +339,7 @@ func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage,
 		// handler 测试 stub 没注入 factory 时走这里。
 		return errorResp(id, CodeNoAcpSession, "no AcpSession bound", nil)
 	}
-	ticket, err := entry.Acp.Loop.Submit(acp.PromptRequest{RunID: p.RunID, Content: p.Content, Attachments: p.Attachments})
+	ticket, err := entry.Acp.Loop.Submit(acp.PromptRequest{RunID: p.RunID, Content: p.Content, Attachments: p.Attachments, Images: p.Images})
 	if err != nil {
 		return errorResp(id, CodeInternalError, "loop submit", err)
 	}

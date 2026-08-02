@@ -25,12 +25,25 @@ type Message struct {
 	Role    Role
 	Content string
 
+	// Images is populated on user messages that carry base64-encoded image
+	// attachments; providers that support image input emit them as image
+	// content blocks alongside the text.
+	Images []ImageBlock
+
 	// ToolCalls is populated on assistant messages that requested tools.
 	ToolCalls []ToolCall
 
 	// ToolCallID is populated on tool messages to reference the
 	// originating ToolCall.ID.
 	ToolCallID string
+}
+
+// ImageBlock is a base64-encoded image sent to the provider as an image
+// content block. MediaType is the image MIME (e.g. "image/png"); Data is
+// the raw base64 payload with no `data:` prefix.
+type ImageBlock struct {
+	MediaType string
+	Data      string
 }
 
 // Tool describes a function the model is allowed to invoke.

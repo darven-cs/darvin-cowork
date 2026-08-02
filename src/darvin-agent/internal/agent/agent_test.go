@@ -205,7 +205,7 @@ func TestAssemblerEnabledTrue_TriggersSeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Prompt(context.Background(), "hello"); err != nil {
+	if err := a.Prompt(context.Background(), "hello", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.Run(context.Background()); err != nil {
@@ -234,7 +234,7 @@ func TestAssemblerEnabledFalse_TakesFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Prompt(context.Background(), "hello"); err != nil {
+	if err := a.Prompt(context.Background(), "hello", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.Run(context.Background()); err != nil {

@@ -11,6 +11,25 @@
 import { useMessages } from './useMessages';
 import { useSession } from './useSession';
 import { useImportedFiles } from './useImportedFiles';
+import { t } from '../services/i18n';
+import type { DarvinAttachmentRef, DarvinImageRef } from '../../shared/darvin-api';
+
+/**
+ * 把附件路径以 `文件:` / `图片:` 行嵌入内容（LobsterAI 式 finalPrompt）：
+ * 展示即发送、随 content 持久化，刷新后仍能在聊天里「引用」文件。
+ */
+function buildAttachmentContent(
+  content: string,
+  files: DarvinAttachmentRef[],
+  images: DarvinImageRef[],
+): string {
+  const lines = [
+    ...files.map((f) => `${t('attachment.fileLabel')}: ${f.path}`),
+    ...images.map((i) => `${t('attachment.imageLabel')}: ${i.path}`),
+  ];
+  if (lines.length === 0) return content;
+  return `${content}\n\n${lines.join('\n')}`;
+}
 
 export function useChatActions() {
   const messages = useMessages();
@@ -28,12 +47,17 @@ export function useChatActions() {
       session.draftMode.value = false;
     }
     busyRef.value = true;
-    messages.appendUserMessage(sessId, content);
-    const attachments = imported.pendingPaths();
+    const { files, images } = imported.splitForSend();
+    const finalContent = buildAttachmentContent(content, files, images);
+    messages.appendUserMessage(sessId, finalContent, undefined, undefined, files, images);
     try {
-      const r = await window.darvin.prompt({ content, attachments });
+      const r = await window.darvin.prompt({
+        content: finalContent,
+        attachments: files.map((f) => f.path),
+        images,
+      });
       // 附件是路径引用（无复制），发送即消费：清空暂存，不删用户原文件。
-      if (attachments.length > 0) imported.clear();
+      if (files.length > 0 || images.length > 0) imported.clear();
       messages.startAssistantMessage(r.sessionId, r.messageId);
     } catch (err) {
       const mid = `m-err-${Date.now().toString(36)}`;

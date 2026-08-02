@@ -72,6 +72,24 @@ export interface DarvinAttachmentRef {
   size: number;
 }
 
+/**
+ * spec 13 — 图片附件：路径 + base64 dataUrl。渲染层读为 dataUrl 后随 prompt
+ * 发给 Go，由 Go 转 image content block 供模型真正看到图。
+ */
+export interface DarvinImageRef {
+  path: string;
+  name: string;
+  size: number;
+  dataUrl: string;
+}
+
+/** spec 13 — main 把本地文件读为 base64 dataUrl 的结果（>10MB 返回 error）。 */
+export interface DarvinReadFileDataUrlResponse {
+  success: boolean;
+  dataUrl?: string;
+  error?: string;
+}
+
 export type DarvinDangerLevel = 'safe' | 'caution' | 'destructive';
 
 /** spec 12 — Go → renderer 的权限审批事件 payload。 */
@@ -265,6 +283,8 @@ export interface DarvinPromptRequest {
   model?: DarvinModelId;
   /** spec 12 — 本条消息暂存的附件（绝对路径）：「附加即授权」，agent 可免审批读取。 */
   attachments?: string[];
+  /** spec 13 — 本条消息的图片附件（base64 dataUrl），Go 转 image content block。 */
+  images?: DarvinImageRef[];
 }
 
 export interface DarvinPromptResponse {
@@ -563,6 +583,8 @@ export interface DarvinApi {
   respondPermission(r: DarvinPermissionResponse): Promise<void>;
   /** spec 12 — 弹文件选择框选取待附加文件（只记路径，不复制进工作区）。 */
   pickAttachments(): Promise<DarvinPickAttachmentsResponse>;
+  /** spec 13 — 读本地文件为 base64 dataUrl（>10MB 返回 error）。 */
+  readFileAsDataUrl(path: string): Promise<DarvinReadFileDataUrlResponse>;
   /** spec 12 — 弹目录选择框设置当前会话工作目录。 */
   setWorkspaceRoot(): Promise<DarvinSetWorkspaceResult>;
   /** spec 12 — 把当前会话工作目录设为指定路径（最近目录 / 测试）。 */

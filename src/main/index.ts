@@ -51,6 +51,7 @@ import type {
   DarvinPickAttachmentsResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
+  DarvinReadFileDataUrlResponse,
   DarvinReadWorkspaceFileResponse,
   DarvinRemoveImportedFileResponse,
   DarvinRenameSessionResponse,
@@ -593,6 +594,47 @@ ipcMain.handle('darvin:get_workspace_root', async (): Promise<DarvinWorkspaceRoo
   return { rootPath: workspaceLoc.rootPath, label: path.basename(workspaceLoc.rootPath) };
 });
 
+// spec 13 — 图片附件 base64 读取上限（对齐 LobsterAI 的 10MB 阈值）。
+const MAX_READ_AS_DATA_URL_BYTES = 10 * 1024 * 1024;
+
+/** 扩展名 → MIME；未知类型回落 application/octet-stream。 */
+const MIME_BY_EXT: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  svg: 'image/svg+xml',
+  pdf: 'application/pdf',
+  txt: 'text/plain',
+  md: 'text/markdown',
+  csv: 'text/csv',
+  json: 'application/json',
+};
+
+function mimeForPath(p: string): string {
+  const ext = path.extname(p).toLowerCase().replace(/^\./, '');
+  return MIME_BY_EXT[ext] ?? 'application/octet-stream';
+}
+
+ipcMain.handle(
+  'darvin:read_file_data_url',
+  async (_e, filePath: string): Promise<DarvinReadFileDataUrlResponse> => {
+    try {
+      const st = await fs.stat(filePath);
+      if (!st.isFile()) return { success: false, error: 'not a file' };
+      if (st.size > MAX_READ_AS_DATA_URL_BYTES) {
+        return { success: false, error: 'too_large' };
+      }
+      const buf = await fs.readFile(filePath);
+      return { success: true, dataUrl: `data:${mimeForPath(filePath)};base64,${buf.toString('base64')}` };
+    } catch (e) {
+      return { success: false, error: (e as Error).message };
+    }
+  },
+);
+
 ipcMain.handle('darvin:pick_attachments', async (): Promise<DarvinPickAttachmentsResponse> => {
   if (!client.isConnected()) throw new Error('agent offline');
   const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
@@ -642,6 +684,7 @@ ipcMain.handle(
         runId,
         model: req.model,
         attachments: req.attachments,
+        images: req.images,
       });
       return { sessionId, messageId: r.messageId, runId: r.runId ?? runId };
     } catch (e) {

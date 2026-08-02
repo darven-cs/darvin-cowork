@@ -121,7 +121,7 @@ func convertMessages(msgs []llm.Message) []map[string]any {
 			flushToolResults()
 			out = append(out, map[string]any{
 				"role":    "user",
-				"content": m.Content,
+				"content": convertUserContent(m),
 			})
 		case llm.RoleAssistant:
 			flushToolResults()
@@ -151,6 +151,29 @@ func convertMessages(msgs []llm.Message) []map[string]any {
 	}
 	flushToolResults()
 	return out
+}
+
+// convertUserContent renders one user message's content for Anthropic. With
+// images attached it emits a content array (image blocks first, then the
+// text block); without images it stays a plain string so the wire shape is
+// unchanged for existing callers.
+func convertUserContent(m llm.Message) any {
+	if len(m.Images) == 0 {
+		return m.Content
+	}
+	blocks := make([]map[string]any, 0, 1+len(m.Images))
+	for _, img := range m.Images {
+		blocks = append(blocks, map[string]any{
+			"type": "image",
+			"source": map[string]any{
+				"type":       "base64",
+				"media_type": img.MediaType,
+				"data":       img.Data,
+			},
+		})
+	}
+	blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
+	return blocks
 }
 
 // convertTools maps unified Tool definitions to the Anthropic tools array.

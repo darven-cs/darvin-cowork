@@ -33,6 +33,21 @@ type Message struct {
 	// message ("attach = authorize"): the dispatcher injects a system note so
 	// the LLM perceives them, and grants read_file access to them.
 	Attachments []string
+	// Images carries base64-encoded images attached for this message; the
+	// dispatcher converts each DataURL into an llm.ImageBlock so the provider
+	// receives a real image content block.
+	Images []ImageRef
+}
+
+// ImageRef is a base64-encoded image attachment staged for one message.
+// DataURL has the `data:<mime>;base64,<data>` shape produced by the
+// renderer's readFileAsDataUrl; the dispatcher splits it into the LLM's
+// {MediaType, Data}.
+type ImageRef struct {
+	Path    string `json:"path"`
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	DataURL string `json:"dataUrl"`
 }
 
 // Queue owns the three inbound channels. It is goroutine-safe.

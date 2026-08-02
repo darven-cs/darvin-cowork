@@ -33,6 +33,7 @@ import type {
   DarvinPickAttachmentsResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
+  DarvinReadFileDataUrlResponse,
   DarvinReadWorkspaceFileResponse,
   DarvinRemoveImportedFileResponse,
   DarvinRenameSessionResponse,
@@ -180,6 +181,9 @@ const api: DarvinApi = {
   },
   async pickAttachments(): Promise<DarvinPickAttachmentsResponse> {
     return ipcRenderer.invoke('darvin:pick_attachments');
+  },
+  async readFileAsDataUrl(filePath: string): Promise<DarvinReadFileDataUrlResponse> {
+    return ipcRenderer.invoke('darvin:read_file_data_url', filePath);
   },
   async setWorkspaceRoot(): Promise<DarvinSetWorkspaceResult> {
     return ipcRenderer.invoke('darvin:set_workspace_root');
