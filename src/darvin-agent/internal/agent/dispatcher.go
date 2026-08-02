@@ -19,12 +19,13 @@ import (
 
 // Prompt enqueues content for immediate processing. Returns ErrAgentBusy
 // if the Agent is already running; callers should use Steer / FollowUp
-// instead. importedFiles are workspace-relative paths staged for this one
-// message (the LLM is told about them via a transient system note).
-func (a *Agent) Prompt(_ context.Context, content string, importedFiles ...[]string) error {
+// instead. attachments are absolute paths staged for this one message (the
+// LLM is told about them via a transient system note, and read_file may
+// access them via the run's granted-read set).
+func (a *Agent) Prompt(_ context.Context, content string, attachments ...[]string) error {
 	var files []string
-	if len(importedFiles) > 0 {
-		files = importedFiles[0]
+	if len(attachments) > 0 {
+		files = attachments[0]
 	}
 	return a.enqueue(queue.ModePrompt, content, files)
 }
@@ -154,10 +155,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		// RunEndEvent so the renderer can paint an explicit error
 		// bubble instead of a "done" state.
 		// runImportedNote is read by Instructions() during the run, so the
-		// staged imported files only reach the LLM for this one prompt.
-		a.runImportedNote = formatImportedNote(msg.ImportedFiles)
+		// staged attachments only reach the LLM for this one prompt. The same
+		// paths feed the sandbox's granted-read set (attach = authorize).
+		a.runImportedNote = formatImportedNote(msg.Attachments)
+		a.SetGrantedReads(msg.Attachments)
 		err := a.exec.RunConversation(runCtx, a)
 		a.runImportedNote = ""
+		a.SetGrantedReads(nil)
 		turnsThisRun := a.approxTurns(turnsBefore)
 		totalTurns += turnsThisRun
 		// Hook 2 of 3: persist the assistant messages RunConversation
@@ -363,15 +367,15 @@ func (a *Agent) approxTurns(beforeLen int) int {
 }
 
 // formatImportedNote builds the transient system note telling the LLM which
-// workspace-relative files are staged for the current message.
+// absolute attachment paths are staged for the current message.
 func formatImportedNote(files []string) string {
 	if len(files) == 0 {
 		return ""
 	}
-	return "[系统] 用户在本消息导入了以下文件（位于当前工作区，可用 read_file 按相对路径读取）：\n- " + strings.Join(files, "\n- ")
+	return "[系统] 用户在本消息附加了以下文件（绝对路径，已授权读取，可用 read_file 读取）：\n- " + strings.Join(files, "\n- ")
 }
 
-func (a *Agent) enqueue(mode queue.Mode, content string, importedFiles []string) error {
+func (a *Agent) enqueue(mode queue.Mode, content string, attachments []string) error {
 	// Prompt is the only mode that requires the agent to be idle. Steer and
 	// FollowUp can both be issued while a Run is in progress: Steer cancels
 	// the current run, FollowUp queues for after it returns.
@@ -381,7 +385,7 @@ func (a *Agent) enqueue(mode queue.Mode, content string, importedFiles []string)
 	if mode == queue.ModePrompt && running {
 		return ErrAgentBusy
 	}
-	err := a.queue.Enqueue(mode, queue.Message{Content: content, ImportedFiles: importedFiles})
+	err := a.queue.Enqueue(mode, queue.Message{Content: content, Attachments: attachments})
 	if err != nil {
 		if errors.Is(err, queue.ErrQueueFull) {
 			return ErrAgentBusy

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // maxHardReadBytes is the hard cap on a single read window regardless of
@@ -25,6 +26,10 @@ var (
 	ErrPathExcluded = errors.New("sandbox: path excluded by workspace filter")
 	// ErrReadTooLarge is returned when a read window exceeds maxHardReadBytes.
 	ErrReadTooLarge = errors.New("sandbox: read exceeds hard limit")
+	// ErrNeedsPermission is returned by ResolveRead when a path is neither
+	// inside the workspace root nor in the run's granted-read set. The
+	// executor gate turns this into a permission_request (user approval).
+	ErrNeedsPermission = errors.New("sandbox: path outside authorized roots, permission required")
 )
 
 // fsSandbox restricts file tool access to a single absolute root directory.
@@ -34,6 +39,18 @@ type fsSandbox struct {
 	root       string // lexical root (as passed at construction)
 	realRoot   string // EvalSymlinks(root)
 	exclusions []compiledExclusion
+
+	// grantedReads holds absolute paths the user attached for the current
+	// message; read_file may open them even though they sit outside the
+	// workspace root ("attach = authorize"). Mutated once per run by the
+	// dispatcher, read concurrently by tool goroutines.
+	mu           sync.RWMutex
+	grantedReads []string
+	// approvedPaths holds paths the user approved one-shot via the
+	// permission modal during this run; they bypass containment for any
+	// operation (read AND write). Cleared at run start/end together with
+	// grantedReads.
+	approvedPaths []string
 }
 
 // newFsSandbox creates a sandbox rooted at workdir. workdir is converted to
@@ -93,6 +110,10 @@ func (s *fsSandbox) Resolve(p string) (string, error) {
 		return "", fmt.Errorf("%w: %q matches pattern %q", ErrPathExcluded, real, pattern)
 	}
 	if err := s.checkContained(real); err != nil {
+		// 用户在权限弹窗里单次放行的路径允许越界（读或写）。
+		if s.isApproved(abs) {
+			return abs, nil
+		}
 		return "", fmt.Errorf("%w: %q resolves to %q outside root %q",
 			ErrPathEscapesViaSymlink, p, real, s.realRoot)
 	}
@@ -166,6 +187,124 @@ func (s *fsSandbox) openRootFileLimited(p, label string, offset, maxBytes int64)
 		data = data[:maxBytes]
 	}
 	return f, data, truncated, nil
+}
+
+// setGrantedReads replaces the run's granted-read set (absolute paths the
+// user attached for the current message). Also resets the one-shot approved
+// paths so every run starts from a clean slate. Called by the dispatcher
+// before RunConversation and cleared after; safe for concurrent readers.
+func (s *fsSandbox) setGrantedReads(paths []string) {
+	s.mu.Lock()
+	s.grantedReads = append([]string(nil), paths...)
+	s.approvedPaths = nil
+	s.mu.Unlock()
+}
+
+// approvePath records a path the user allowed one-shot via the permission
+// modal; ResolveRead / Resolve then let it through despite being outside the
+// workspace root.
+func (s *fsSandbox) approvePath(p string) {
+	ap := cleanAbsPath(p)
+	if ap == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, x := range s.approvedPaths {
+		if x == ap {
+			return
+		}
+	}
+	s.approvedPaths = append(s.approvedPaths, ap)
+}
+
+// isApproved reports whether the cleaned absolute path was user-approved
+// for this run.
+func (s *fsSandbox) isApproved(cleanAbs string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, x := range s.approvedPaths {
+		if x == cleanAbs {
+			return true
+		}
+	}
+	return false
+}
+
+// isGranted reports whether the cleaned absolute path is in the run's
+// granted-read set (same lexical path — the user attached it explicitly).
+func (s *fsSandbox) isGranted(cleanAbs string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, g := range s.grantedReads {
+		if cleanAbsPath(g) == cleanAbs {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveRead resolves a path for reading. Paths inside the workspace root
+// resolve normally (subject to exclusions); paths outside the root fall
+// back to the run's granted-read set (attached files). Anything else returns
+// ErrNeedsPermission so the executor can request user approval.
+func (s *fsSandbox) ResolveRead(p string) (string, error) {
+	abs, err := s.Resolve(p)
+	if err == nil {
+		return abs, nil
+	}
+	if errors.Is(err, ErrPathExcluded) {
+		// inside the workspace but excluded by policy — the tool itself
+		// rejects this; it is not an "outside authorized roots" escape.
+		return "", err
+	}
+	ap := cleanAbsPath(p)
+	if ap != "" && (s.isGranted(ap) || s.isApproved(ap)) {
+		return ap, nil
+	}
+	return "", fmt.Errorf("%w: %q", ErrNeedsPermission, p)
+}
+
+// openFileLimitedAt opens an already-resolved absolute path and reads up to
+// maxBytes bytes starting at offset. Used by read_file after ResolveRead so
+// granted (out-of-workspace) attachments are openable too.
+func (s *fsSandbox) openFileLimitedAt(abs, label string, offset, maxBytes int64) (*os.File, []byte, bool, error) {
+	if maxBytes <= 0 || maxBytes > maxHardReadBytes {
+		return nil, nil, false, fmt.Errorf("%w: maxBytes=%d", ErrReadTooLarge, maxBytes)
+	}
+	if offset < 0 {
+		return nil, nil, false, fmt.Errorf("sandbox: negative offset %d", offset)
+	}
+	f, err := os.Open(abs)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("%s: open %q: %w", label, abs, err)
+	}
+	if offset > 0 {
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
+			f.Close()
+			return nil, nil, false, fmt.Errorf("%s: seek offset %d: %w", label, offset, err)
+		}
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		f.Close()
+		return nil, nil, false, fmt.Errorf("%s: read %q: %w", label, abs, err)
+	}
+	truncated := int64(len(data)) > maxBytes
+	if truncated {
+		data = data[:maxBytes]
+	}
+	return f, data, truncated, nil
+}
+
+// cleanAbsPath returns the cleaned absolute form of p, or "" when the path
+// cannot be made absolute (practically never for the tool arg shapes we see).
+func cleanAbsPath(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return ""
+	}
+	return filepath.Clean(abs)
 }
 
 // evalPathReal returns the symlink-resolved form of abs. When abs (or an

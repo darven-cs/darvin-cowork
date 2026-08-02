@@ -29,11 +29,11 @@ export function useChatActions() {
     }
     busyRef.value = true;
     messages.appendUserMessage(sessId, content);
-    const importedFiles = imported.pendingPaths();
+    const attachments = imported.pendingPaths();
     try {
-      const r = await window.darvin.prompt({ content, importedFiles });
-      // prompt 仅代表入队成功；agent 异步读取文件，run 结束（agent_end）后才清理。
-      if (importedFiles.length > 0) imported.armClearAfterSend();
+      const r = await window.darvin.prompt({ content, attachments });
+      // 附件是路径引用（无复制），发送即消费：清空暂存，不删用户原文件。
+      if (attachments.length > 0) imported.clear();
       messages.startAssistantMessage(r.sessionId, r.messageId);
     } catch (err) {
       const mid = `m-err-${Date.now().toString(36)}`;

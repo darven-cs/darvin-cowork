@@ -197,6 +197,21 @@ type AgentEndEvent struct {
 func (AgentEndEvent) isAgentEvent()     {}
 func (AgentEndEvent) EventName() string { return "agent_end" }
 
+// PermissionRequestEvent is emitted before a tool that needs user approval
+// runs. The renderer shows a modal and answers via the
+// agent.permission_response RPC (keyed by RequestID).
+type PermissionRequestEvent struct {
+	EventBase
+	RequestID   string
+	ToolName    string
+	ToolInput   map[string]any
+	DangerLevel string // safe | caution | destructive
+	Reason      string
+}
+
+func (PermissionRequestEvent) isAgentEvent()     {}
+func (PermissionRequestEvent) EventName() string { return "permission_request" }
+
 // CompactionEvent signals a context compaction. The agent loop does not
 // emit it directly; the ContextEngine produces it when Compact() runs.
 type CompactionEvent struct {

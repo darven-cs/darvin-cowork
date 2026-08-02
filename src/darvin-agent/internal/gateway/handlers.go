@@ -15,6 +15,7 @@ import (
 	"darvin-cowork/backend/internal/agent"
 	"darvin-cowork/backend/internal/agent/ctxengine"
 	"darvin-cowork/backend/internal/agent/event"
+	"darvin-cowork/backend/internal/agent/executor"
 	"darvin-cowork/backend/internal/agent/store"
 )
 
@@ -23,10 +24,10 @@ import (
 // runId is optional; when omitted the gateway mints one so the result
 // always carries a non-empty correlation token.
 type PromptParams struct {
-	Content       string   `json:"content"`
-	SessionID     string   `json:"sessionId,omitempty"`
-	RunID         string   `json:"runId,omitempty"`
-	ImportedFiles []string `json:"importedFiles,omitempty"`
+	Content     string   `json:"content"`
+	SessionID   string   `json:"sessionId,omitempty"`
+	RunID       string   `json:"runId,omitempty"`
+	Attachments []string `json:"attachments,omitempty"`
 }
 
 // PromptResult is the JSON-RPC result for agent.prompt. sessionId and
@@ -296,6 +297,8 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleRemoveImportedFile(ctx, req.ID, req.Params, h)
 	case "agent.get_workspace_info":
 		return handleGetWorkspaceInfo(ctx, req.ID, req.Params, h)
+	case "agent.permission_response":
+		return handlePermissionResponse(ctx, req.ID, req.Params, c, h)
 	default:
 		return errorResp(req.ID, CodeMethodNotFound,
 			"Method not found: "+req.Method, nil)
@@ -334,7 +337,7 @@ func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage,
 		// handler 测试 stub 没注入 factory 时走这里。
 		return errorResp(id, CodeNoAcpSession, "no AcpSession bound", nil)
 	}
-	ticket, err := entry.Acp.Loop.Submit(acp.PromptRequest{RunID: p.RunID, Content: p.Content, ImportedFiles: p.ImportedFiles})
+	ticket, err := entry.Acp.Loop.Submit(acp.PromptRequest{RunID: p.RunID, Content: p.Content, Attachments: p.Attachments})
 	if err != nil {
 		return errorResp(id, CodeInternalError, "loop submit", err)
 	}
@@ -1040,6 +1043,45 @@ func handleGetWorkspaceInfo(ctx context.Context, id json.RawMessage, params json
 		return errorResp(id, CodeInternalError, "sum imported bytes", err)
 	}
 	return successResp(id, GetWorkspaceInfoResult{WorkspaceBytes: sum})
+}
+
+// PermissionResponseParams is the JSON-RPC params for agent.permission_response
+// (renderer → main → Go). sessionId routes to the right per-session Agent.
+type PermissionResponseParams struct {
+	SessionID    string         `json:"sessionId"`
+	RequestID    string         `json:"requestId"`
+	Behavior     string         `json:"behavior"` // allow | deny
+	UpdatedInput map[string]any `json:"updatedInput,omitempty"`
+	Message      string         `json:"message,omitempty"`
+	Interrupt    bool           `json:"interrupt,omitempty"`
+	Remember     bool           `json:"remember,omitempty"`
+}
+
+// handlePermissionResponse delivers the renderer's answer to the Agent's
+// pending permission_request, unblocking the waiting tool call.
+func handlePermissionResponse(_ context.Context, id json.RawMessage, params json.RawMessage, c *client, h *Handler) *Response {
+	if len(params) == 0 {
+		return errorResp(id, CodeInvalidParams, "params required", nil)
+	}
+	var p PermissionResponseParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if p.SessionID == "" || p.RequestID == "" || (p.Behavior != "allow" && p.Behavior != "deny") {
+		return errorResp(id, CodeInvalidParams, "sessionId, requestId and behavior (allow|deny) are required", nil)
+	}
+	entry, err := c.sessions.GetOrCreateEntry(p.SessionID)
+	if err != nil || entry.Acp == nil || entry.Acp.Agent == nil {
+		return errorResp(id, CodeAgentInitFailed, "no agent bound for session", nil)
+	}
+	entry.Acp.Agent.ResolvePermission(p.RequestID, executor.PermissionResult{
+		Behavior:     p.Behavior,
+		UpdatedInput: p.UpdatedInput,
+		Message:      p.Message,
+		Interrupt:    p.Interrupt,
+		Remember:     p.Remember,
+	})
+	return successResp(id, map[string]bool{"resolved": true})
 }
 
 // toImportedFileWire projects a store.ImportedFile onto the wire shape.

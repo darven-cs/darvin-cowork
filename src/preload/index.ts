@@ -29,6 +29,8 @@ import type {
   DarvinOpenWorkspaceFileResponse,
   DarvinLLMConfig,
   DarvinLocaleResponse,
+  DarvinPermissionResponse,
+  DarvinPickAttachmentsResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
   DarvinReadWorkspaceFileResponse,
@@ -37,8 +39,10 @@ import type {
   DarvinRuntimeStatus,
   DarvinSearchSessionsResponse,
   DarvinSetLLMConfigResponse,
+  DarvinSetWorkspaceResult,
   DarvinSession,
   DarvinWorkspaceInfoResponse,
+  DarvinWorkspaceRootResult,
 } from '../shared/darvin-api';
 import { DarvinPushEvent } from '../shared/darvin-api';
 
@@ -169,6 +173,22 @@ const api: DarvinApi = {
   },
   async destroyArtifactPreviewSession(sessionId: string): Promise<DarvinDestroyArtifactPreviewSessionResponse> {
     return ipcRenderer.invoke('darvin:artifact:destroy_preview_session', sessionId);
+  },
+
+  async respondPermission(r: DarvinPermissionResponse): Promise<void> {
+    return ipcRenderer.invoke('darvin:permission_response', r);
+  },
+  async pickAttachments(): Promise<DarvinPickAttachmentsResponse> {
+    return ipcRenderer.invoke('darvin:pick_attachments');
+  },
+  async setWorkspaceRoot(): Promise<DarvinSetWorkspaceResult> {
+    return ipcRenderer.invoke('darvin:set_workspace_root');
+  },
+  async setWorkspaceRootTo(path: string): Promise<DarvinSetWorkspaceResult> {
+    return ipcRenderer.invoke('darvin:set_workspace_root_to', path);
+  },
+  async getWorkspaceRoot(): Promise<DarvinWorkspaceRootResult> {
+    return ipcRenderer.invoke('darvin:get_workspace_root');
   },
 };
 

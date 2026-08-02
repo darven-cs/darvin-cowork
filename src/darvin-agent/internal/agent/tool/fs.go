@@ -55,7 +55,13 @@ func (t *readFileTool) Execute(_ context.Context, args map[string]any) Result {
 	if v, ok := args["offset"].(float64); ok && v > 0 {
 		offset = int64(v)
 	}
-	f, data, truncated, err := t.sb.openRootFileLimited(path, "read_file", offset, int64(limit))
+	// ResolveRead: workspace root first, then the run's granted-read set
+	// (user-attached absolute paths). Anything else → ErrNeedsPermission.
+	abs, err := t.sb.ResolveRead(path)
+	if err != nil {
+		return Result{IsError: true, Content: err.Error()}
+	}
+	f, data, truncated, err := t.sb.openFileLimitedAt(abs, "read_file", offset, int64(limit))
 	if err != nil {
 		return Result{IsError: true, Content: err.Error()}
 	}

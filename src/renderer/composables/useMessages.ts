@@ -18,7 +18,6 @@ import { computed, ref, watch } from 'vue';
 import type { DarvinAttachment, DarvinContextUsage, DarvinEvent, DarvinMessage, DarvinToolKind, DarvinUsage } from '../../shared/darvin-api';
 import { assertNever } from '../../shared/darvin-api';
 import { useSession } from './useSession';
-import { useImportedFiles } from './useImportedFiles';
 import { useArtifacts } from './useArtifacts';
 import type { Artifact } from './useArtifacts';
 import { getToolKind } from '../services/toolDisplay';
@@ -540,8 +539,6 @@ function appendToBucket(list: Message[], sid: string, ev: DarvinEvent): void {
 }
 
 export function useMessages() {
-  const imported = useImportedFiles();
-
   function appendUserMessage(sessionId: string, content: string, id?: string, attachments?: DarvinAttachment[]): string {
     const mid = id ?? `m-${Math.random().toString(36).slice(2, 10)}`;
     const bucket = messagesBySessionId.value[sessionId] ?? [];
@@ -674,8 +671,6 @@ export function useMessages() {
       else if (ev.type === 'agent_end') {
         const prev = sessionStatusBySessionId.value[sid];
         if (prev !== 'error') setStatus('completed');
-        // 消息随 run 结束，清理本次消费的导入文件（Bug4：导入只服务单条消息）。
-        void imported.flushAfterSend();
       } else setStatus('completed');
     }
 

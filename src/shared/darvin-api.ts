@@ -65,6 +65,40 @@ export interface DarvinAttachment {
   src: string;
 }
 
+/** spec 12 — 附件路径引用：只记原始绝对路径，不复制进工作区。 */
+export interface DarvinAttachmentRef {
+  path: string;
+  name: string;
+  size: number;
+}
+
+export type DarvinDangerLevel = 'safe' | 'caution' | 'destructive';
+
+/** spec 12 — Go → renderer 的权限审批事件 payload。 */
+export interface DarvinPermissionRequest {
+  requestId: string;
+  toolName: string;
+  toolInput: unknown;
+  dangerLevel: DarvinDangerLevel;
+  reason: string;
+}
+
+export type DarvinPermissionBehavior = 'allow' | 'deny';
+
+/** spec 12 — renderer → Go 的审批响应。 */
+export interface DarvinPermissionResponse {
+  sessionId: string;
+  requestId: string;
+  behavior: DarvinPermissionBehavior;
+  /** allow 时可编辑的入参；deny 时忽略。 */
+  updatedInput?: unknown;
+  /** deny 时附带的拒绝消息（会回传给 agent）。 */
+  message?: string;
+  interrupt?: boolean;
+  /** allow 时勾选「记住此会话」→ Go 侧记录规则，后续同操作自动放行。 */
+  remember?: boolean;
+}
+
 /**
  * discriminated union：渲染层按 `type` 分发（ConversationTurn / ToolCallGroup /
  * ArtifactRenderer）。user / assistant 成员保留 done / error / toolLabel 作为
@@ -204,6 +238,15 @@ export type DarvinEvent =
     }
   | { type: 'context_usage'; sessionId: string; usage: DarvinContextUsage }
   | {
+      type: 'permission_request';
+      sessionId: string;
+      requestId: string;
+      toolName: string;
+      toolInput: unknown;
+      dangerLevel: 'safe' | 'caution' | 'destructive';
+      reason: string;
+    }
+  | {
       type: 'artifact';
       sessionId: string;
       artifactId: string;
@@ -220,8 +263,8 @@ export type DarvinEvent =
 export interface DarvinPromptRequest {
   content: string;
   model?: DarvinModelId;
-  /** spec B1 — 本条消息暂存的导入文件（相对 workspace 根），agent 据此感知。 */
-  importedFiles?: string[];
+  /** spec 12 — 本条消息暂存的附件（绝对路径）：「附加即授权」，agent 可免审批读取。 */
+  attachments?: string[];
 }
 
 export interface DarvinPromptResponse {
@@ -395,6 +438,25 @@ export interface DarvinWorkspaceInfoResponse {
   label?: string;
 }
 
+/** spec 12 — 设置会话工作目录的结果。canceled=true 表示用户取消或路径无效。 */
+export interface DarvinSetWorkspaceResult {
+  canceled: boolean;
+  rootPath?: string;
+  label?: string;
+  error?: string;
+}
+
+/** spec 12 — 当前会话工作目录（renderer 只读视图；绝对路径本地下发给 FolderPicker 展示）。 */
+export interface DarvinWorkspaceRootResult {
+  rootPath: string | null;
+  label: string | null;
+}
+
+/** spec 12 — 选取待附加文件（只记路径，不复制）。 */
+export interface DarvinPickAttachmentsResponse {
+  attachments: DarvinAttachmentRef[];
+}
+
 /** workspace 目录里单个文件的 renderer 视图（list_workspace_files 返回）。 */
 export interface DarvinWorkspaceFileInfo {
   /** 相对 workspace 根（`/` 分隔），绝对路径不下发。 */
@@ -496,4 +558,15 @@ export interface DarvinApi {
   createArtifactPreviewSession(relativePath: string): Promise<DarvinCreateArtifactPreviewSessionResponse>;
   /** 销毁本地预览会话（renderer 卸载 iframe 时调用）。 */
   destroyArtifactPreviewSession(sessionId: string): Promise<DarvinDestroyArtifactPreviewSessionResponse>;
+
+  /** spec 12 — 响应 Go 的权限审批请求（allow / deny）。 */
+  respondPermission(r: DarvinPermissionResponse): Promise<void>;
+  /** spec 12 — 弹文件选择框选取待附加文件（只记路径，不复制进工作区）。 */
+  pickAttachments(): Promise<DarvinPickAttachmentsResponse>;
+  /** spec 12 — 弹目录选择框设置当前会话工作目录。 */
+  setWorkspaceRoot(): Promise<DarvinSetWorkspaceResult>;
+  /** spec 12 — 把当前会话工作目录设为指定路径（最近目录 / 测试）。 */
+  setWorkspaceRootTo(path: string): Promise<DarvinSetWorkspaceResult>;
+  /** spec 12 — 读取当前会话工作目录（绝对路径 + basename）。 */
+  getWorkspaceRoot(): Promise<DarvinWorkspaceRootResult>;
 }

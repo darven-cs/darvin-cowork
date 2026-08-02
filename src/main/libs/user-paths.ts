@@ -22,6 +22,7 @@
 import { app } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import { readWorkspaceMap, writeWorkspaceMap } from './workspace-map';
 
 export function userDataDir(): string {
   return app.getPath('userData');
@@ -52,8 +53,19 @@ export interface WorkspaceLocation {
   workspaceId: string;
 }
 
-/** v0 单 workspace per session；workspaceId = sessionId。 */
+/** workspaceId = sessionId；用户自选目录存在则优先，否则退回默认 workspaces/<sid>。 */
 export function resolveWorkspaceRoot(sessionId: string): WorkspaceLocation {
+  const map = readWorkspaceMap();
+  const mapped = map[sessionId];
+  if (mapped) {
+    const abs = path.resolve(mapped);
+    if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) {
+      return { rootPath: abs, workspaceId: sessionId };
+    }
+    // 映射目录已失效：清掉映射回退默认，避免后续指向不存在的根。
+    delete map[sessionId];
+    writeWorkspaceMap(map);
+  }
   const root = path.join(userDataDir(), 'workspaces', sessionId);
   return { rootPath: root, workspaceId: sessionId };
 }

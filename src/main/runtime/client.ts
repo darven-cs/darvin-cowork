@@ -300,6 +300,7 @@ export function parseDarvinEvent(
     case 'compaction':
     case 'context_usage':
     case 'artifact':
+    case 'permission_request':
       return raw as unknown as DarvinEvent;
     default:
       return null;

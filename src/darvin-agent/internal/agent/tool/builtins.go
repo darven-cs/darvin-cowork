@@ -16,6 +16,7 @@ func NewBuiltins(workdir string, allowlist []string) (*Registry, error) {
 		return nil, err
 	}
 	reg := NewRegistry()
+	reg.sb = sb
 	reg.MustRegister(&readFileTool{sb: sb})
 	reg.MustRegister(&writeFileTool{sb: sb})
 	reg.MustRegister(&editFileTool{sb: sb})

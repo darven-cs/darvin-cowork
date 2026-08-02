@@ -21,12 +21,14 @@ import { RuntimeMgr, resolveAgentBinaryPath } from './runtime/manager';
 import { AgentClient } from './runtime/client';
 import { EventRouter } from './store/EventRouter';
 import { runImport } from './libs/importFiles';
-import { ensureWorkspaceRoot, resolveWorkspaceRoot, type WorkspaceLocation } from './libs/user-paths';
+import { ensureWorkspaceRoot, resolveWorkspaceRoot, userDataDir, type WorkspaceLocation } from './libs/user-paths';
+import { readWorkspaceMap, writeWorkspaceMap } from './libs/workspace-map';
 import { readWorkspaceTextFile, resolveWorkspacePath, walkWorkspace } from './libs/workspaceFiles';
 import { artifactPreviewServer } from './services/artifact-preview-server';
 import type {
   DarvinActiveSessionResponse,
   DarvinAppInfo,
+  DarvinAttachmentRef,
   DarvinAppPreferences,
   DarvinAppPreferencesPatch,
   DarvinCompactContextResponse,
@@ -45,6 +47,8 @@ import type {
   DarvinModelProvider,
   DarvinLocaleResponse,
   DarvinMessage,
+  DarvinPermissionResponse,
+  DarvinPickAttachmentsResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
   DarvinReadWorkspaceFileResponse,
@@ -54,8 +58,10 @@ import type {
   DarvinSearchSessionsResponse,
   DarvinSession,
   DarvinSetLLMConfigResponse,
+  DarvinSetWorkspaceResult,
   DarvinSwitchSessionResponse,
   DarvinWorkspaceInfoResponse,
+  DarvinWorkspaceRootResult,
 } from '../shared/darvin-api';
 import { DarvinPushEvent } from '../shared/darvin-api';
 
@@ -314,11 +320,21 @@ ipcMain.handle(
       'agent.delete_session',
       { sessionId },
     );
-    // 同步清掉该 session 的 workspace 目录，避免孤儿文件累积。
-    try {
-      await fs.rm(resolveWorkspaceRoot(sessionId).rootPath, { recursive: true, force: true });
-    } catch (e) {
-      console.warn(`[main] workspace cleanup failed for ${sessionId}: ${(e as Error).message}`);
+    // 清掉该 session 的自定义工作目录映射；默认工作区目录（workspaces/<sid>）
+    // 才删除磁盘目录，用户自选的真实目录绝不 rm。
+    const map = readWorkspaceMap();
+    if (map[sessionId]) {
+      delete map[sessionId];
+      writeWorkspaceMap(map);
+    }
+    const loc = resolveWorkspaceRoot(sessionId);
+    const defaultRoot = path.join(userDataDir(), 'workspaces');
+    if (path.resolve(loc.rootPath).startsWith(path.resolve(defaultRoot) + path.sep)) {
+      try {
+        await fs.rm(loc.rootPath, { recursive: true, force: true });
+      } catch (e) {
+        console.warn(`[main] workspace cleanup failed for ${sessionId}: ${(e as Error).message}`);
+      }
     }
     cache.activeSessionId = r.nextActiveSessionId;
     if (r.nextActiveSessionId) {
@@ -530,6 +546,81 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  'darvin:set_workspace_root',
+  async (): Promise<DarvinSetWorkspaceResult> => {
+    if (!client.isConnected()) throw new Error('agent offline');
+    if (!workspaceLoc) throw new Error('workspace not ready');
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    if (!win) return { canceled: true, error: 'no window' };
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择会话工作目录',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+    return setWorkspaceRootTo(workspaceLoc.workspaceId, result.filePaths[0]);
+  },
+);
+
+ipcMain.handle(
+  'darvin:set_workspace_root_to',
+  async (_e, rootPath: string): Promise<DarvinSetWorkspaceResult> => {
+    if (!client.isConnected()) throw new Error('agent offline');
+    if (!workspaceLoc) throw new Error('workspace not ready');
+    return setWorkspaceRootTo(workspaceLoc.workspaceId, rootPath);
+  },
+);
+
+/** 把当前会话工作目录重锚到指定路径：校验 → 写映射 → 以新根重启 Go 子进程。 */
+async function setWorkspaceRootTo(sessionId: string, rootPath: string): Promise<DarvinSetWorkspaceResult> {
+  const abs = path.resolve(rootPath);
+  try {
+    const st = await fs.stat(abs);
+    if (!st.isDirectory()) return { canceled: true, error: 'not a directory' };
+  } catch {
+    return { canceled: true, error: 'directory not found' };
+  }
+  const map = readWorkspaceMap();
+  map[sessionId] = abs;
+  writeWorkspaceMap(map);
+  workspaceLoc = { rootPath: abs, workspaceId: sessionId };
+  await restartGoSubprocess(abs);
+  broadcastWorkspaceChanged(sessionId);
+  return { canceled: false, rootPath: abs, label: path.basename(abs) };
+}
+
+ipcMain.handle('darvin:get_workspace_root', async (): Promise<DarvinWorkspaceRootResult> => {
+  if (!workspaceLoc) return { rootPath: null, label: null };
+  return { rootPath: workspaceLoc.rootPath, label: path.basename(workspaceLoc.rootPath) };
+});
+
+ipcMain.handle('darvin:pick_attachments', async (): Promise<DarvinPickAttachmentsResponse> => {
+  if (!client.isConnected()) throw new Error('agent offline');
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  if (!win) return { attachments: [] };
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择要附加的文件',
+    properties: ['openFile', 'multiSelections'],
+  });
+  if (result.canceled || result.filePaths.length === 0) return { attachments: [] };
+  const attachments: DarvinAttachmentRef[] = [];
+  for (const p of result.filePaths) {
+    try {
+      const st = await fs.stat(p);
+      if (!st.isFile()) continue;
+      attachments.push({ path: p, name: path.basename(p), size: st.size });
+    } catch {
+      /* 不可读的文件跳过 */
+    }
+  }
+  return { attachments };
+});
+
+ipcMain.handle('darvin:permission_response', async (_e, req: DarvinPermissionResponse): Promise<void> => {
+  if (!client.isConnected()) throw new Error('agent offline');
+  await client.request('agent.permission_response', req);
+});
+
+ipcMain.handle(
   'darvin:prompt',
   async (_e, req: DarvinPromptRequest): Promise<DarvinPromptResponse> => {
     let sessionId: string;
@@ -550,7 +641,7 @@ ipcMain.handle(
         sessionId,
         runId,
         model: req.model,
-        importedFiles: req.importedFiles,
+        attachments: req.attachments,
       });
       return { sessionId, messageId: r.messageId, runId: r.runId ?? runId };
     } catch (e) {

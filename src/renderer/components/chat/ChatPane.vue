@@ -34,10 +34,10 @@ async function handleSend(content: string) {
   if (sessId === null) return;
   busy.value = true;
   messages.appendUserMessage(sessId, content);
-  const importedFiles = imported.pendingPaths();
+  const attachments = imported.pendingPaths();
   try {
-    const r = await window.darvin.prompt({ content, importedFiles });
-    if (importedFiles.length > 0) imported.armClearAfterSend();
+    const r = await window.darvin.prompt({ content, attachments });
+    if (attachments.length > 0) imported.clear();
     messages.startAssistantMessage(r.sessionId, r.messageId);
   } catch (err) {
     const mid = `m-err-${Date.now().toString(36)}`;

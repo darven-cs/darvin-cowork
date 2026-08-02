@@ -16,9 +16,14 @@ import (
 var defaultShellAllowlist = []string{
 	"ls", "cat", "head", "tail", "wc", "grep", "find", "echo", "pwd", "date",
 	"file", "which", "env", "printenv", "uname",
-	"mkdir", "cp", "mv", "rm", "stat", "du", "df",
+	"mkdir", "cp", "mv", "rm", "stat", "du", "df", "touch",
 	"tr", "cut", "sort", "uniq", "tee", "xargs", "basename", "dirname",
 	"sed", "awk", "test", "true", "false",
+	// 工作区可以是真实代码仓库：git + 常见构建/脚本运行时。危险子命令
+	// （git push --force / git reset --hard / rm -r 等）由权限门审批拦截。
+	"git", "node", "npm", "npx", "pnpm", "yarn",
+	"python", "python3", "pip", "pip3",
+	"go", "make", "tar", "unzip",
 }
 
 // maxShellTimeout is the hard cap on a single shell call regardless of

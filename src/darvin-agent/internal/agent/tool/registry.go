@@ -16,6 +16,9 @@ var ErrAlreadyRegistered = errors.New("tool: already registered")
 type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]Tool
+	// sb is the workspace sandbox shared by the built-in file/shell tools.
+	// Set by NewBuiltins; nil for hand-assembled registries.
+	sb *fsSandbox
 }
 
 // NewRegistry constructs an empty Registry.
@@ -63,6 +66,25 @@ func (r *Registry) Names() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// SetGrantedReads replaces the run's granted-read set (absolute paths the
+// user attached for the current message). Only meaningful for registries
+// built by NewBuiltins; a no-op otherwise.
+func (r *Registry) SetGrantedReads(paths []string) {
+	if r.sb == nil {
+		return
+	}
+	r.sb.setGrantedReads(paths)
+}
+
+// ApprovePath records a path the user allowed one-shot via the permission
+// modal; the sandbox then lets it through outside the workspace root.
+func (r *Registry) ApprovePath(p string) {
+	if r.sb == nil {
+		return
+	}
+	r.sb.approvePath(p)
 }
 
 // Specs returns the LLM-visible tool descriptions in deterministic order

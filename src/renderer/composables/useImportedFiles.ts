@@ -1,49 +1,28 @@
 /**
- * useImportedFiles — 当前 session workspace 导入文件状态的单一来源。
+ * useImportedFiles — 当前会话待发送附件的暂存状态（spec 12）。
  *
- * files / workspaceBytes 是模块级单例，但内容随 active session 切换：
- * watch activeSessionId 变化时先清空再 refetch，避免切会话瞬间闪现上一个
- * session 的文件。push 事件为权威更新源（按 sessionId 过滤），
- * importFiles / remove 完成后也主动 refetch 一次兜底。
+ * 附件走 LobsterAI 式路径引用：只记原始绝对路径（path + name + size），
+ * 不复制进工作区、不入库。「附加即授权」——发送时随 prompt 带绝对路径，
+ * Go agent 把本次消息的附件路径加入授权读集，read_file 可免审批读取。
+ * 发送后暂存清空（不删用户原文件）。
  */
 import { ref, watch } from 'vue';
-import type { DarvinImportedFile } from '../../shared/darvin-api';
-import { t } from '../services/i18n';
+import type { DarvinAttachmentRef } from '../../shared/darvin-api';
 import { useSession } from './useSession';
 
-/** 与 main 端 user-paths.MAX_WORKSPACE_BYTES 对齐。 */
-export const MAX_WORKSPACE_BYTES = 500 * 1024 * 1024;
-
-const files = ref<DarvinImportedFile[]>([]);
-const workspaceBytes = ref(0);
+/** 已暂存、待发送的附件（原始路径引用）。 */
+const attachments = ref<DarvinAttachmentRef[]>([]);
 const busy = ref(false);
-/** 最近一次 import 的跳过汇总（几秒后自动清空），无 toast 基础设施时的轻量反馈。 */
-const notice = ref<string | null>(null);
-/** 已随消息消费、待 run 结束后清理的文件相对路径快照（null = 无待清理）。 */
-let armedRelPaths: string[] | null = null;
 
 const session = useSession();
 let initialized = false;
 
-// active session 切换时立即清空旧数据再 refetch 当前会话文件，防止跨会话
-// 数据串扰。模块级注册一次，不随组件生命周期卸载。
+// active session 切换时清空暂存，避免把上一个会话的附件带到当前会话。
 watch(
   () => session.activeSessionId.value,
   (newId) => {
     if (newId === null) return;
-    files.value = [];
-    workspaceBytes.value = 0;
-    notice.value = null;
-    void (async () => {
-      try {
-        const r = await window.darvin.listImportedFiles();
-        files.value = r.files;
-        workspaceBytes.value = r.workspaceBytes;
-        await refreshWorkspaceBytes();
-      } catch {
-        /* agent offline */
-      }
-    })();
+    attachments.value = [];
   },
 );
 
@@ -54,119 +33,51 @@ function formatBytes(b: number): string {
   return `${(kb / 1024).toFixed(1)} MiB`;
 }
 
-async function refreshWorkspaceBytes(): Promise<void> {
-  try {
-    const info = await window.darvin.getWorkspaceInfo();
-    workspaceBytes.value = info.workspaceBytes;
-  } catch {
-    /* agent offline */
-  }
-}
-
-function skipMessage(s: { reason: string; message: string }): string {
-  const key = `import.error.${s.reason}`;
-  const localized = t(key);
-  if (localized !== key) return localized;
-  return s.message;
-}
-
 function ensureSubscribed(): void {
   if (initialized || typeof window === 'undefined' || !window.darvin) return;
   initialized = true;
-
-  window.darvin.onWorkspaceChanged((info) => {
-    // 只接收当前 active session 的推送，跨会话广播直接丢弃
-    if (info.sessionId !== session.activeSessionId.value) return;
-    files.value = info.files;
-    void refreshWorkspaceBytes();
-  });
-
-  void (async () => {
-    try {
-      const r = await window.darvin.listImportedFiles();
-      files.value = r.files;
-      workspaceBytes.value = r.workspaceBytes;
-      await refreshWorkspaceBytes();
-    } catch {
-      /* agent offline */
-    }
-  })();
 }
 
 export function useImportedFiles() {
   ensureSubscribed();
 
-  async function importFiles(): Promise<{ skipped: Array<{ reason: string; message: string }> }> {
+  /** 弹系统文件选择框，把选中的文件记为待发送附件（只记路径，不复制）。 */
+  async function pickAttachments(): Promise<void> {
     busy.value = true;
     try {
-      const res = await window.darvin.importFiles();
-      if (res.skipped.length > 0) {
-        notice.value = res.skipped.map(skipMessage).join('；');
-        setTimeout(() => {
-          if (notice.value !== null) notice.value = null;
-        }, 6000);
+      const res = await window.darvin.pickAttachments();
+      if (res.attachments.length > 0) {
+        const seen = new Set(attachments.value.map((a) => a.path));
+        const fresh = res.attachments.filter((a) => !seen.has(a.path));
+        attachments.value = [...attachments.value, ...fresh];
       }
-      const r = await window.darvin.listImportedFiles();
-      files.value = r.files;
-      workspaceBytes.value = r.workspaceBytes;
-      return { skipped: res.skipped };
     } finally {
       busy.value = false;
     }
   }
 
-  async function remove(relativePath: string): Promise<void> {
-    await window.darvin.removeImportedFile(relativePath);
-    const r = await window.darvin.listImportedFiles();
-    files.value = r.files;
-    workspaceBytes.value = r.workspaceBytes;
+  /** 移除一个待发送附件（只 detach，不删原文件）。 */
+  function remove(path: string): void {
+    attachments.value = attachments.value.filter((a) => a.path !== path);
   }
 
-  /** 待发送附件的相对路径（供 prompt 携带）；不消费、不删除。 */
+  /** 待发送附件的绝对路径数组（prompt 携带）。 */
   function pendingPaths(): string[] {
-    return files.value.map((f) => f.relativePath);
+    return attachments.value.map((a) => a.path);
   }
 
-  /**
-   * 发送前（prompt 已被 agent 接受后）调用：快照本次消费的文件路径。
-   * 真正的清理在 run 结束（agent_end）由 flushAfterSend 触发，避免在
-   * agent 异步读取文件前就删掉 workspace 拷贝。
-   */
-  function armClearAfterSend(): void {
-    armedRelPaths = files.value.map((f) => f.relativePath);
-  }
-
-  /** run 结束（agent_end）时调用：删除已消费的 workspace 文件 + 行并清空 UI。 */
-  async function flushAfterSend(): Promise<void> {
-    if (armedRelPaths === null) return;
-    const rels = armedRelPaths;
-    armedRelPaths = null;
-    for (const rel of rels) {
-      try {
-        await window.darvin.removeImportedFile(rel);
-      } catch {
-        /* agent offline 等：忽略 */
-      }
-    }
-    try {
-      const r = await window.darvin.listImportedFiles();
-      files.value = r.files;
-      workspaceBytes.value = r.workspaceBytes;
-    } catch {
-      files.value = files.value.filter((f) => !rels.includes(f.relativePath));
-    }
+  /** 发送后清空暂存。 */
+  function clear(): void {
+    attachments.value = [];
   }
 
   return {
-    files,
-    workspaceBytes,
+    attachments,
     busy,
-    notice,
-    importFiles,
+    pickAttachments,
     remove,
     pendingPaths,
-    armClearAfterSend,
-    flushAfterSend,
+    clear,
     formatBytes,
   };
 }

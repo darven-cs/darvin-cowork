@@ -107,6 +107,15 @@ func (f *fakeDeps) RecordUsage(u llm.Usage)                   { f.lastUsage = u 
 func (f *fakeDeps) LastUsage() llm.Usage                      { return f.lastUsage }
 func (f *fakeDeps) CurrentMessageID() string                  { return f.messageID }
 func (f *fakeDeps) CurrentRunID() string                      { return f.runID }
+func (f *fakeDeps) EvaluatePermission(toolName string, args map[string]any) tool.PermissionEval {
+	return f.tools.EvaluatePermission(toolName, args)
+}
+func (f *fakeDeps) RequestPermission(_ context.Context, _ PermissionRequest) (PermissionResult, error) {
+	return PermissionResult{Behavior: "allow"}, nil
+}
+func (f *fakeDeps) HasPermissionRule(_, _, _ string) bool { return false }
+func (f *fakeDeps) AddPermissionRule(_, _, _ string)      {}
+func (f *fakeDeps) ApprovePath(_ string)                  {}
 
 func newFakeDeps(t *testing.T, provider llm.ModelProvider, regs []tool.Tool) *fakeDeps {
 	t.Helper()

@@ -230,6 +230,16 @@ func mapEventToTS(ev event.Event, _ string) any {
 			"beforeTokens": e.Before,
 			"afterTokens":  e.After,
 		})
+	case event.PermissionRequestEvent:
+		return withCommon(map[string]any{
+			"type":        ev.EventName(),
+			"requestId":   e.RequestID,
+			"toolName":    e.ToolName,
+			"toolInput":   e.ToolInput,
+			"dangerLevel": e.DangerLevel,
+			"reason":      e.Reason,
+			"messageId":   ev.Common().MessageID,
+		})
 	case event.ContextUsageEvent:
 		// status stays "unknown" — the renderer derives the 5-state ring
 		// from percent thresholds via deriveContextStatus.

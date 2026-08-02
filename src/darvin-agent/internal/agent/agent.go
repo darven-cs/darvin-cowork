@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agent/ctxengine"
@@ -21,6 +22,25 @@ import (
 	"darvin-cowork/backend/internal/agent/store"
 	"darvin-cowork/backend/internal/agent/tool"
 )
+
+// permissionTimeout is how long a permission_request waits for the renderer
+// before defaulting to deny.
+const permissionTimeout = 60 * time.Second
+
+// permissionRule is a "remember this session" auto-allow entry: a request
+// that matches (toolName, dangerLevel, reason) skips the modal.
+type permissionRule struct {
+	toolName string
+	level    string
+	reason   string
+}
+
+// pendingPermission is one in-flight permission_request awaiting the
+// renderer's answer. timeout fires the default-deny after 60s.
+type pendingPermission struct {
+	ch      chan executor.PermissionResult
+	timeout *time.Timer
+}
 
 // ModelRef identifies a model on a specific provider. The provider name is
 // matched against registered ModelProvider implementations.
@@ -149,6 +169,14 @@ type Agent struct {
 	// executor loop and writes from drainStream's tail.
 	lastUsageMu sync.RWMutex
 	lastUsage   llm.Usage
+
+	// Permission gate state (spec 12). pendingPerms maps requestID → the
+	// blocked executor call; permRules holds "remember this session" auto-allow
+	// entries. Both are goroutine-safe: RequestPermission is called from tool
+	// goroutines, ResolvePermission from the gateway RPC handler.
+	permMu       sync.Mutex
+	pendingPerms map[string]*pendingPermission
+	permRules    []permissionRule
 }
 
 // agentState is the lifecycle phase the Agent is in.
@@ -213,6 +241,7 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		exec:         cfg.Executor,
 		bus:          event.NewBus(),
 		queue:        queue.New(),
+		pendingPerms: map[string]*pendingPermission{},
 	}
 
 	// Auto-wire the ContextEngine (spec §4.10 / §6.2). Two paths:
@@ -358,4 +387,122 @@ func (a *Agent) CurrentUserMessageID() string {
 		return ""
 	}
 	return a.userMsgIDSrc()
+}
+
+// SetGrantedReads replaces the run's granted-read set (absolute paths the
+// user attached for the current message). Called by the dispatcher before
+// RunConversation and cleared after.
+func (a *Agent) SetGrantedReads(paths []string) {
+	a.tools.SetGrantedReads(paths)
+}
+
+// ApprovePath satisfies executor.Deps — grants the sandbox one-shot access
+// to a path the user allowed via the permission modal.
+func (a *Agent) ApprovePath(path string) {
+	a.tools.ApprovePath(path)
+}
+
+// EvaluatePermission satisfies executor.Deps. Delegates to the tool
+// registry's combined path-containment + danger classification.
+func (a *Agent) EvaluatePermission(toolName string, args map[string]any) tool.PermissionEval {
+	return a.tools.EvaluatePermission(toolName, args)
+}
+
+// RequestPermission satisfies executor.Deps. Emits a permission_request event
+// and blocks until the renderer answers via ResolvePermission, the 60s timeout
+// fires (default deny), or ctx is cancelled.
+func (a *Agent) RequestPermission(ctx context.Context, req executor.PermissionRequest) (executor.PermissionResult, error) {
+	id := uuid.NewString()
+	ch := make(chan executor.PermissionResult, 1)
+	pp := &pendingPermission{ch: ch}
+	pp.timeout = time.AfterFunc(permissionTimeout, func() {
+		a.deliverPermission(id, ch, executor.PermissionResult{Behavior: "deny", Message: "审批超时"})
+	})
+	a.permMu.Lock()
+	a.pendingPerms[id] = pp
+	a.permMu.Unlock()
+
+	a.bus.Emit(event.PermissionRequestEvent{
+		EventBase: event.EventBase{EventCommon: event.EventCommon{
+			SessionID: a.session.ID,
+			RunID:     a.CurrentRunID(),
+			MessageID: a.CurrentMessageID(),
+		}},
+		RequestID:   id,
+		ToolName:    req.ToolName,
+		ToolInput:   req.ToolInput,
+		DangerLevel: req.DangerLevel,
+		Reason:      req.Reason,
+	})
+
+	select {
+	case r := <-ch:
+		return r, nil
+	case <-ctx.Done():
+		a.permMu.Lock()
+		if cur, ok := a.pendingPerms[id]; ok {
+			delete(a.pendingPerms, id)
+			cur.timeout.Stop()
+		}
+		a.permMu.Unlock()
+		return executor.PermissionResult{Behavior: "deny", Message: "运行已中断"}, ctx.Err()
+	}
+}
+
+// ResolvePermission delivers the renderer's answer to the blocked executor
+// call. Unknown requestID (already timed out / cancelled) is a no-op.
+func (a *Agent) ResolvePermission(requestID string, result executor.PermissionResult) {
+	a.permMu.Lock()
+	pp, ok := a.pendingPerms[requestID]
+	if ok {
+		delete(a.pendingPerms, requestID)
+	}
+	a.permMu.Unlock()
+	if !ok {
+		return
+	}
+	pp.timeout.Stop()
+	select {
+	case pp.ch <- result:
+	default:
+	}
+}
+
+// deliverPermission removes the pending entry (idempotent) and sends the
+// result to the waiting channel. Used by the timeout path and ResolvePermission.
+func (a *Agent) deliverPermission(id string, ch chan executor.PermissionResult, r executor.PermissionResult) {
+	a.permMu.Lock()
+	if _, ok := a.pendingPerms[id]; ok {
+		delete(a.pendingPerms, id)
+	}
+	a.permMu.Unlock()
+	select {
+	case ch <- r:
+	default:
+	}
+}
+
+// HasPermissionRule satisfies executor.Deps — whether an identical
+// (tool, level, reason) request was allowed + remembered this session.
+func (a *Agent) HasPermissionRule(toolName, level, reason string) bool {
+	a.permMu.Lock()
+	defer a.permMu.Unlock()
+	for _, r := range a.permRules {
+		if r.toolName == toolName && r.level == level && r.reason == reason {
+			return true
+		}
+	}
+	return false
+}
+
+// AddPermissionRule satisfies executor.Deps — records an auto-allow rule.
+func (a *Agent) AddPermissionRule(toolName, level, reason string) {
+	a.permMu.Lock()
+	defer a.permMu.Unlock()
+	for _, r := range a.permRules {
+		if r.toolName == toolName && r.level == level && r.reason == reason {
+			return
+		}
+	}
+	a.permRules = append(a.permRules, permissionRule{toolName: toolName, level: level, reason: reason})
 }

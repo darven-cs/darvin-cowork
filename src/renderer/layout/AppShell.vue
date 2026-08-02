@@ -25,6 +25,7 @@
     />
     <SidePanel v-if="sidePanelOpen" class="col-start-3" />
     <ToastHost />
+    <PermissionModal />
   </div>
 </template>
 
@@ -46,6 +47,7 @@ import { useViewMode, type ViewMode } from '../composables/useViewMode';
 import { useArtifacts } from '../composables/useArtifacts';
 import { useShortcuts } from '../composables/useShortcuts';
 import ToastHost from '../components/common/ToastHost.vue';
+import PermissionModal from '../components/chat/PermissionModal.vue';
 
 const sidebar = useSidebar();
 const sidePanel = useSidePanel();

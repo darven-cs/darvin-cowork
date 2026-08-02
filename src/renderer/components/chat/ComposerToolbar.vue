@@ -56,11 +56,11 @@ const emit = defineEmits<{ send: []; suite: []; mic: [] }>();
 const fp = useFloatingPanel();
 const session = useSession();
 const messages = useMessages();
-const { busy, importFiles } = useImportedFiles();
+const { busy, pickAttachments } = useImportedFiles();
 
 function onPick(id: 'upload' | 'goal' | 'todo' | 'settings') {
   if (id === 'upload') {
-    void importFiles();
+    void pickAttachments();
     return;
   }
   // eslint-disable-next-line no-console

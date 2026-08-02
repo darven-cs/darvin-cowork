@@ -34,6 +34,24 @@ const maxToolResultStoreBytes = 64 * 1024
 
 const toolResultTruncatedSuffix = "\n…[已截断]"
 
+// PermissionRequest is a tool call the executor wants user approval for
+// before running (spec 12). RequestID is minted by the Agent.
+type PermissionRequest struct {
+	ToolName    string
+	ToolInput   map[string]any
+	DangerLevel string // safe | caution | destructive
+	Reason      string
+}
+
+// PermissionResult is the renderer's answer (via agent.permission_response).
+type PermissionResult struct {
+	Behavior     string // "allow" | "deny"
+	UpdatedInput map[string]any
+	Message      string
+	Interrupt    bool
+	Remember     bool
+}
+
 func truncateForStore(content string) string {
 	if len(content) <= maxToolResultStoreBytes {
 		return content
@@ -86,6 +104,20 @@ type Deps interface {
 	// it on every emitted event so downstream consumers can abort a
 	// specific turn and demultiplex events by turn id.
 	CurrentRunID() string
+	// EvaluatePermission decides whether a tool call needs user approval
+	// (path escapes the authorized roots, or a destructive shell command).
+	EvaluatePermission(toolName string, args map[string]any) tool.PermissionEval
+	// RequestPermission emits a permission_request event and blocks until
+	// the renderer answers (or ctx fires / 60s timeout → deny).
+	RequestPermission(ctx context.Context, req PermissionRequest) (PermissionResult, error)
+	// HasPermissionRule / AddPermissionRule back the "remember this session"
+	// auto-allow feature: identical (tool, level, reason) requests skip the
+	// modal after the user allowed + remembered once.
+	HasPermissionRule(toolName, level, reason string) bool
+	AddPermissionRule(toolName, level, reason string)
+	// ApprovePath grants the sandbox one-shot access to a path the user
+	// allowed via the modal, so the tool can actually open it.
+	ApprovePath(path string)
 }
 
 // Executor runs one "user message -> possibly many turns -> natural stop"
@@ -304,7 +336,9 @@ func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, ec func(
 			tctx, cancel := context.WithTimeout(ctx, d.Config().ToolTimeout)
 			defer cancel()
 			start := time.Now()
-			results[i] = executeOneTool(tctx, d, c)
+			// ctx = parent run ctx (permission wait is NOT capped by the tool
+			// timeout — the modal needs up to its own 60s), tctx = tool timeout.
+			results[i] = executeOneTool(ctx, tctx, d, c)
 			d.Emit(event.ToolEndEvent{
 				EventBase: event.EventBase{EventCommon: ec()},
 				CallID:    c.ID,
@@ -321,7 +355,7 @@ func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, ec func(
 	return results
 }
 
-func executeOneTool(ctx context.Context, d Deps, c llm.ToolCall) (res tool.Result) {
+func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c llm.ToolCall) (res tool.Result) {
 	t := d.Tools().Get(c.Name)
 	if t == nil {
 		return tool.Result{IsError: true, Content: fmt.Sprintf("tool not found: %s", c.Name)}
@@ -331,8 +365,42 @@ func executeOneTool(ctx context.Context, d Deps, c llm.ToolCall) (res tool.Resul
 			res = tool.Result{IsError: true, Content: fmt.Sprintf("tool %q panicked: %v", c.Name, r)}
 		}
 	}()
-	// per-tool timeout lives in the goroutine; here we just respect ctx.
-	return t.Execute(ctx, c.Arguments)
+	// 权限门（spec 12）：越授权根 / 危险操作 → 请求用户审批。命中记住规则
+	// 时直接放行（不弹窗）。ctx（非 tctx）作为等待上下文，避免被工具超时提前砍掉。
+	if eval := d.EvaluatePermission(c.Name, c.Arguments); eval.Need {
+		allowed := d.HasPermissionRule(c.Name, eval.Level, eval.Reason)
+		if !allowed {
+			pr, err := d.RequestPermission(ctx, PermissionRequest{
+				ToolName:    c.Name,
+				ToolInput:   c.Arguments,
+				DangerLevel: eval.Level,
+				Reason:      eval.Reason,
+			})
+			if err != nil {
+				return tool.Result{IsError: true, Content: "权限请求失败：" + err.Error()}
+			}
+			if pr.Behavior != "allow" {
+				msg := "用户拒绝了该操作"
+				if pr.Message != "" {
+					msg = pr.Message
+				}
+				return tool.Result{IsError: true, Content: msg}
+			}
+			if pr.Remember {
+				d.AddPermissionRule(c.Name, eval.Level, eval.Reason)
+			}
+			if pr.UpdatedInput != nil {
+				c.Arguments = pr.UpdatedInput
+			}
+			allowed = true
+		}
+		// 越授权根路径：放行后把该路径加入沙箱一次性授权，工具才能真正打开。
+		if allowed && eval.EscapedPath != "" {
+			d.ApprovePath(eval.EscapedPath)
+		}
+	}
+	// per-tool timeout lives in the goroutine; here we just respect tctx.
+	return t.Execute(tctx, c.Arguments)
 }
 
 func newTurnID() string {
