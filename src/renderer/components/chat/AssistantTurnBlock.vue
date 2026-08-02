@@ -14,24 +14,24 @@
       />
       <template v-else>
         <div
-          v-if="!r.message.done && !r.message.error && (r.message.toolLabel || !r.message.content)"
+          v-if="!r.continuation && !r.message.done && !r.message.error && (r.message.toolLabel || !r.message.content)"
           class="mb-1.5 inline-flex items-center gap-1.5 self-start rounded-md border border-border bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-text-muted"
         >
           <span class="inline-block h-1.5 w-1.5 rounded-full bg-accent animate-cursor-blink" />
           {{ r.message.toolLabel ?? t('chat.thinking.status') }}
         </div>
         <div
-          v-if="r.message.error"
+          v-if="!r.continuation && r.message.error"
           class="rounded-lg border-l-2 border-danger bg-transparent px-3.5 py-2 text-md leading-relaxed text-danger"
         >
           {{ r.message.error }}
         </div>
         <template v-else>
           <MarkdownContent :content="r.message.content" :done="r.message.done" />
-          <TurnMeta :message="r.message" />
+          <TurnMeta v-if="!r.continuation" :message="r.message" />
         </template>
         <ArtifactCardGroup
-          v-if="r.message.artifacts?.length"
+          v-if="!r.continuation && r.message.artifacts?.length"
           :session-id="r.message.sessionId"
           :artifacts="r.message.artifacts"
         />
@@ -43,7 +43,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { AssistantTurnItem, Message } from '../../composables/useMessages';
-import { useMessages } from '../../composables/useMessages';
+import { interleaveToolSegments, useMessages } from '../../composables/useMessages';
 import ThinkingBlock from './ThinkingBlock.vue';
 import MarkdownContent from './MarkdownContent.vue';
 import TurnMeta from './TurnMeta.vue';
@@ -52,41 +52,35 @@ import ArtifactCardGroup from './ArtifactCardGroup.vue';
 import { t } from '../../services/i18n';
 
 /**
- * 期望渲染序：assistant 的 thinking → 工具组 → assistant 的 content + meta。
- *
- * 事件流里 thinking_delta 先到、tool 事件在中间、text_delta 最后，但
- * startAssistantMessage 把 assistant 消息建在 bucket 最前（thinking 与
- * content 同属一条消息），tool 条目随后 append 到尾部。这里把每条
- * assistant 消息拆成 thinking 段 + content 段，工具组夹在中间，避免
- * 答案文本和 TurnMeta 排在工具下方。
+ * 渲染序 = turn 内 assistantItems 的真实顺序。live 场景 Go 用单 messageId 把
+ * 整个 run 的文本累积进一条消息，interleaveToolSegments 按工具断点切段，
+ * 让「答 → 工具 → 答 → 工具」交错展示；后续文本段（continuation）只渲染
+ * 内容，不重复 TurnMeta / thinking / artifacts。
  */
 type RenderItem =
   | { kind: 'thinking'; message: Message; key: string }
   | { kind: 'tool'; toolUse: Message; toolResult: Message | null; key: string }
-  | { kind: 'content'; message: Message; key: string };
+  | { kind: 'content'; message: Message; continuation: boolean; key: string };
 
 const props = defineProps<{ items: AssistantTurnItem[] }>();
 
 const messages = useMessages();
 
 const renderItems = computed<RenderItem[]>(() => {
-  // 三阶段收集：所有 thinking 段 → 所有工具组 → 所有 content 段，保证工具
-  // 组渲染在思考与答案之间（事件流时序：thinking → tool → text）。
-  const heads: RenderItem[] = [];
-  const tools: RenderItem[] = [];
-  const tails: RenderItem[] = [];
+  const out: RenderItem[] = [];
   let key = 0;
-  for (const item of props.items) {
-    if (item.type === 'tool_group') {
-      tools.push({ kind: 'tool', toolUse: item.toolUse, toolResult: item.toolResult, key: `t-${key++}` });
+  for (const seg of interleaveToolSegments(props.items)) {
+    if (seg.kind === 'tool_group') {
+      out.push({ kind: 'tool', toolUse: seg.toolUse, toolResult: seg.toolResult, key: `t-${key++}` });
       continue;
     }
-    if (item.message.thinking) {
-      heads.push({ kind: 'thinking', message: item.message, key: `th-${key++}` });
+    const msg = seg.message;
+    if (!seg.continuation && msg.thinking) {
+      out.push({ kind: 'thinking', message: msg, key: `th-${key++}` });
     }
-    tails.push({ kind: 'content', message: item.message, key: `c-${key++}` });
+    out.push({ kind: 'content', message: msg, continuation: seg.continuation, key: `c-${key++}` });
   }
-  return [...heads, ...tools, ...tails];
+  return out;
 });
 
 function isStreaming(msg: Message): boolean {

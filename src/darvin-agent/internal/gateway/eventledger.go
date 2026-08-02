@@ -195,16 +195,18 @@ func mapEventToTS(ev event.Event, _ string) any {
 		})
 	case event.ToolStartEvent:
 		return withCommon(map[string]any{
-			"type":    ev.EventName(),
-			"tool":    e.Name,
-			"input":   e.Arguments,
-			"message": map[string]any{"id": e.CallID},
+			"type":      ev.EventName(),
+			"tool":      e.Name,
+			"input":     e.Arguments,
+			"messageId": ev.Common().MessageID,
+			"message":   map[string]any{"id": e.CallID},
 		})
 	case event.ToolEndEvent:
 		return withCommon(map[string]any{
-			"type":    ev.EventName(),
-			"tool":    e.Result.Content,
-			"message": map[string]any{"id": e.CallID},
+			"type":      ev.EventName(),
+			"tool":      e.Result.Content,
+			"messageId": ev.Common().MessageID,
+			"message":   map[string]any{"id": e.CallID},
 		})
 	case event.AgentErrorEvent:
 		// Field names match the DarvinEvent 'error' variant in

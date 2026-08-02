@@ -19,6 +19,8 @@ const workspaceBytes = ref(0);
 const busy = ref(false);
 /** 最近一次 import 的跳过汇总（几秒后自动清空），无 toast 基础设施时的轻量反馈。 */
 const notice = ref<string | null>(null);
+/** 已随消息消费、待 run 结束后清理的文件相对路径快照（null = 无待清理）。 */
+let armedRelPaths: string[] | null = null;
 
 const session = useSession();
 let initialized = false;
@@ -120,6 +122,41 @@ export function useImportedFiles() {
     workspaceBytes.value = r.workspaceBytes;
   }
 
+  /** 待发送附件的相对路径（供 prompt 携带）；不消费、不删除。 */
+  function pendingPaths(): string[] {
+    return files.value.map((f) => f.relativePath);
+  }
+
+  /**
+   * 发送前（prompt 已被 agent 接受后）调用：快照本次消费的文件路径。
+   * 真正的清理在 run 结束（agent_end）由 flushAfterSend 触发，避免在
+   * agent 异步读取文件前就删掉 workspace 拷贝。
+   */
+  function armClearAfterSend(): void {
+    armedRelPaths = files.value.map((f) => f.relativePath);
+  }
+
+  /** run 结束（agent_end）时调用：删除已消费的 workspace 文件 + 行并清空 UI。 */
+  async function flushAfterSend(): Promise<void> {
+    if (armedRelPaths === null) return;
+    const rels = armedRelPaths;
+    armedRelPaths = null;
+    for (const rel of rels) {
+      try {
+        await window.darvin.removeImportedFile(rel);
+      } catch {
+        /* agent offline 等：忽略 */
+      }
+    }
+    try {
+      const r = await window.darvin.listImportedFiles();
+      files.value = r.files;
+      workspaceBytes.value = r.workspaceBytes;
+    } catch {
+      files.value = files.value.filter((f) => !rels.includes(f.relativePath));
+    }
+  }
+
   return {
     files,
     workspaceBytes,
@@ -127,6 +164,9 @@ export function useImportedFiles() {
     notice,
     importFiles,
     remove,
+    pendingPaths,
+    armClearAfterSend,
+    flushAfterSend,
     formatBytes,
   };
 }

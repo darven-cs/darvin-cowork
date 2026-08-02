@@ -29,6 +29,9 @@ var ErrQueueFull = errors.New("queue: channel full")
 // Message is the unit of work carried by the queue.
 type Message struct {
 	Content string
+	// ImportedFiles carries workspace-relative paths staged for this one
+	// message; the dispatcher injects a system note so the LLM perceives them.
+	ImportedFiles []string
 }
 
 // Queue owns the three inbound channels. It is goroutine-safe.

@@ -27,6 +27,24 @@ import (
 // this error upward unchanged via errors.Is.
 var ErrMaxTurns = errors.New("executor: max turns exceeded")
 
+// maxToolResultStoreBytes caps the tool result persisted into ToolCall.Result.
+// Bash / read 输出可能到 MB 级，落库只保留截断前缀 + 尾注；live 流式事件仍
+// 推完整内容给 renderer，截断只影响 reload 时的工具结果展示。
+const maxToolResultStoreBytes = 64 * 1024
+
+const toolResultTruncatedSuffix = "\n…[已截断]"
+
+func truncateForStore(content string) string {
+	if len(content) <= maxToolResultStoreBytes {
+		return content
+	}
+	keep := maxToolResultStoreBytes - len(toolResultTruncatedSuffix)
+	if keep < 0 {
+		keep = 0
+	}
+	return content[:keep] + toolResultTruncatedSuffix
+}
+
 // Config is the subset of agent configuration the executor needs.
 type Config struct {
 	MaxTurns    int
@@ -168,7 +186,6 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		totalUsage.CompletionTokens += turnUsage.CompletionTokens
 		totalUsage.TotalTokens += turnUsage.TotalTokens
 		assistant := llm.Message{Role: llm.RoleAssistant, Content: text, ToolCalls: toolCalls}
-		d.Session().Append(assistant)
 		d.Emit(event.LLMEndEvent{
 			EventBase: event.EventBase{EventCommon: ec()},
 			Assistant: assistant,
@@ -177,6 +194,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 
 		// 4. decide next step
 		if len(toolCalls) == 0 {
+			d.Session().Append(assistant)
 			d.Emit(event.TurnEndEvent{
 				EventBase:  event.EventBase{EventCommon: ec()},
 				TurnIndex:  turnIndex,
@@ -188,7 +206,15 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		// 5. run tools in parallel
 		results := e.runToolsParallel(ctx, d, ec, turnID, toolCalls)
 
-		// 6. append tool result messages in original order
+		// 6. attach tool results to the assistant snapshot so persistence can
+		// store them alongside the call (renderer rebuilds tool_result on reload)
+		for i := range assistant.ToolCalls {
+			if i < len(results) {
+				assistant.ToolCalls[i].Result = &llm.ToolResult{Content: truncateForStore(results[i].Content), IsError: results[i].IsError}
+			}
+		}
+		// 7. append assistant (with results) then tool result messages in original order
+		d.Session().Append(assistant)
 		for i, tc := range toolCalls {
 			d.Session().Append(llm.Message{
 				Role:       llm.RoleTool,

@@ -10,10 +10,12 @@
 
 import { useMessages } from './useMessages';
 import { useSession } from './useSession';
+import { useImportedFiles } from './useImportedFiles';
 
 export function useChatActions() {
   const messages = useMessages();
   const session = useSession();
+  const imported = useImportedFiles();
 
   async function send(content: string, busyRef: { value: boolean }): Promise<void> {
     if (!content.trim()) return;
@@ -27,8 +29,11 @@ export function useChatActions() {
     }
     busyRef.value = true;
     messages.appendUserMessage(sessId, content);
+    const importedFiles = imported.pendingPaths();
     try {
-      const r = await window.darvin.prompt({ content });
+      const r = await window.darvin.prompt({ content, importedFiles });
+      // prompt 仅代表入队成功；agent 异步读取文件，run 结束（agent_end）后才清理。
+      if (importedFiles.length > 0) imported.armClearAfterSend();
       messages.startAssistantMessage(r.sessionId, r.messageId);
     } catch (err) {
       const mid = `m-err-${Date.now().toString(36)}`;

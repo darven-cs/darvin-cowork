@@ -550,6 +550,7 @@ ipcMain.handle(
         sessionId,
         runId,
         model: req.model,
+        importedFiles: req.importedFiles,
       });
       return { sessionId, messageId: r.messageId, runId: r.runId ?? runId };
     } catch (e) {

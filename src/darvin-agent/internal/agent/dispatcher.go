@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -17,9 +19,14 @@ import (
 
 // Prompt enqueues content for immediate processing. Returns ErrAgentBusy
 // if the Agent is already running; callers should use Steer / FollowUp
-// instead.
-func (a *Agent) Prompt(_ context.Context, content string) error {
-	return a.enqueue(queue.ModePrompt, content)
+// instead. importedFiles are workspace-relative paths staged for this one
+// message (the LLM is told about them via a transient system note).
+func (a *Agent) Prompt(_ context.Context, content string, importedFiles ...[]string) error {
+	var files []string
+	if len(importedFiles) > 0 {
+		files = importedFiles[0]
+	}
+	return a.enqueue(queue.ModePrompt, content, files)
 }
 
 // Steer enqueues content for the next iteration, cancelling any current
@@ -28,7 +35,7 @@ func (a *Agent) Prompt(_ context.Context, content string) error {
 func (a *Agent) Steer(ctx context.Context, content string) error {
 	// cancel any in-flight run so the current turn's ctx fires
 	a.Abort(ctx)
-	return a.enqueue(queue.ModeSteer, content)
+	return a.enqueue(queue.ModeSteer, content, nil)
 }
 
 // FollowUp enqueues content to be processed after the current Run ends.
@@ -36,7 +43,7 @@ func (a *Agent) Steer(ctx context.Context, content string) error {
 // caller's subsequent Run() invocation; FollowUp itself does not start
 // a goroutine.
 func (a *Agent) FollowUp(_ context.Context, content string) error {
-	return a.enqueue(queue.ModeFollowUp, content)
+	return a.enqueue(queue.ModeFollowUp, content, nil)
 }
 
 // Abort cancels the current Run's context. It does not modify the queue.
@@ -146,7 +153,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		// the error path emits AgentErrorEvent and returns without
 		// RunEndEvent so the renderer can paint an explicit error
 		// bubble instead of a "done" state.
+		// runImportedNote is read by Instructions() during the run, so the
+		// staged imported files only reach the LLM for this one prompt.
+		a.runImportedNote = formatImportedNote(msg.ImportedFiles)
 		err := a.exec.RunConversation(runCtx, a)
+		a.runImportedNote = ""
 		turnsThisRun := a.approxTurns(turnsBefore)
 		totalTurns += turnsThisRun
 		// Hook 2 of 3: persist the assistant messages RunConversation
@@ -301,13 +312,16 @@ func (a *Agent) persistAssistantMessages(ctx context.Context, msgID string, befo
 			}
 			toolCallsJSON = string(b)
 		}
+		// 每 turn 用独立行 ID + 递增时间戳：同 run 多轮（tool loop）不再互相
+		// 覆盖，且 reload 按 timestamp 排序时保持 turn 顺序。
 		rec := &store.MessageRecord{
-			ID:        msgID,
+			ID:        fmt.Sprintf("%s-%d", msgID, i),
 			SessionID: a.session.ID,
 			Role:      string(llm.RoleAssistant),
 			Content:   m.Content,
 			ToolCalls: toolCallsJSON,
-			Timestamp: now,
+			Timestamp: now + int64(i-beforeLen),
+			Done:      true,
 		}
 		if err := a.msgStore.Save(ctx, rec); err != nil {
 			a.logger.Warn("persist assistant message failed",
@@ -348,7 +362,16 @@ func (a *Agent) approxTurns(beforeLen int) int {
 	return count
 }
 
-func (a *Agent) enqueue(mode queue.Mode, content string) error {
+// formatImportedNote builds the transient system note telling the LLM which
+// workspace-relative files are staged for the current message.
+func formatImportedNote(files []string) string {
+	if len(files) == 0 {
+		return ""
+	}
+	return "[系统] 用户在本消息导入了以下文件（位于当前工作区，可用 read_file 按相对路径读取）：\n- " + strings.Join(files, "\n- ")
+}
+
+func (a *Agent) enqueue(mode queue.Mode, content string, importedFiles []string) error {
 	// Prompt is the only mode that requires the agent to be idle. Steer and
 	// FollowUp can both be issued while a Run is in progress: Steer cancels
 	// the current run, FollowUp queues for after it returns.
@@ -358,7 +381,7 @@ func (a *Agent) enqueue(mode queue.Mode, content string) error {
 	if mode == queue.ModePrompt && running {
 		return ErrAgentBusy
 	}
-	err := a.queue.Enqueue(mode, queue.Message{Content: content})
+	err := a.queue.Enqueue(mode, queue.Message{Content: content, ImportedFiles: importedFiles})
 	if err != nil {
 		if errors.Is(err, queue.ErrQueueFull) {
 			return ErrAgentBusy

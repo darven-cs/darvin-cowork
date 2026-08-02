@@ -121,9 +121,18 @@ type CompletionResponse struct {
 
 // ToolCall is a single model-emitted function invocation.
 type ToolCall struct {
-	ID        string         // provider-issued, unique within a request
-	Name      string         // matches Tool.Name
-	Arguments map[string]any // parsed JSON object
+	ID        string         `json:"id"`                  // provider-issued, unique within a request
+	Name      string         `json:"name"`                // matches Tool.Name
+	Arguments map[string]any `json:"arguments"`           // parsed JSON object
+	Result    *ToolResult    `json:"result,omitempty"`    // filled after the tool executes (persistence only)
+}
+
+// ToolResult is the persisted outcome of one tool call. It mirrors
+// tool.Result's Content / IsError and is serialised inside ToolCall.Result
+// so the renderer can rebuild tool_result entries on session reload.
+type ToolResult struct {
+	Content string `json:"content"`
+	IsError bool   `json:"isError"`
 }
 
 // FinishReason is the normalised stop reason across providers.

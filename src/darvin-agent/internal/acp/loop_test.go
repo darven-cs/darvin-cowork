@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -237,10 +238,14 @@ func TestLoopPersistsUserAndAssistantWithDistinctIDs(t *testing.T) {
 	if asst.Content != "hello world" {
 		t.Errorf("assistant content = %q, want \"hello world\"", asst.Content)
 	}
-	// The assistant row keeps the run's messageID so events (streaming
-	// append, done/error sealing) keep matching it after a reload.
-	if asst.ID != ticket.MessageID {
-		t.Errorf("assistant id = %q, want run messageID %q", asst.ID, ticket.MessageID)
+	// Each assistant turn gets its own row id (msgID-{index}) so a multi-turn
+	// tool loop replays fully without overwriting; the user row is keyed by
+	// runUserMsgID. The renderer reads these ids verbatim on reload.
+	if !strings.HasPrefix(asst.ID, ticket.MessageID+"-") {
+		t.Errorf("assistant id = %q, want prefix %q-{index}", asst.ID, ticket.MessageID)
+	}
+	if asst.ID == user.ID {
+		t.Errorf("assistant and user rows share id %q", asst.ID)
 	}
 	if user.ID == ticket.MessageID {
 		t.Errorf("user id must differ from the run messageID %q", ticket.MessageID)

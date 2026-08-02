@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { buildConversationTurns, deriveSessionStatusFromMessages, useMessages, type Message } from './useMessages';
+import { buildConversationTurns, deriveSessionStatusFromMessages, interleaveToolSegments, toMessages, useMessages, type AssistantTurnItem, type Message } from './useMessages';
 import { useArtifacts } from './useArtifacts';
 
 const messages = useMessages();
@@ -392,5 +392,99 @@ describe('session activity status (spec 06)', () => {
     messages.appendEvent({ type: 'text_delta', sessionId: 's1', messageId: 'm1', delta: 'hi' });
     messages.reset();
     expect(messages.sessionStatusBySessionId.value.s1).toBeUndefined();
+  });
+});
+
+describe('interleaveToolSegments (spec B1)', () => {
+  const baseMsg = (over: Partial<Message> = {}): Message => ({
+    id: 'm1', sessionId: 's1', role: 'assistant', content: '', done: true, createdAt: 0, ...over,
+  });
+  const toolGroup = (id: string, offset?: number): AssistantTurnItem => ({
+    type: 'tool_group',
+    toolUse: baseMsg({ id, kind: 'tool_use', toolUseId: id, tool: 'Bash', splitOffset: offset }),
+    toolResult: null,
+  });
+  const assistantItem = (msg: Message): AssistantTurnItem => ({ type: 'assistant', message: msg });
+
+  it('interleaves sequential tools by splitOffset', () => {
+    const items = [
+      assistantItem(baseMsg({ content: '我先写文档。写好了。完成。' })),
+      toolGroup('t1', 6),
+      toolGroup('t2', 10),
+    ];
+    const segs = interleaveToolSegments(items);
+    expect(segs.map((s) => s.kind)).toEqual(['assistant', 'tool_group', 'assistant', 'tool_group', 'assistant']);
+    expect(segs[0]).toMatchObject({ kind: 'assistant', continuation: false, message: { content: '我先写文档。' } });
+    expect(segs[1]).toMatchObject({ kind: 'tool_group', toolUse: { toolUseId: 't1' } });
+    expect(segs[2]).toMatchObject({ kind: 'assistant', continuation: true, message: { content: '写好了。' } });
+    expect(segs[3]).toMatchObject({ kind: 'tool_group', toolUse: { toolUseId: 't2' } });
+    expect(segs[4]).toMatchObject({ kind: 'assistant', continuation: true, message: { content: '完成。' } });
+  });
+
+  it('groups parallel tools before the next text segment', () => {
+    const items = [
+      assistantItem(baseMsg({ content: '开始并行调用。完成' })),
+      toolGroup('t1', 7),
+      toolGroup('t2', 7),
+    ];
+    const segs = interleaveToolSegments(items);
+    expect(segs.map((s) => s.kind)).toEqual(['assistant', 'tool_group', 'tool_group', 'assistant']);
+    expect(segs[1]).toMatchObject({ kind: 'tool_group', toolUse: { toolUseId: 't1' } });
+    expect(segs[2]).toMatchObject({ kind: 'tool_group', toolUse: { toolUseId: 't2' } });
+    expect(segs[3]).toMatchObject({ kind: 'assistant', continuation: true, message: { content: '完成' } });
+  });
+
+  it('keeps reload structure in order without splitOffset', () => {
+    const items = [
+      assistantItem(baseMsg({ id: 'A', content: '先写' })),
+      toolGroup('t1'),
+      assistantItem(baseMsg({ id: 'B', content: '再看' })),
+      toolGroup('t2'),
+    ];
+    const segs = interleaveToolSegments(items);
+    expect(segs.map((s) => s.kind)).toEqual(['assistant', 'tool_group', 'assistant', 'tool_group']);
+    expect(segs[0]).toMatchObject({ kind: 'assistant', message: { content: '先写' } });
+    expect(segs[2]).toMatchObject({ kind: 'assistant', message: { content: '再看' } });
+  });
+
+  it('keeps thinking on the first segment only and marks continuation', () => {
+    const items = [
+      assistantItem(baseMsg({ content: '思考与首段。尾段', thinking: '思考内容' })),
+      toolGroup('t1', 6),
+    ];
+    const segs = interleaveToolSegments(items);
+    expect(segs[0]).toMatchObject({ kind: 'assistant', message: { content: '思考与首段。', thinking: '思考内容' } });
+    const cont = segs[2];
+    if (cont.kind !== 'assistant') throw new Error('expected assistant');
+    expect(cont.message.content).toBe('尾段');
+    expect(cont.message.thinking).toBeUndefined();
+    expect(cont.message.isContinuation).toBe(true);
+  });
+});
+
+describe('toMessages reload expansion (spec B2)', () => {
+  it('expands a persisted assistant row with toolCalls into text + tool_use + tool_result', () => {
+    const row = {
+      id: 'run-1',
+      sessionId: 's1',
+      role: 'assistant',
+      content: '我先写文档。',
+      done: true,
+      createdAt: 1000,
+      toolCalls: JSON.stringify([
+        { id: 'call-1', name: 'write_file', arguments: { path: 'a.md' }, result: { content: 'ok', isError: false } },
+      ]),
+    };
+    const out = toMessages(row as never);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toMatchObject({ role: 'assistant', content: '我先写文档。' });
+    expect(out[1]).toMatchObject({ kind: 'tool_use', toolUseId: 'call-1', tool: 'write_file' });
+    expect(out[2]).toMatchObject({ kind: 'tool_result', toolUseId: 'call-1', output: 'ok', isError: false });
+  });
+
+  it('keeps a plain row as a single message when toolCalls is absent', () => {
+    const out = toMessages({ id: 'u1', sessionId: 's1', role: 'user', content: 'hi', done: true, createdAt: 1 } as never);
+    expect(out).toHaveLength(1);
+    expect(out[0].role).toBe('user');
   });
 });

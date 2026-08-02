@@ -18,6 +18,7 @@ import { computed, ref, watch } from 'vue';
 import type { DarvinAttachment, DarvinContextUsage, DarvinEvent, DarvinMessage, DarvinToolKind, DarvinUsage } from '../../shared/darvin-api';
 import { assertNever } from '../../shared/darvin-api';
 import { useSession } from './useSession';
+import { useImportedFiles } from './useImportedFiles';
 import { useArtifacts } from './useArtifacts';
 import type { Artifact } from './useArtifacts';
 import { getToolKind } from '../services/toolDisplay';
@@ -46,6 +47,10 @@ export interface Message {
   input?: unknown;
   output?: unknown;
   isError?: boolean;
+  /** spec B1 — tool_use 在其 assistant 消息文本中的内容断点（live 交错渲染用）。 */
+  splitOffset?: number;
+  /** spec B1 — 拆分出的后续文本段（不重复渲染 TurnMeta / thinking / artifacts）。 */
+  isContinuation?: boolean;
   /** spec 11 — 本 assistant 消息产出的 artifact（按 artifact 事件 messageId 挂载）。 */
   artifacts?: Artifact[];
 }
@@ -147,6 +152,83 @@ export function buildConversationTurns(
   return turns;
 }
 
+/**
+ * spec B1 — 把 turn 的 assistantItems 展开成交错渲染序。
+ *
+ * live 场景下 Go 用单一 messageId 把整个 run 的文本累积进一条 assistant
+ * 消息，工具条目 append 在桶尾；本函数按工具记录的 splitOffset 把文本切段，
+ * 产出「文本 → 工具组 → 文本 → 工具组 …」的交错序。并行工具共享断点（同断点
+ * 的工具组排在下一段文本之前）。reload 场景每 turn 独立一行、工具无 splitOffset，
+ * 此时原样保序输出。后续文本段标记 continuation，渲染层跳过 TurnMeta 等重复元信息。
+ */
+export type InterleavedSegment =
+  | { kind: 'assistant'; message: Message; continuation: boolean }
+  | { kind: 'tool_group'; toolUse: Message; toolResult: Message | null };
+
+export function interleaveToolSegments(items: AssistantTurnItem[]): InterleavedSegment[] {
+  const out: InterleavedSegment[] = [];
+  let i = 0;
+  while (i < items.length) {
+    const item = items[i];
+    if (item.type !== 'assistant') {
+      out.push({ kind: 'tool_group', toolUse: item.toolUse, toolResult: item.toolResult });
+      i++;
+      continue;
+    }
+    // 收集紧随该 assistant 的连续工具组
+    const groups: Extract<AssistantTurnItem, { type: 'tool_group' }>[] = [];
+    let j = i + 1;
+    while (j < items.length && items[j].type === 'tool_group') {
+      groups.push(items[j]);
+      j++;
+    }
+    const offsets = groups
+      .map((g) => g.toolUse.splitOffset)
+      .filter((o): o is number => typeof o === 'number' && o >= 0)
+      .sort((a, b) => a - b);
+    const msg = item.message;
+    if (groups.length === 0 || offsets.length === 0) {
+      out.push({ kind: 'assistant', message: msg, continuation: false });
+      for (const g of groups) out.push({ kind: 'tool_group', toolUse: g.toolUse, toolResult: g.toolResult });
+      i = j;
+      continue;
+    }
+    const distinct: number[] = [];
+    for (const o of offsets) {
+      if (distinct.length === 0 || distinct[distinct.length - 1] !== o) distinct.push(o);
+    }
+    const content = msg.content ?? '';
+    const points = [0, ...distinct, content.length];
+    const segments: string[] = [];
+    for (let k = 0; k < points.length - 1; k++) segments.push(content.slice(points[k], points[k + 1]));
+    const byOffset = new Map<number, typeof groups>();
+    for (const g of groups) {
+      const o = typeof g.toolUse.splitOffset === 'number' ? g.toolUse.splitOffset : distinct[0];
+      const key = distinct.indexOf(o) === -1 ? 0 : distinct.indexOf(o);
+      if (!byOffset.has(key)) byOffset.set(key, []);
+      byOffset.get(key)!.push(g);
+    }
+    // seg0 为空（工具先于任何文本）且无 thinking 时跳过，避免空 markdown 块
+    if (segments[0] !== '' || msg.thinking) {
+      out.push({ kind: 'assistant', message: { ...msg, content: segments[0] }, continuation: false });
+    }
+    for (let s = 1; s < segments.length; s++) {
+      for (const g of byOffset.get(s - 1) ?? []) {
+        out.push({ kind: 'tool_group', toolUse: g.toolUse, toolResult: g.toolResult });
+      }
+      if (segments[s] !== '') {
+        out.push({
+          kind: 'assistant',
+          message: { ...msg, content: segments[s], thinking: undefined, artifacts: undefined, error: undefined, usage: undefined, isContinuation: true },
+          continuation: true,
+        });
+      }
+    }
+    i = j;
+  }
+  return out;
+}
+
 const messagesBySessionId = ref<Record<string, Message[]>>({});
 const streamingSessionIds = ref<Set<string>>(new Set());
 const unreadSessionIds = ref<Set<string>>(new Set());
@@ -185,7 +267,7 @@ async function loadMessages(sessionId: string): Promise<void> {
   if (typeof window === 'undefined' || !window.darvin) return;
   try {
     const r = await window.darvin.getMessages(sessionId);
-    const msgs = r.messages.map(toMessage);
+    const msgs = r.messages.flatMap(toMessages);
     messagesBySessionId.value = {
       ...messagesBySessionId.value,
       [sessionId]: msgs,
@@ -230,6 +312,63 @@ interface LegacyFlatMessage {
   error?: string;
   toolLabel?: string;
   createdAt: number;
+  /** spec B1 — 持久化的 assistant 行把 toolCalls JSON 序列化在此字段。 */
+  toolCalls?: string;
+}
+
+/**
+ * spec B2 — get_messages 返回的扁平行可能带 `toolCalls` JSON；展开成
+ * [assistant 文本, tool_use…, tool_result…] 序列，reload 后按原顺序渲染。
+ */
+export function toMessages(m: DarvinMessage): Message[] {
+  const legacy = m as unknown as LegacyFlatMessage;
+  if (legacy.role === 'assistant' && legacy.toolCalls) {
+    const base = toMessage(m);
+    const out: Message[] = [base];
+    try {
+      const calls = JSON.parse(legacy.toolCalls) as Array<{
+        id?: string;
+        name?: string;
+        arguments?: unknown;
+        result?: { content?: unknown; isError?: boolean };
+      }>;
+      for (const c of calls) {
+        const toolUseId = c.id && c.id !== '' ? c.id : `${base.id}-${out.length}`;
+        out.push({
+          id: toolUseId,
+          sessionId: base.sessionId,
+          role: 'assistant',
+          content: '',
+          done: true,
+          kind: 'tool_use',
+          toolUseId,
+          tool: c.name ?? '',
+          toolKind: getToolKind(c.name ?? ''),
+          input: c.arguments,
+          createdAt: base.createdAt,
+        });
+        if (c.result !== undefined) {
+          out.push({
+            id: `${toolUseId}-result`,
+            sessionId: base.sessionId,
+            role: 'assistant',
+            content: '',
+            done: true,
+            kind: 'tool_result',
+            toolUseId,
+            tool: c.name ?? '',
+            output: c.result.content,
+            isError: c.result.isError === true,
+            createdAt: base.createdAt,
+          });
+        }
+      }
+    } catch {
+      // toolCalls 非合法 JSON（老行）→ 仅保留文本行
+    }
+    return out;
+  }
+  return [toMessage(m)];
 }
 
 function toMessage(m: DarvinMessage): Message {
@@ -364,6 +503,9 @@ function appendToBucket(list: Message[], sid: string, ev: DarvinEvent): void {
   } else if (ev.type === 'tool_start') {
     const toolUseId = ev.toolUseId ?? ev.messageId;
     if (list.some((m) => m.kind === 'tool_use' && m.toolUseId === toolUseId)) return; // 幂等
+    // spec B1 — 记录工具调用发生时 assistant 文本的长度断点，供交错渲染切段。
+    // 并行工具共享同一断点（工具执行期间没有新 text），顺序工具断点递增。
+    const ass = ev.messageId ? list.find((m) => m.id === ev.messageId && m.role === 'assistant') : undefined;
     list.push({
       id: toolUseId,
       sessionId: sid,
@@ -375,6 +517,7 @@ function appendToBucket(list: Message[], sid: string, ev: DarvinEvent): void {
       tool: ev.tool,
       toolKind: getToolKind(ev.tool),
       input: ev.input,
+      splitOffset: ass ? ass.content.length : 0,
       createdAt: Date.now(),
     });
   } else if (ev.type === 'tool_end') {
@@ -397,6 +540,8 @@ function appendToBucket(list: Message[], sid: string, ev: DarvinEvent): void {
 }
 
 export function useMessages() {
+  const imported = useImportedFiles();
+
   function appendUserMessage(sessionId: string, content: string, id?: string, attachments?: DarvinAttachment[]): string {
     const mid = id ?? `m-${Math.random().toString(36).slice(2, 10)}`;
     const bucket = messagesBySessionId.value[sessionId] ?? [];
@@ -529,6 +674,8 @@ export function useMessages() {
       else if (ev.type === 'agent_end') {
         const prev = sessionStatusBySessionId.value[sid];
         if (prev !== 'error') setStatus('completed');
+        // 消息随 run 结束，清理本次消费的导入文件（Bug4：导入只服务单条消息）。
+        void imported.flushAfterSend();
       } else setStatus('completed');
     }
 

@@ -17,12 +17,14 @@ import MessageList from './MessageList.vue';
 import Composer from './Composer.vue';
 import { useSession } from '../../composables/useSession';
 import { useMessages } from '../../composables/useMessages';
+import { useImportedFiles } from '../../composables/useImportedFiles';
 
 defineProps<{ sidePanelOpen: boolean }>();
 const emit = defineEmits<{ 'toggle-sidebar': []; 'toggle-side-panel': [] }>();
 
 const session = useSession();
 const messages = useMessages();
+const imported = useImportedFiles();
 const busy = ref<boolean>(false);
 const composerRef = ref<InstanceType<typeof Composer> | null>(null);
 
@@ -32,8 +34,10 @@ async function handleSend(content: string) {
   if (sessId === null) return;
   busy.value = true;
   messages.appendUserMessage(sessId, content);
+  const importedFiles = imported.pendingPaths();
   try {
-    const r = await window.darvin.prompt({ content });
+    const r = await window.darvin.prompt({ content, importedFiles });
+    if (importedFiles.length > 0) imported.armClearAfterSend();
     messages.startAssistantMessage(r.sessionId, r.messageId);
   } catch (err) {
     const mid = `m-err-${Date.now().toString(36)}`;

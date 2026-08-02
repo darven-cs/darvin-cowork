@@ -32,10 +32,12 @@ var ErrLoopClosed = errors.New("acp: loop closed")
 
 // PromptRequest is one turn's input. RunID lets the caller name the turn
 // up front so a later Stop can target exactly it; an empty RunID makes
-// Loop mint one.
+// Loop mint one. ImportedFiles are workspace-relative paths staged for this
+// message (transient system note injected into the LLM context).
 type PromptRequest struct {
-	RunID   string
-	Content string
+	RunID          string
+	Content        string
+	ImportedFiles  []string
 }
 
 // RunTicket correlates a submitted turn with the events it will emit.
@@ -52,10 +54,11 @@ type RunTicket struct {
 // userMsgID keys the user message so persistUserMessage's row is not
 // overwritten by the assistant row that shares msgID (see dispatcher.go).
 type promptReq struct {
-	runID     string
-	content   string
-	msgID     string
-	userMsgID string
+	runID         string
+	content       string
+	importedFiles []string
+	msgID         string
+	userMsgID     string
 }
 
 // activeRunState is the in-flight turn; cancelRun cuts the LLM stream.
@@ -133,10 +136,11 @@ func (l *Loop) Steer(req PromptRequest) (RunTicket, error) {
 // turn so the run goroutine reaches the new request immediately.
 func (l *Loop) admit(req PromptRequest, jumpQueue bool) (RunTicket, error) {
 	p := promptReq{
-		runID:     req.RunID,
-		content:   req.Content,
-		msgID:     l.idGen(),
-		userMsgID: l.idGen(),
+		runID:         req.RunID,
+		content:       req.Content,
+		importedFiles: req.ImportedFiles,
+		msgID:         l.idGen(),
+		userMsgID:     l.idGen(),
 	}
 	if p.runID == "" {
 		p.runID = l.idGen()
@@ -315,7 +319,7 @@ func (l *Loop) executeTurn(req promptReq) {
 		cancelRun()
 	}()
 
-	if err := l.agent.Prompt(runCtx, req.content); err != nil {
+	if err := l.agent.Prompt(runCtx, req.content, req.importedFiles); err != nil {
 		// The Agent rejected the enqueue, so no run will emit an error
 		// for this messageID. Surface it here or the renderer's bubble
 		// stays stuck in a streaming state.

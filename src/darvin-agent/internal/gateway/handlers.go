@@ -23,9 +23,10 @@ import (
 // runId is optional; when omitted the gateway mints one so the result
 // always carries a non-empty correlation token.
 type PromptParams struct {
-	Content   string `json:"content"`
-	SessionID string `json:"sessionId,omitempty"`
-	RunID     string `json:"runId,omitempty"`
+	Content       string   `json:"content"`
+	SessionID     string   `json:"sessionId,omitempty"`
+	RunID         string   `json:"runId,omitempty"`
+	ImportedFiles []string `json:"importedFiles,omitempty"`
 }
 
 // PromptResult is the JSON-RPC result for agent.prompt. sessionId and
@@ -333,7 +334,7 @@ func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage,
 		// handler 测试 stub 没注入 factory 时走这里。
 		return errorResp(id, CodeNoAcpSession, "no AcpSession bound", nil)
 	}
-	ticket, err := entry.Acp.Loop.Submit(acp.PromptRequest{RunID: p.RunID, Content: p.Content})
+	ticket, err := entry.Acp.Loop.Submit(acp.PromptRequest{RunID: p.RunID, Content: p.Content, ImportedFiles: p.ImportedFiles})
 	if err != nil {
 		return errorResp(id, CodeInternalError, "loop submit", err)
 	}

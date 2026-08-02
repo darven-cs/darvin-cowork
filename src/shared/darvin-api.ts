@@ -220,6 +220,8 @@ export type DarvinEvent =
 export interface DarvinPromptRequest {
   content: string;
   model?: DarvinModelId;
+  /** spec B1 — 本条消息暂存的导入文件（相对 workspace 根），agent 据此感知。 */
+  importedFiles?: string[];
 }
 
 export interface DarvinPromptResponse {

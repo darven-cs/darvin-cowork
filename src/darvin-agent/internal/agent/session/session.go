@@ -158,6 +158,10 @@ func cloneToolCall(tc llm.ToolCall) llm.ToolCall {
 			out.Arguments[k] = v
 		}
 	}
+	if tc.Result != nil {
+		r := *tc.Result
+		out.Result = &r
+	}
 	return out
 }
 

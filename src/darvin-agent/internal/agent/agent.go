@@ -115,6 +115,11 @@ type Agent struct {
 	state    agentState
 	cancelFn context.CancelFunc
 
+	// runImportedNote is set by the dispatcher for the current prompt's
+	// staged imported files; Instructions() appends it so the LLM perceives
+	// them. Cleared after the run (transient, not persisted).
+	runImportedNote string
+
 	// msgIDSrc is wired by the ACP loop via AttachMessageIDSrc. The
 	// executor reads it through Deps.CurrentMessageID to populate the
 	// EventCommon.MessageID on every emitted event so subscribers can
@@ -237,7 +242,12 @@ func (a *Agent) Session() *session.Session   { return a.session }
 func (a *Agent) Tools() *tool.Registry       { return a.tools }
 func (a *Agent) Provider() llm.ModelProvider { return a.provider }
 func (a *Agent) ModelName() string           { return a.model.Model }
-func (a *Agent) Instructions() string        { return a.instructions }
+func (a *Agent) Instructions() string {
+	if a.runImportedNote != "" {
+		return a.instructions + "\n\n" + a.runImportedNote
+	}
+	return a.instructions
+}
 func (a *Agent) Config() executor.Config {
 	return executor.Config{
 		MaxTurns:    a.cfg.MaxTurns,

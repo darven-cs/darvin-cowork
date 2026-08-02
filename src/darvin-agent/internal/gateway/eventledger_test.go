@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -105,6 +106,22 @@ func TestMapEventToTSCarriesMessageID(t *testing.T) {
 			ev:   event.AgentErrorEvent{EventBase: ec, Err: errors.New("boom")},
 			want: map[string]any{"type": "error", "sessionId": "s1", "runId": "r1", "messageId": "m1", "message": "boom"},
 		},
+		{
+			name: "tool_start carries messageId",
+			ev:   event.ToolStartEvent{EventBase: ec, CallID: "c1", Name: "write_file", Arguments: map[string]any{"path": "a.md"}},
+			want: map[string]any{
+				"type": "tool_start", "sessionId": "s1", "runId": "r1", "messageId": "m1",
+				"tool": "write_file", "input": map[string]any{"path": "a.md"}, "message": map[string]any{"id": "c1"},
+			},
+		},
+		{
+			name: "tool_end carries messageId",
+			ev:   event.ToolEndEvent{EventBase: ec, CallID: "c1", Result: event.ToolResult{Content: "ok"}},
+			want: map[string]any{
+				"type": "tool_end", "sessionId": "s1", "runId": "r1", "messageId": "m1",
+				"tool": "ok", "message": map[string]any{"id": "c1"},
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -117,7 +134,7 @@ func TestMapEventToTSCarriesMessageID(t *testing.T) {
 				t.Fatalf("field set = %+v, want %+v", got, tc.want)
 			}
 			for k, want := range tc.want {
-				if got[k] != want {
+				if !reflect.DeepEqual(got[k], want) {
 					t.Errorf("%s = %v, want %v", k, got[k], want)
 				}
 			}
