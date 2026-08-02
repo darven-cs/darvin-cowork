@@ -49,7 +49,7 @@
           </span>
         </button>
         <div v-if="filteredModels.length === 0" class="px-2 py-3 text-center text-[12px] text-text-muted">
-          无匹配模型
+          {{ t('model.no_match') }}
         </div>
       </div>
     </div>

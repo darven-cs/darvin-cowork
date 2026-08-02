@@ -29,6 +29,7 @@ import QuickActions from '../components/home/QuickActions.vue';
 import PromptDock from '../components/home/PromptDock.vue';
 import { useChatActions } from '../composables/useChatActions';
 import { useViewMode } from '../composables/useViewMode';
+import { t } from '../services/i18n';
 
 defineProps<{ sidePanelOpen: boolean }>();
 const emit = defineEmits<{
@@ -48,13 +49,12 @@ async function onSend(content: string) {
 }
 
 function onTileSelect(id: 'qa-slide' | 'qa-data' | 'qa-doc' | 'qa-web') {
-  const TEMPLATES: Record<typeof id, string> = {
-    'qa-slide': '帮我做一个 5 页的产品介绍 PPT，主题是 AI Agent',
-    'qa-data':  '分析我上传的 CSV 文件并给出关键洞察',
-    'qa-doc':   '帮我起草一份项目周报',
-    'qa-web':   '搜索关于 "Claude 4.5" 的最新发布信息',
+  const TEMPLATE_KEYS: Record<typeof id, string> = {
+    'qa-slide': 'home.example.slide',
+    'qa-data':  'home.example.data',
+    'qa-doc':   'home.example.doc',
+    'qa-web':   'home.example.web',
   };
-  const content = TEMPLATES[id];
-  onSend(content);
+  onSend(t(TEMPLATE_KEYS[id]));
 }
 </script>

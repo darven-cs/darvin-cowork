@@ -120,12 +120,24 @@ export function t(key: string, params?): string {
 
 ## 6. 验收
 
-- [ ] `t(key, params)` 插值单元测试覆盖 3 种情况
-- [ ] `setLang('en')` 触发已渲染组件 re-render（能力已具备，仅需手动复核一次）
-- [ ] 01-07 spec 涉及的 60+ 新 key 在 zh + en 双语中齐全
-- [ ] AGENTS.md 散落 hardcoded 字符串全部走 `t()`
-- [ ] 缺 key dev warn 生效（已落地，新增 key 时复核）
-- [ ] `assertSameKeys(dictZh, dictEn)` 通过（已落地，dev 期自动校验）
+- [x] `t(key, params)` 插值单元测试覆盖 3 种情况
+- [x] `setLang('en')` 触发已渲染组件 re-render（能力已具备，仅需手动复核一次）
+- [x] 01-07 spec 涉及的 60+ 新 key 在 zh + en 双语中齐全
+- [x] AGENTS.md 散落 hardcoded 字符串全部走 `t()`
+- [x] 缺 key dev warn 生效（已落地，新增 key 时复核）
+- [x] `assertSameKeys(dictZh, dictEn)` 通过（已落地，dev 期自动校验）
+
+### 落地补充（实现期决议）
+
+- **G1 插值**：`t(key, params?)` 用 `replace(new RegExp('\\{k\\}', 'g'), String(v))` 全局替换。调用点手写 `.replace('{x}', ...)` 全部收敛成传参——`ContextUsageIndicator`（percent / tokens）、`ContextCompactionDivider`（divider）、`useMessages`（compacted toast）、`ArtifactCardGroup`（showAll）。en 缺 key 回退 zh、再回退原 key（spec §4.1）；缺 key dev warn 加 `WARNED_MISSING_KEYS` 去重（spec §4.4），避免长会话刷屏。
+- **G2 响应式**：能力原本已具备（`currentLang` 是 ref），**修复 1 个残留 bug**——`SettingsPanelAppearance` 的 `const lang = getLang()` 是 setup 期快照，切语言后 radio checked 不迁移、`applyLang` 守卫读错；改为 `computed(() => getLang())`。三个 Intl 直用点（TurnMeta / ContextCompactionDivider / SettingsPanelAbout）重构到 `formatDate` 后，时间戳也随语言响应式重渲。
+- **G3 key 齐全**：脚本全量提取 203 个 `t('...')` 调用 key，全部存在于字典。新增 22 key（`time.justNow/yesterday`、`model.no_match`、`expert.no_match`、`expert.filter.*`×6、`settings.appearance.theme|accent|lang.*`×8、`home.example.*`×4）。
+- **G4 hardcoded 净化**：`.vue` 模板 + script 字符串扫描 26 处中文全清——AgentFilterTabs（tab label→labelKey）、AgentCard（category→`t('expert.filter.${category}')`）、ModelPicker（`model.no_match`）、SettingsPanelAppearance（theme/accent/lang 选项→labelKey/descKey）、SessionItem（相对时间→`formatRelativeTime`，`现在`/`昨` 走 `time.justNow/yesterday`）、ExpertSuiteView（标题复用 `sidebar.nav.suite` + `expert.no_match`）、HomeView（示例 prompt→`home.example.*`）。**已知边界**：`mock-data.ts` 的专家 Agent 名称 / 描述 / 价格是原型假数据，未 i18n（26+ key 换一次性数据不值得，等真实数据源接入时再议）。
+- **G5 格式化**：新增 `formatNumber` / `formatDate` / `formatRelativeTime`（`formatDate` 消费 3 处既有 Intl 直用；`formatRelativeTime` 被 SessionItem 消费）。`formatNumber` 暂无消费点，按 spec 设计文档保留为通用 helper。
+- **G6/G7 约束**：`assertSameKeys` / `dictZh` / `dictEn` 改为导出，单测显式校验 key 对齐；缺 key warn 单测用 spy 验证「只 warn 一次」。
+- **AGENTS.md 同步**：i18n 节更新为现状——`setLang` 响应式、`t()` 支持插值、`formatNumber/formatDate/formatRelativeTime` 进 API 表面、「何时升级 vue-i18n」触发条件移除插值项（手写 `t()` 已覆盖）。
+- **测试**：新增 `i18n.test.ts` 17 例（插值单/多/无参 + en 插值、缺 key warn 去重、formatRelativeTime 6 态 + en 本地化、formatNumber/formatDate、assertSameKeys、getLang 同步）。全量 141 例通过，lint 0 错，renderer build 通过。
+- **live 验证**（playwright 驱动 Electron）：appearance 面板切 English → 整个面板 + 侧栏 nav 全部响应式变英文（`外观`→`Appearance`、`浅色`→`Light`、`橙（默认）`→`Orange (default)`、`中文`→`Chinese`、侧栏`新建任务`→`New task`…），radio checked 正确迁移到 en；切回中文完全还原。expert suite 过滤 tab 6 个 i18n 值渲染正常。console 0 error（仅打包后消失的 CSP dev 警告）。
 
 ## 7. 依赖
 

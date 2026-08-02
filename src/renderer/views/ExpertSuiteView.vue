@@ -8,7 +8,7 @@
 
     <div class="border-b border-border px-6 pt-6 pb-4">
       <div class="flex items-center justify-between">
-        <h2 class="font-sans text-[20px] font-semibold text-text">专家套件</h2>
+        <h2 class="font-sans text-[20px] font-semibold text-text">{{ t('sidebar.nav.suite') }}</h2>
         <div class="relative w-72">
           <Icon name="search" :size="14" class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-text-subtle" />
           <input
@@ -26,7 +26,7 @@
 
     <div class="flex-1 overflow-y-auto p-6">
       <div v-if="filtered.length === 0" class="py-16 text-center font-sans text-[13px] text-text-muted">
-        没有匹配的专家
+        {{ t('expert.no_match') }}
       </div>
       <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         <AgentCard

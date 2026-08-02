@@ -199,11 +199,11 @@ export type AgentChannel = typeof AgentChannel[keyof typeof AgentChannel];
 
 ## 国际化
 
-renderer 侧 i18n 已落地（`src/renderer/services/i18n.ts`，平铺字典、当前仅 `zh`，`en` 字典待补）；主进程侧 i18n（托盘 / 菜单 / 窗口标题 / 通知）尚未建。任何面向用户的字符串必须经 `t()`，不要直接写死在 template / script。
+renderer 侧 i18n 已落地（`src/renderer/services/i18n.ts`，平铺 `dictZh` / `dictEn` 双语字典，`assertSameKeys` 强制 key 对齐）；主进程侧 i18n（托盘 / 菜单 / 窗口标题 / 通知）尚未建。任何面向用户的字符串必须经 `t()`，不要直接写死在 template / script。
 
 ### 字典结构
 
-- 文件：`src/renderer/services/i18n.ts` 内的 `dict: Record<string, string>`（`zh` 默认；`en` 字典落地时同文件加 `dictEn` / 或拆 `locales/zh.ts` / `locales/en.ts`，**不要**新建第三套运行时 i18n 库）。
+- 文件：`src/renderer/services/i18n.ts` 内的 `dictZh` / `dictEn`（同一文件，导出严格一致的 key 集合；**不要**新建第三套运行时 i18n 库）。
 - key 命名：`feature.subfeature.label`，按 feature 子域分段：
   - `app.*` 应用级（标题、菜单入口、状态）
   - `sidebar.*` 侧栏
@@ -216,16 +216,17 @@ renderer 侧 i18n 已落地（`src/renderer/services/i18n.ts`，平铺字典、�
 
 ### API 表面
 
-- `t(key: string): string`：命中返回译文，未命中**直接返回 key**（便于 dev 期发现遗漏；生产期不要凭 key 直接展示给用户——必须先把字典补齐）。
-- `setLang(lang: 'zh' | 'en')` / `getLang(): 'zh' | 'en'`：全局语言切换，目前**不响应式**——切换语言后已渲染的文本不会自动更新，需要组件自行订阅（现状是组件首次渲染时取一次）。
+- `t(key: string, params?: Record<string, string | number>)`：命中返回译文并做 `{name}` 插值；未命中**直接返回 key**（便于 dev 期发现遗漏；生产期不要凭 key 直接展示给用户——必须先把字典补齐）。缺 key 时 dev 期 `console.warn` 一次。
+- `setLang(lang: 'zh' | 'en')` / `getLang(): 'zh' | 'en'`：全局语言切换，**响应式**——`currentLang` 是 `ref`，模板内 `{{ t('xxx') }}` 在 render 期读取它，`setLang` 后整树自动 re-render。纪律：不要在 `<script setup>` 顶层缓存 `t()` 结果（缓存会断响应式链）。
+- `formatNumber(n, opts?)` / `formatDate(ts, opts?)` / `formatRelativeTime(ts)`：数字 / 日期 / 紧凑相对时间，按当前语言格式化。
 - 组件消费：**直接 import**（`import { t } from '../../services/i18n'`），不引入 vue-i18n / i18next 等第三方库，不写 composable 包装层（按 YAGNI，重复 `import { t }` 比多一层抽象便宜）。
 
 ### 写入规则
 
 - ✅ 写完整句子作 value：`'chat.placeholder': 'Send a message...'`
 - ❌ 拆分句子跨 key：`'chat.greet' + 'chat.body'` 拼接（语序因语言而变，会破坏翻译）
-- ❌ 模板字符串拼用户输入：`t('chat.greet') + userName`（变量位置不可控；目前 `t()` 不支持插值，需要时改成 vue-i18n 而不是手拼）
-- ❌ 数字 / 时间 / 日期硬编码格式：日期 / 数字 / 列表序数一律走 `Intl.DateTimeFormat` / `Intl.NumberFormat`，按当前 locale 取；不要写 `12 个任务` 这类硬拼接。
+- ❌ 模板字符串拼用户输入：`t('chat.greet') + userName`（变量位置不可控）；插值一律写进 value 占位并 `t('chat.greet', { name })`，调用点不要手拼 `.replace('{x}', v)`
+- ❌ 数字 / 时间 / 日期硬编码格式：一律走 `formatNumber` / `formatDate` / `formatRelativeTime`（按当前 locale 取）；不要写 `12 个任务` 这类硬拼接。
 - ❌ `<template>` 内直接写中文字面量：必须 `{{ t('xxx') }}` 或 `:aria-label="t('xxx')"`（哪怕是过渡期占位也得走 key，方便后续翻译）。
 - ❌ 同一字符串在多处出现却只在一个 key 里登记：先抽 key 再用——重复字符串就是隐性漏译。
 - ✅ 占位文案也要走 `t()`：写 `'sidebar.placeholder.warn': '此功能尚未实现'`，不要直接 `<div>此功能尚未实现</div>`。
@@ -253,12 +254,10 @@ renderer 侧 i18n 已落地（`src/renderer/services/i18n.ts`，平铺字典、�
 
 ### 何时升级到 vue-i18n
 
-当前手写 `t()` 满足平铺字符串 + zh/en 二语 + 简单切换。**遇到任意一条**即应停下评估引入 vue-i18n：
+当前手写 `t()` 满足平铺字符串 + zh/en 二语 + `{name}` 插值 + 响应式切换。**遇到任意一条**即应停下评估引入 vue-i18n：
 
-- 出现插值需求（`t('chat.greet', { name })`）。
 - 出现复数形式（`{count, plural, one {} other {}}`）。
 - 语言 ≥ 3 种或需要按 namespace 懒加载字典。
-- 需要响应式语言切换（`<i18n-t>` 自动重渲）。
 
 不要为了「将来可能需要」提前换；先在现有字典里把缺失能力显式列出，等真正落地时再迁。
 

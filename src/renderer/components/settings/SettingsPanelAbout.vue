@@ -73,7 +73,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useMessages } from '../../composables/useMessages';
-import { getLang, t } from '../../services/i18n';
+import { formatDate, getLang, t } from '../../services/i18n';
 import { showToast } from '../../services/toast';
 
 const { compactionsBySessionId } = useMessages();
@@ -104,13 +104,13 @@ const latestCompactionLabel = computed(() => {
     }
   }
   if (!latest) return '—';
-  return new Intl.DateTimeFormat(getLang() === 'zh' ? 'zh-CN' : 'en-US', {
+  return formatDate(latest, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(latest);
+  });
 });
 
 async function onExport() {

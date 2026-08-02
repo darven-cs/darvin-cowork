@@ -42,17 +42,10 @@
 import { computed } from 'vue';
 import Icon from '../common/Icon.vue';
 import { t } from '../../services/i18n';
-import type { ExpertAgent, ExpertCategory } from '../../services/mock-data';
+import type { ExpertAgent } from '../../services/mock-data';
 
 const props = defineProps<{ agent: ExpertAgent }>();
 const emit = defineEmits<{ use: [agent: ExpertAgent]; details: [agent: ExpertAgent] }>();
 
-const CATEGORY_LABELS: Record<ExpertCategory, string> = {
-  creative: '创意',
-  productivity: '效率',
-  technical: '技术',
-  business: '商业',
-};
-
-const categoryLabel = computed(() => CATEGORY_LABELS[props.agent.category]);
+const categoryLabel = computed(() => t(`expert.filter.${props.agent.category}`));
 </script>

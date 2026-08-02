@@ -6,7 +6,7 @@ import { ref } from 'vue';
 
 type Lang = 'zh' | 'en';
 
-const dictZh: Record<string, string> = {
+export const dictZh: Record<string, string> = {
   'app.title': 'Darvin Cowork',
   'app.new_chat': '新建会话',
   'app.theme.toggle': '切换主题',
@@ -105,6 +105,10 @@ const dictZh: Record<string, string> = {
   'home.disclaimer': 'AI 生成内容仅供参考，请核实重要信息',
   'model.label': '当前模型',
   'home.prompt.placeholder': '给 Darvin 发送消息…',
+  'home.example.slide': '帮我做一个 5 页的产品介绍 PPT，主题是 AI Agent',
+  'home.example.data': '分析我上传的 CSV 文件并给出关键洞察',
+  'home.example.doc': '帮我起草一份项目周报',
+  'home.example.web': '搜索关于 "Claude 4.5" 的最新发布信息',
   'quick.slide.title': '做 PPT',
   'quick.slide.desc': '一键生成演示文稿',
   'quick.data.title': '看数据',
@@ -123,9 +127,17 @@ const dictZh: Record<string, string> = {
   'plus.settings.desc': '主题 / 快捷键 / 通知',
   'model.search.placeholder': '搜索模型…',
   'model.menu.title': '切换模型',
+  'model.no_match': '无匹配模型',
   'expert.search.placeholder': '搜索专家 Agent…',
   'expert.use': '使用',
   'expert.details': '详情',
+  'expert.no_match': '没有匹配的专家',
+  'expert.filter.all': '全部',
+  'expert.filter.free': '免费',
+  'expert.filter.creative': '创意',
+  'expert.filter.productivity': '效率',
+  'expert.filter.technical': '技术',
+  'expert.filter.business': '商业',
   'settings.title': '设置',
   'settings.nav.aria_label': '设置子导航',
   'settings.general.title': '通用',
@@ -149,6 +161,15 @@ const dictZh: Record<string, string> = {
   'settings.appearance.code_font': '代码字号',
   'settings.appearance.language': '语言',
   'settings.appearance.language_desc': '切换界面显示语言，立即生效',
+  'settings.appearance.theme.light': '浅色',
+  'settings.appearance.theme.light_desc': '默认白底 + 品牌色',
+  'settings.appearance.theme.dark': '深色',
+  'settings.appearance.theme.dark_desc': '深底 + 亮色品牌色',
+  'settings.appearance.accent.orange': '橙（默认）',
+  'settings.appearance.accent.blue': '蓝',
+  'settings.appearance.accent.green': '绿',
+  'settings.appearance.lang.zh': '中文',
+  'settings.appearance.lang.en': 'English',
   'settings.shortcuts.title': '快捷键',
   'settings.shortcuts.desc': '当前实际生效的快捷键映射（与侧栏导航、输入框绑定一致）',
   'settings.shortcuts.nav_home': '切到首页',
@@ -258,9 +279,11 @@ const dictZh: Record<string, string> = {
   'artifact.chat.showAll': '显示全部 {count}',
   'artifact.chat.collapse': '收起',
   'artifact.chat.open': '打开',
+  'time.justNow': '现在',
+  'time.yesterday': '昨',
 };
 
-const dictEn: Record<string, string> = {
+export const dictEn: Record<string, string> = {
   'app.title': 'Darvin Cowork',
   'app.new_chat': 'New chat',
   'app.theme.toggle': 'Toggle theme',
@@ -359,6 +382,10 @@ const dictEn: Record<string, string> = {
   'home.disclaimer': 'AI-generated content is for reference only. Please verify important information.',
   'model.label': 'Current model',
   'home.prompt.placeholder': 'Send a message to Darvin…',
+  'home.example.slide': 'Make a 5-slide product intro deck on AI Agent',
+  'home.example.data': 'Analyze my uploaded CSV file and give key insights',
+  'home.example.doc': 'Draft a weekly project report for me',
+  'home.example.web': 'Search for the latest news on "Claude 4.5"',
   'quick.slide.title': 'Create slides',
   'quick.slide.desc': 'Generate presentations in one click',
   'quick.data.title': 'Analyze data',
@@ -377,9 +404,17 @@ const dictEn: Record<string, string> = {
   'plus.settings.desc': 'Theme / shortcuts / notifications',
   'model.search.placeholder': 'Search models…',
   'model.menu.title': 'Switch model',
+  'model.no_match': 'No matching models',
   'expert.search.placeholder': 'Search expert agents…',
   'expert.use': 'Use',
   'expert.details': 'Details',
+  'expert.no_match': 'No matching experts',
+  'expert.filter.all': 'All',
+  'expert.filter.free': 'Free',
+  'expert.filter.creative': 'Creative',
+  'expert.filter.productivity': 'Productivity',
+  'expert.filter.technical': 'Technical',
+  'expert.filter.business': 'Business',
   'settings.title': 'Settings',
   'settings.nav.aria_label': 'Settings sub-navigation',
   'settings.general.title': 'General',
@@ -403,6 +438,15 @@ const dictEn: Record<string, string> = {
   'settings.appearance.code_font': 'Code font size',
   'settings.appearance.language': 'Language',
   'settings.appearance.language_desc': 'Switch the interface language; takes effect immediately',
+  'settings.appearance.theme.light': 'Light',
+  'settings.appearance.theme.light_desc': 'White background with brand color',
+  'settings.appearance.theme.dark': 'Dark',
+  'settings.appearance.theme.dark_desc': 'Dark background with bright brand color',
+  'settings.appearance.accent.orange': 'Orange (default)',
+  'settings.appearance.accent.blue': 'Blue',
+  'settings.appearance.accent.green': 'Green',
+  'settings.appearance.lang.zh': 'Chinese',
+  'settings.appearance.lang.en': 'English',
   'settings.shortcuts.title': 'Shortcuts',
   'settings.shortcuts.desc': 'Shortcuts that are actually active (aligned with sidebar navigation and the input box)',
   'settings.shortcuts.nav_home': 'Go to Home',
@@ -512,10 +556,12 @@ const dictEn: Record<string, string> = {
   'artifact.chat.showAll': 'Show all {count}',
   'artifact.chat.collapse': 'Collapse',
   'artifact.chat.open': 'Open',
+  'time.justNow': 'now',
+  'time.yesterday': 'yest.',
 };
 
 // dev-only: zh/en 字典 key 集合必须严格一致
-function assertSameKeys(zh: Record<string, string>, en: Record<string, string>): void {
+export function assertSameKeys(zh: Record<string, string>, en: Record<string, string>): void {
   const zhKeys = Object.keys(zh).sort();
   const enKeys = Object.keys(en).sort();
   if (zhKeys.length !== enKeys.length || zhKeys.some((k, i) => k !== enKeys[i])) {
@@ -549,18 +595,50 @@ export function getLang(): Lang {
   return currentLang.value;
 }
 
+// dev 期每个缺失 key 只 warn 一次，避免长会话反复刷屏
+const WARNED_MISSING_KEYS = new Set<string>();
+
 /**
- * 按当前语言查 key；未命中 dev 期 warn + 返回 key，prod 期静默返回 key。
+ * 按当前语言查 key 并做 `{name}` 插值；en 缺失时回退 zh，仍缺失则返回 key。
+ * dev 期对真正缺失的 key warn 一次，prod 期静默回退。
  * 在 render 上下文中调用时，自动追踪 currentLang 变化。
  */
-export function t(key: string): string {
-  const table = currentLang.value === 'en' ? dictEn : dictZh;
-  const value = table[key];
+export function t(key: string, params?: Record<string, string | number>): string {
+  const value = currentLang.value === 'en' ? dictEn[key] ?? dictZh[key] : dictZh[key];
   if (value === undefined) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV !== 'production' && !WARNED_MISSING_KEYS.has(key)) {
+      WARNED_MISSING_KEYS.add(key);
       console.warn(`[i18n] missing ${currentLang.value} translation for key: ${key}`);
     }
     return key;
   }
-  return value;
+  if (!params) return value;
+  return Object.entries(params).reduce(
+    (acc, [k, v]) => acc.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v)),
+    value,
+  );
+}
+
+/** 数字按当前语言格式化（分组 / 百分比等）。 */
+export function formatNumber(n: number, opts?: Intl.NumberFormatOptions): string {
+  return new Intl.NumberFormat(currentLang.value, opts).format(n);
+}
+
+/** 时间戳按当前语言格式化为日期 / 时间。 */
+export function formatDate(ts: number, opts?: Intl.DateTimeFormatOptions): string {
+  return new Intl.DateTimeFormat(currentLang.value, opts).format(new Date(ts));
+}
+
+/** 紧凑相对时间（侧栏会话更新时间等场景）。 */
+export function formatRelativeTime(ts: number): string {
+  const diff = Math.max(0, Date.now() - ts);
+  const m = Math.floor(diff / 60_000);
+  if (m < 1) return t('time.justNow');
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return t('time.yesterday');
+  if (d < 7) return `${d}d`;
+  return `${Math.floor(d / 7)}w`;
 }

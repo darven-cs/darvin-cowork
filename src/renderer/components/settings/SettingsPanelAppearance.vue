@@ -19,8 +19,8 @@
           @change="applyTheme(opt.id)"
         />
         <span class="flex flex-col gap-0.5">
-          <span class="font-sans text-[13px] font-medium text-text">{{ opt.label }}</span>
-          <span class="font-sans text-[11.5px] text-text-muted">{{ opt.desc }}</span>
+          <span class="font-sans text-[13px] font-medium text-text">{{ t(opt.labelKey) }}</span>
+          <span class="font-sans text-[11.5px] text-text-muted">{{ t(opt.descKey) }}</span>
         </span>
       </label>
     </div>
@@ -45,7 +45,7 @@
         />
         <span class="flex items-center gap-2">
           <span class="h-4 w-4 rounded-full" :class="`bg-accent-${opt.id}`" />
-          <span class="font-sans text-[13px] font-medium text-text">{{ opt.label }}</span>
+          <span class="font-sans text-[13px] font-medium text-text">{{ t(opt.labelKey) }}</span>
         </span>
       </label>
     </div>
@@ -103,7 +103,7 @@
           @change="applyLang(opt.id)"
         />
         <span class="flex flex-col gap-0.5">
-          <span class="font-sans text-[13px] font-medium text-text">{{ opt.label }}</span>
+          <span class="font-sans text-[13px] font-medium text-text">{{ t(opt.labelKey) }}</span>
         </span>
       </label>
     </div>
@@ -111,6 +111,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useAppearance, type AccentColor } from '../../composables/useAppearance';
 import { useTheme } from '../../composables/useTheme';
 import { getLang, setLang, t } from '../../services/i18n';
@@ -118,22 +119,22 @@ import { getLang, setLang, t } from '../../services/i18n';
 const { theme, apply: applyTheme } = useTheme();
 const { uiFontSize, codeFontSize, accentColor, setUiFontSize, setCodeFontSize, setAccent } = useAppearance();
 
-const lang = getLang();
+const lang = computed(() => getLang());
 
-const themeOptions: { id: 'light' | 'dark'; label: string; desc: string }[] = [
-  { id: 'light', label: '浅色', desc: '默认白底 + 品牌色' },
-  { id: 'dark',  label: '深色', desc: '深底 + 亮色品牌色' },
+const themeOptions: { id: 'light' | 'dark'; labelKey: string; descKey: string }[] = [
+  { id: 'light', labelKey: 'settings.appearance.theme.light', descKey: 'settings.appearance.theme.light_desc' },
+  { id: 'dark',  labelKey: 'settings.appearance.theme.dark',  descKey: 'settings.appearance.theme.dark_desc' },
 ];
 
-const accentOptions: { id: AccentColor; label: string }[] = [
-  { id: 'orange', label: '橙（默认）' },
-  { id: 'blue',   label: '蓝' },
-  { id: 'green',  label: '绿' },
+const accentOptions: { id: AccentColor; labelKey: string }[] = [
+  { id: 'orange', labelKey: 'settings.appearance.accent.orange' },
+  { id: 'blue',   labelKey: 'settings.appearance.accent.blue' },
+  { id: 'green',  labelKey: 'settings.appearance.accent.green' },
 ];
 
-const langOptions: { id: 'zh' | 'en'; label: string }[] = [
-  { id: 'zh', label: '中文' },
-  { id: 'en', label: 'English' },
+const langOptions: { id: 'zh' | 'en'; labelKey: string }[] = [
+  { id: 'zh', labelKey: 'settings.appearance.lang.zh' },
+  { id: 'en', labelKey: 'settings.appearance.lang.en' },
 ];
 
 function onUiFont(e: Event) {
@@ -149,7 +150,7 @@ function applyAccent(id: AccentColor) {
 }
 
 async function applyLang(id: 'zh' | 'en') {
-  if (id === lang) return;
+  if (id === lang.value) return;
   await window.darvin.setLocale({ locale: id });
   setLang(id);
 }

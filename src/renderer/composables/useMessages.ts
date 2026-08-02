@@ -497,9 +497,10 @@ export function useMessages() {
         },
       };
       showToast(
-        t('chat.context.compacted')
-          .replace('{before}', formatTokenCount(ev.beforeTokens ?? 0))
-          .replace('{after}', formatTokenCount(ev.afterTokens ?? 0)),
+        t('chat.context.compacted', {
+          before: formatTokenCount(ev.beforeTokens ?? 0),
+          after: formatTokenCount(ev.afterTokens ?? 0),
+        }),
         'success',
       );
     }

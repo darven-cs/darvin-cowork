@@ -18,7 +18,7 @@ import { computed } from 'vue';
 import IconButton from '../common/IconButton.vue';
 import type { Message } from '../../composables/useMessages';
 import { useChatActions } from '../../composables/useChatActions';
-import { getLang, t } from '../../services/i18n';
+import { formatDate, t } from '../../services/i18n';
 import { formatTokenCount } from '../../services/tokenFormat';
 
 const props = defineProps<{ message: Message }>();
@@ -41,10 +41,7 @@ const usageLine = computed(() => {
 
 const timestamp = computed(() => {
   try {
-    return new Intl.DateTimeFormat(getLang(), {
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(props.message.createdAt));
+    return formatDate(props.message.createdAt, { hour: '2-digit', minute: '2-digit' });
   } catch {
     return '';
   }

@@ -108,14 +108,15 @@ const tooltipLines = computed<string[]>(() => {
   }
   const p = percent.value;
   if (typeof p !== 'number') return [t('context.usage.unknown')];
-  const lines: string[] = [t('context.usage.percent').replace('{percent}', String(Math.round(p)))];
+  const lines: string[] = [t('context.usage.percent', { percent: Math.round(p) })];
   const used = usage.value?.usedTokens;
   const total = usage.value?.contextTokens;
   if (typeof used === 'number' && typeof total === 'number') {
     lines.push(
-      t('context.usage.tokens')
-        .replace('{used}', formatTokenCount(used))
-        .replace('{total}', formatTokenCount(total)),
+      t('context.usage.tokens', {
+        used: formatTokenCount(used),
+        total: formatTokenCount(total),
+      }),
     );
   }
   if (isClickable.value && (status.value === 'warning' || status.value === 'danger')) {

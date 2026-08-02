@@ -142,7 +142,7 @@ import type { DarvinSession } from '../../../shared/darvin-api';
 import type { SessionActivityStatus } from '../../composables/useMessages';
 import Icon from '../common/Icon.vue';
 import Dropdown from '../common/Dropdown.vue';
-import { t } from '../../services/i18n';
+import { formatRelativeTime, t } from '../../services/i18n';
 
 const props = defineProps<{
   session: DarvinSession;
@@ -163,18 +163,7 @@ const confirming = ref(false);
 const draft = ref('');
 const inputRef = ref<HTMLInputElement | null>(null);
 
-const relTime = computed(() => {
-  const diff = Date.now() - props.session.updatedAt;
-  const m = Math.floor(diff / 60_000);
-  if (m < 1) return '现在';
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.floor(h / 24);
-  if (d === 1) return '昨';
-  if (d < 7) return `${d}d`;
-  return `${Math.floor(d / 7)}w`;
-});
+const relTime = computed(() => formatRelativeTime(props.session.updatedAt));
 
 function onMenuOpenChange(open: boolean): void {
   if (open) confirming.value = false;

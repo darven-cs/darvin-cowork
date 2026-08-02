@@ -12,21 +12,23 @@
         : 'text-text-muted hover:bg-surface-hover hover:text-text'"
       @click="emit('select', tab.id)"
     >
-      {{ tab.label }}
+      {{ t(tab.labelKey) }}
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
+import { t } from '../../services/i18n';
+
 export type FilterTabId = 'all' | 'free' | 'creative' | 'productivity' | 'technical' | 'business';
 
-const tabs: { id: FilterTabId; label: string }[] = [
-  { id: 'all',         label: '全部' },
-  { id: 'free',        label: '免费' },
-  { id: 'creative',    label: '创意' },
-  { id: 'productivity',label: '效率' },
-  { id: 'technical',   label: '技术' },
-  { id: 'business',    label: '商业' },
+const tabs: { id: FilterTabId; labelKey: string }[] = [
+  { id: 'all',         labelKey: 'expert.filter.all' },
+  { id: 'free',        labelKey: 'expert.filter.free' },
+  { id: 'creative',    labelKey: 'expert.filter.creative' },
+  { id: 'productivity',labelKey: 'expert.filter.productivity' },
+  { id: 'technical',   labelKey: 'expert.filter.technical' },
+  { id: 'business',    labelKey: 'expert.filter.business' },
 ];
 
 defineProps<{ active: FilterTabId }>();

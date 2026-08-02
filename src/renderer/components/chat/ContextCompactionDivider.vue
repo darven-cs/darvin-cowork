@@ -12,7 +12,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { CompactionMarker } from '../../composables/useMessages';
-import { t } from '../../services/i18n';
+import { formatDate, t } from '../../services/i18n';
 
 const props = defineProps<{ marker: CompactionMarker }>();
 
@@ -23,18 +23,19 @@ const reasonLabel = computed(() =>
 );
 
 const timeLabel = computed(() =>
-  new Intl.DateTimeFormat(undefined, {
+  formatDate(props.marker.createdAt, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(props.marker.createdAt)),
+  }),
 );
 
 const text = computed(() =>
-  t('chat.compaction.divider')
-    .replace('{reason}', reasonLabel.value)
-    .replace('{time}', timeLabel.value),
+  t('chat.compaction.divider', {
+    reason: reasonLabel.value,
+    time: timeLabel.value,
+  }),
 );
 </script>

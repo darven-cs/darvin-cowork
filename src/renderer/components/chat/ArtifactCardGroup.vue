@@ -32,7 +32,7 @@
       data-testid="artifact-card-toggle"
       @click="expanded = !expanded"
     >
-      {{ expanded ? t('artifact.chat.collapse') : t('artifact.chat.showAll').replace('{count}', String(artifacts.length)) }}
+      {{ expanded ? t('artifact.chat.collapse') : t('artifact.chat.showAll', { count: artifacts.length }) }}
     </button>
   </div>
 </template>
