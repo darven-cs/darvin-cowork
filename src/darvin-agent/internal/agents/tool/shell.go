@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // defaultShellAllowlist is the conservative list of commands the built-in

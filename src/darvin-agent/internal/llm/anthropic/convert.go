@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // anthropicVersion is the API version header value. Anthropic pins this

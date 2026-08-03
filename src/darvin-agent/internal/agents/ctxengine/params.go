@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // BootstrapParams is the input for Bootstrap.

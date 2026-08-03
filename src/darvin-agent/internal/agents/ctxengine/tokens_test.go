@@ -3,7 +3,7 @@ package ctxengine
 import (
 	"testing"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 func TestEstimateMessageTokens_PlainContent(t *testing.T) {

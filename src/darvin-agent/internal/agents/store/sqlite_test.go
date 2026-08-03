@@ -10,7 +10,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
 )
 

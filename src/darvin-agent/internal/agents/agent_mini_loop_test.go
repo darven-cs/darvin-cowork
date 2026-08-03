@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/tool"
 )

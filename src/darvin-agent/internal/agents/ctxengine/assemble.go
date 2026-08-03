@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // Assemble runs the per-turn prompt construction pipeline.

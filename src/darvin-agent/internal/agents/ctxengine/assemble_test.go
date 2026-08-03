@@ -7,7 +7,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 func TestAssemble_ShortMessages_Passthrough(t *testing.T) {

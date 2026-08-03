@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // defaultBaseURL is the Anthropic production endpoint. Tests and proxies

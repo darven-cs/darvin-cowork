@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"sort"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // validateArgs checks that args satisfies schema. Supports type=object with

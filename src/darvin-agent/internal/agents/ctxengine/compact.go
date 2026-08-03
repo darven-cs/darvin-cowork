@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // Compact runs the LLM-based compaction pipeline. It never mutates

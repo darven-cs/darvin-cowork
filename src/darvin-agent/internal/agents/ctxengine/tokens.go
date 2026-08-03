@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"unicode/utf8"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // TokenEstimator returns the approximate token count for a piece of text.

@@ -14,7 +14,7 @@ package event
 import (
 	"sync"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // Mode mirrors the queue's PromptMode so PromptReceivedEvent can carry the

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // Session is a single conversation history. All exported methods are safe

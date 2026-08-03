@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/mcp"
 )
 

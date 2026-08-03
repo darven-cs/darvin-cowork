@@ -6,7 +6,7 @@ package tool
 import (
 	"context"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // Result is what a tool returns to the agent loop. IsError=true means the

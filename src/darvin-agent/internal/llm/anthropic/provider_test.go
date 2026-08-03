@@ -3,7 +3,7 @@ package anthropic
 import (
 	"testing"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 func TestProvider_Name(t *testing.T) {

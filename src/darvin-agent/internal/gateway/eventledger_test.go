@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 func TestSubscribeAndUnsubscribeAll(t *testing.T) {

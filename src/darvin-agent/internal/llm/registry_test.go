@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	// Side-effect import: registers the "anthropic" provider in init().
-	"darvin-cowork/backend/internal/agents/llm"
-	_ "darvin-cowork/backend/internal/agents/llm/anthropic"
+	"darvin-cowork/backend/internal/llm"
+	_ "darvin-cowork/backend/internal/llm/anthropic"
 )
 
 func TestNewProvider_Unknown(t *testing.T) {

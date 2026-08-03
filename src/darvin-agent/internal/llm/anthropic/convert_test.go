@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 func TestBuildRequest_RequiredFields(t *testing.T) {

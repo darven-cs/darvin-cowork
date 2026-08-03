@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // Config is the assembler's runtime configuration. The fields mirror the

@@ -37,7 +37,7 @@ type LogConfig struct {
 }
 
 // LLMConfig is the model-provider configuration block consumed by
-// internal/agents/llm.ProviderConfig. The provider name is matched against
+// internal/llm.ProviderConfig. The provider name is matched against
 // the registered factories in the llm package.
 type LLMConfig struct {
 	Provider string `mapstructure:"provider"`

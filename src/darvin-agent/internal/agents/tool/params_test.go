@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 func TestValidateArgsRequired(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // maxReadBytes is the default read_file window. Anything beyond is truncated

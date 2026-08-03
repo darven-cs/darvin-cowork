@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 type stubTool struct{ name string }

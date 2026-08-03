@@ -9,7 +9,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // fakeSummarizer is the Summarizer used in Compact tests. It records call

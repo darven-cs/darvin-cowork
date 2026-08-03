@@ -14,7 +14,7 @@ import (
 
 	"darvin-cowork/backend/internal/acp"
 	"darvin-cowork/backend/internal/agents"
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/agents/tool"
@@ -27,7 +27,7 @@ import (
 
 	// Blank import triggers anthropic.init() which registers the provider
 	// with llm.NewProvider's name-based factory registry.
-	_ "darvin-cowork/backend/internal/agents/llm/anthropic"
+	_ "darvin-cowork/backend/internal/llm/anthropic"
 )
 
 //go:embed resources/skills-bundled

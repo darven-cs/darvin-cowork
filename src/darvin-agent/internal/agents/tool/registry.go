@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // ErrAlreadyRegistered is returned by Register when a tool with the same

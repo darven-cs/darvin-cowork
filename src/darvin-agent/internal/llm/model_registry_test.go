@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"testing"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 func newTestModel(id, provider string) llm.ModelDescriptor {

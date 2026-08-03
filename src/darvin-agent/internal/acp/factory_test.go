@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"darvin-cowork/backend/internal/agents"
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/store"
 	"go.uber.org/zap"
 )

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // TestIngest_ContextCancelled verifies that a cancelled context surfaces

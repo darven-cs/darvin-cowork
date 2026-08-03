@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // streamEventName is the value of an Anthropic SSE "event:" line.
