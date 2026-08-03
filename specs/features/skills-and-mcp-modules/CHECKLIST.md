@@ -10,15 +10,14 @@
 
 ## 当前进度
 
-**进行中 2 / 9。** spec 31 Go 端骨架已提交。spec 32 Go ↔ Main IPC + main 端 SkillManager 全部落地（handlers / chokidar watcher / SQLite skill_state / darvin:list_skills / darvin:set_skill_enabled / darvin:push:skills-changed），待用户重启 Electron 验证 listSkills / setEnabled / fs watcher 三条路径。
+**进行中 1 / 9（spec 33 待人工重启验证 UI）；完成 3 / 9。** spec 31 / 32 / 34 已完成 + 提交。spec 34 mcp transport + JSON-RPC client 落地：Go 端 transport interface（stdio / http）+ JSON-RPC 2.0 client + types + CallWithRetry 指数退避；待用户重启 Electron 验证 main.go import 路径。
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
 | 31 | [skills-loader-and-registry](./2026-08-02-skills-loader-and-registry.md) | ✅ 完成 | 14/14 | Go 端 skills 骨架 |
 | 32 | [skills-ipc-and-bootstrap](./2026-08-02-skills-ipc-and-bootstrap.md) | ✅ 完成 | 9/9 | Go ↔ Main IPC + main 端 skillsManager |
-| 32 | [skills-ipc-and-bootstrap](./2026-08-02-skills-ipc-and-bootstrap.md) | ⏳ 待启动 | 0/9 | 31 完成后 |
 | 33 | [skills-renderer-view](./2026-08-02-skills-renderer-view.md) | 🚧 进行中 | 11/12（待人工重启验证 UI） | renderer SkillsView + 5 子组件 |
-| 34 | [mcp-transport-and-client](./2026-08-02-mcp-transport-and-client.md) | ⏳ 待启动 | 0/12 | 并行 32 |
+| 34 | [mcp-transport-and-client](./2026-08-02-mcp-transport-and-client.md) | ✅ 完成 | 12/12 | Go 端 stdio / http transport + JSON-RPC client |
 | 35 | [mcp-registry-and-launcher](./2026-08-02-mcp-registry-and-launcher.md) | ⏳ 待启动 | 0/13 | 34 完成后 |
 | 36 | [mcp-main-store-and-ipc](./2026-08-02-mcp-main-store-and-ipc.md) | ⏳ 待启动 | 0/11 | 34 + 35 完成后 |
 | 37 | [mcp-renderer-view](./2026-08-02-mcp-renderer-view.md) | ⏳ 待启动 | 0/8 | 36 完成后 |
@@ -111,18 +110,18 @@
 
 > Go 端 stdio + http transport + JSON-RPC 2.0 client。
 
-- [ ] `internal/mcp/transport/transport.go` Transport interface + Frame + ErrTransportClosed
-- [ ] `internal/mcp/transport/stdio.go` StdioTransport（spawn + Content-Length frame + SIGTERM/KILL）
-- [ ] `internal/mcp/transport/http.go` HTTPTransport（POST + headers + Mcp-Session-Id）
-- [ ] `internal/mcp/client.go` JSON-RPC Client（Call + Initialize + ListTools + CallTool）
-- [ ] `internal/mcp/types.go` Request / Response / RPCError / InitializeResult / ToolDescriptor / CallToolResult
-- [ ] `internal/mcp/client.go` CallWithRetry（指数退避最多 3 次）
-- [ ] `stdio_test.go` 6 用例（Connect / Send+Recv frame / 子进程崩溃 / Close）
-- [ ] `http_test.go` 5 用例（httptest mock / 200 OK / 500 错 / timeout）
-- [ ] `client_test.go` 6 用例（Initialize / ListTools / CallTool / RPC error / 序列化）
-- [ ] `reconnect_test.go` 3 用例（断开 → 重连 / RPC error 不重试 / 3 次上限）
-- [ ] cmd `main.go` import mcp（占位）
-- [ ] 状态：⏳ 待启动
+- [x] `internal/mcp/transport/transport.go` Transport interface + Frame + ErrTransportClosed
+- [x] `internal/mcp/transport/stdio.go` StdioTransport（spawn + Content-Length frame + SIGTERM/KILL）
+- [x] `internal/mcp/transport/http.go` HTTPTransport（POST + headers + Mcp-Session-Id）
+- [x] `internal/mcp/client.go` JSON-RPC Client（Call + Initialize + ListTools + CallTool）
+- [x] `internal/mcp/types.go` Request / Response / RPCError / InitializeResult / ToolDescriptor / CallToolResult
+- [x] `internal/mcp/client.go` CallWithRetry（指数退避最多 3 次）
+- [x] `stdio_test.go` 10 用例（Connect / Send+Recv frame × 2 / 子进程崩溃 / stderr drain / Close × 2 / Content-Length 缺失 / Reconnect）
+- [x] `http_test.go` 8 用例（Connect / Recv closed / 200 OK / 500 / timeout / Session-Id / custom headers / Close）
+- [x] `client_test.go` 12 用例 + 9 subtest（Call roundtrip / envelope / 单调 id / RPC error / id mismatch / dead transport / Initialize / ListTools / CallTool / 并发序列化 / Close / isConnectionError × 9）
+- [x] `reconnect_test.go` 5 用例（重连恢复 / RPC error 不重试 / 3 次上限 / 无 factory / 退避累积）
+- [x] cmd `main.go` import mcp（占位 `var _ = mcp.NewClient`）
+- [x] 状态：✅ 完成（35/35 Go test 通过，`go build ./...` + `go vet ./...` 干净，`npm run build:agent` 成功，`npm run lint` + `npm test` 全绿）
 
 ### 35 · mcp-registry-and-launcher
 
@@ -231,3 +230,4 @@
 - 2026-08-02 · spec 31 · Go 端 skills 骨架落地：types / frontmatter / loader(bundled+user) / registry / scanner / runner / bootstrap 全部实现并通过 `go test ./...`；bundled 5 个 SKILL.md 已 embed 到 `cmd/app/resources/skills-bundled/`；`cmd/app/main.go` 注入 SkillRegistry + SkillRunner。`go vet ./...` 干净，gofmt 在本批改动文件上干净，`npm run build:agent` 成功，`npm run lint` + `npm run test` 全绿。**待人工重启 Electron 验证启动日志**中出现 `skills: loaded ... bundled=5 user=0 total=5`。
 - 2026-08-02 · spec 32 · Go ↔ Main IPC + main 端 SkillManager 落地：Go 端 3 个 handler（agent.skills.list / set_enabled / bootstrap）+ EventLedger.Broadcast 推 `agent.skills.changed`；main 端独立 SQLite `skill-state.db` 持久化 enabled；chokidar 监听 `userData/darvin-agent/SKILLs/**/SKILL.md`；AgentClient 暴露 `skills.{list, setEnabled, bootstrap, onChanged}` 并新增 `agent.skills.changed` 通知路由；preload 暴露 `window.darvin.skills.{list, setEnabled, onChanged}`；main IPC 通道统一为 `darvin:list_skills` / `darvin:set_skill_enabled` + push `darvin:push:skills-changed`。`go test ./...` + `npm run lint` + `npm run test` + `npm run build:agent` 全绿。**live CDP 验证通过**：① `listSkills` 返 5 bundled；② toggle 后 list 反映；③ chokidar add / unlink 都触发 reload + push 通知（**修复了 chokidar `ignored` regex 命中 `.config` 祖先路径导致整棵子树不监听的 Linux-only bug，改用函数形式显式只对 root 内 basename 判 dotfile**）。已提交 `a11a45e`。
 - 2026-08-03 · spec 33 · SkillsView 落地：`shared/darvin-api.ts` 新增 `installSkill` / `uninstallSkill` / `upgradeSkill` / `getSkillDetails` 类型；`i18n.ts` +30 skill.* +4 common.*（assertSameKeys 17/17 通过）；preload 暴露 4 个新 IPC + main 端 4 个 stub handler；`useSkills` composable 走 singleton（refresh / 乐观更新 + 失败回滚 / install / uninstall / upgrade / 订阅 onChanged）+ 5/5 vitest 通过；5 个子组件 SkillCard / SkillMarketplace / SkillSecurityReportModal / SkillSettingsPanel / SkillDetailsModal 落地 + `index.ts` barrel + `plugin.svg` / `shield.svg` 图标；`SkillsView.vue` 三 tab 切换 + 2 modal；`AppShell.vue` 把 'skills' 从 PLACEHOLDERS 移到 main switch 直接走 SkillsView。`npm run lint` 干净 + `npm test` 162/162 通过。**待人工重启 Electron 验证** UI 渲染 + 4 个新 IPC handler（install / uninstall / upgrade / getDetails）跑通。
+- 2026-08-03 · spec 34 · mcp transport + JSON-RPC client 落地：`internal/mcp/transport/{transport.go, stdio.go, http.go}` + `internal/mcp/{types.go, client.go}` + 4 个 `_test.go`；`cmd/app/main.go` 加占位 import `var _ = mcp.NewClient`。stdio transport：spawn 子进程（`exec.CommandContext`）+ LSP 风格 `Content-Length: N\r\n\r\n` frame + 子进程 stderr → zap log goroutine + Close SIGTERM 5s → SIGKILL + alive atomic.Bool + 子进程崩溃自动标 dead。http transport：POST + `Content-Type: application/json` + `Accept: application/json, text/event-stream` + 自定义 headers + `Mcp-Session-Id` 自动捕获并加到下次请求 + 30s 默认 timeout（v0 不解析 SSE）。client：JSON-RPC 2.0 envelope（`Request/Response/RPCError`，id 用 `atomic.Int64` 单调递增，**不复用 gateway 的 `json.RawMessage` id 以避免跨包耦合**）+ `Call` 互斥锁序列化 Send/Recv + `Initialize`（协议版本 `2024-11-05`）+ `ListTools` + `CallTool` + `CallWithRetry(method, params, maxRetries, backoffBase)` 指数退避（默认 1s 翻倍 × 3 次）+ reconnect factory（调用方提供，避免 client 重建 transport 破坏生命周期）+ `isConnectionError` 区分 RPC 错误（不重试）和 transport 断开（重试）。**35/35 Go test 通过**：`stdio_test` 10 个（真子进程 cat + sh）+ `http_test` 8 个（`httptest.NewServer`）+ `client_test` 12 个 + `isConnectionError` 9 subtest（fake transport + onRecv callback 模式回填 request id 让 response-id 校验通过）+ `reconnect_test` 5 个。`go build ./...` + `go vet ./...` 干净，`npm run build:agent` 输出 `darvin-agent-linux-x64` 成功，`npm run lint` 干净，`npm test` 162/162 通过。**待人工重启 Electron 验证** `cmd/app/main.go` import 路径不破坏启动。

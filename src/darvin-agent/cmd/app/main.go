@@ -22,6 +22,7 @@ import (
 	"darvin-cowork/backend/internal/database"
 	"darvin-cowork/backend/internal/gateway"
 	"darvin-cowork/backend/internal/logger"
+	"darvin-cowork/backend/internal/mcp"
 	"darvin-cowork/backend/internal/skills"
 
 	// Blank import triggers anthropic.init() which registers the provider
@@ -31,6 +32,10 @@ import (
 
 //go:embed resources/skills-bundled
 var skillsBundled embed.FS
+
+// Reference mcp.NewClient so the import is not flagged as unused.
+// Production wiring (registry / launcher) comes in a later change.
+var _ = mcp.NewClient
 
 // configPath resolves config.yaml in three places, in order:
 //  1. $DARVIN_CONFIG, if set (lets Electron point at a project-local file)
