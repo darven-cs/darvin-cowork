@@ -132,13 +132,18 @@ func (LLMEndEvent) isAgentEvent()     {}
 func (LLMEndEvent) EventName() string { return "llm_end" }
 
 // ToolStartEvent is emitted before a tool is invoked. One per call when the
-// assistant issued multiple tool calls in a single turn.
+// assistant issued multiple tool calls in a single turn. ToolKind is empty
+// for built-ins, "skill" / "mcp" otherwise; SkillID and McpServerID are set
+// for the corresponding kind.
 type ToolStartEvent struct {
 	EventBase
-	TurnID    string
-	CallID    string
-	Name      string
-	Arguments map[string]any
+	TurnID      string
+	CallID      string
+	Name        string
+	ToolKind    string
+	SkillID     string
+	McpServerID string
+	Arguments   map[string]any
 }
 
 func (ToolStartEvent) isAgentEvent()     {}
@@ -148,9 +153,12 @@ func (ToolStartEvent) EventName() string { return "tool_start" }
 // inside the executor goroutine.
 type ToolEndEvent struct {
 	EventBase
-	CallID     string
-	Result     ToolResult
-	DurationMS int64
+	CallID      string
+	ToolKind    string
+	SkillID     string
+	McpServerID string
+	Result      ToolResult
+	DurationMS  int64
 }
 
 func (ToolEndEvent) isAgentEvent()     {}

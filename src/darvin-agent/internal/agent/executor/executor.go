@@ -326,12 +326,16 @@ func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, ec func(
 		wg.Add(1)
 		go func(i int, c llm.ToolCall) {
 			defer wg.Done()
+			kind, skillID, mcpServerID := entryAttrs(d.Tools(), c.Name)
 			d.Emit(event.ToolStartEvent{
-				EventBase: event.EventBase{EventCommon: ec()},
-				TurnID:    turnID,
-				CallID:    c.ID,
-				Name:      c.Name,
-				Arguments: c.Arguments,
+				EventBase:   event.EventBase{EventCommon: ec()},
+				TurnID:      turnID,
+				CallID:      c.ID,
+				Name:        c.Name,
+				ToolKind:    kind,
+				SkillID:     skillID,
+				McpServerID: mcpServerID,
+				Arguments:   c.Arguments,
 			})
 			tctx, cancel := context.WithTimeout(ctx, d.Config().ToolTimeout)
 			defer cancel()
@@ -340,8 +344,11 @@ func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, ec func(
 			// timeout — the modal needs up to its own 60s), tctx = tool timeout.
 			results[i] = executeOneTool(ctx, tctx, d, c)
 			d.Emit(event.ToolEndEvent{
-				EventBase: event.EventBase{EventCommon: ec()},
-				CallID:    c.ID,
+				EventBase:   event.EventBase{EventCommon: ec()},
+				CallID:      c.ID,
+				ToolKind:    kind,
+				SkillID:     skillID,
+				McpServerID: mcpServerID,
 				Result: event.ToolResult{
 					Content:  results[i].Content,
 					IsError:  results[i].IsError,
@@ -355,6 +362,24 @@ func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, ec func(
 	return results
 }
 
+// entryAttrs returns the kind + kind-specific identifiers for a tool from
+// its registry entry. Empty strings for unknown tools keep the events
+// backward-compatible with pre-kind registrations.
+func entryAttrs(reg *tool.Registry, name string) (kind, skillID, mcpServerID string) {
+	entry, ok := reg.GetEntry(name)
+	if !ok {
+		return "", "", ""
+	}
+	kind = string(entry.Kind)
+	if v, ok := entry.Metadata["skillID"].(string); ok {
+		skillID = v
+	}
+	if v, ok := entry.Metadata["mcpServerID"].(string); ok {
+		mcpServerID = v
+	}
+	return kind, skillID, mcpServerID
+}
+
 func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c llm.ToolCall) (res tool.Result) {
 	t := d.Tools().Get(c.Name)
 	if t == nil {
@@ -365,8 +390,8 @@ func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c llm.Too
 			res = tool.Result{IsError: true, Content: fmt.Sprintf("tool %q panicked: %v", c.Name, r)}
 		}
 	}()
-	// 权限门（spec 12）：越授权根 / 危险操作 → 请求用户审批。命中记住规则
-	// 时直接放行（不弹窗）。ctx（非 tctx）作为等待上下文，避免被工具超时提前砍掉。
+	// 越授权根 / 危险操作 → 请求用户审批。命中记住规则时直接放行（不弹
+	// 窗）。ctx（非 tctx）作为等待上下文，避免被工具超时提前砍掉。
 	if eval := d.EvaluatePermission(c.Name, c.Arguments); eval.Need {
 		allowed := d.HasPermissionRule(c.Name, eval.Level, eval.Reason)
 		if !allowed {
