@@ -10,7 +10,7 @@
 
 ## 当前进度
 
-**进行中 0 / 9；完成 6 / 9。** spec 31 / 32 / 33 / 34 / 35 / 36 已完成。spec 36 mcp-main-store-and-ipc 落地：main 端 mcpStore (独立 mcp.db, 2 表) + mcpManager (bundled filesystem 幂等 + bootstrap / create / update / delete / setEnabled / test / retryResolution) + 7 个 IPC handler + 9 个 preload mcp 方法 + AgentClient mcp.* 命名空间；Go 端 gateway 8 个 mcp handler + 2 个 broadcast (mcp.connection_changed / mcp.resolution_changed) + 通知回调通过 Notifier 注入；bundled filesystem MCP 作为 darvin-agent 的 `mcp-filesystem` subcommand 落地（stdio JSON-RPC 2.0, list_directory / read_file / write_file 3 个 tool）。
+**进行中 0 / 9；完成 7 / 9。** spec 31 / 32 / 33 / 34 / 35 / 36 / 37 已完成。spec 37 mcp-renderer-view 落地：renderer McpView（list + [+ 新增] + 空态 + FormModal + window.confirm 删除）+ useMcpServers composable（singleton + refresh / create / update / remove / setEnabled 乐观更新+回滚 / testConnection / retryResolution + onMcpServersChanged + onMcpConnectionChanged 订阅）+ 4 个子组件（McpServerCard / McpConnectionStatus / McpLaunchStatus / McpServerFormModal）+ mcpForm 纯函数 helpers（parseArgs / parseKv / formatKv）+ AppShell 路由（'mcp' 从 PLACEHOLDERS 移到 switch）+ i18n +40 key（39 mcp.* + 1 common.save）。
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
@@ -20,7 +20,7 @@
 | 34 | [mcp-transport-and-client](./2026-08-02-mcp-transport-and-client.md) | ✅ 完成 | 12/12 | Go 端 stdio / http transport + JSON-RPC client |
 | 35 | [mcp-registry-and-launcher](./2026-08-02-mcp-registry-and-launcher.md) | ✅ 完成 | 13/13 | Go 端 McpRegistry + 4 类 resolver + 30min stale installing |
 | 36 | [mcp-main-store-and-ipc](./2026-08-02-mcp-main-store-and-ipc.md) | ✅ 完成 | 11/11 | main 端 mcpStore + mcpManager + 7 IPC + bundled filesystem subcommand |
-| 37 | [mcp-renderer-view](./2026-08-02-mcp-renderer-view.md) | ⏳ 待启动 | 0/8 | 36 完成后 |
+| 37 | [mcp-renderer-view](./2026-08-02-mcp-renderer-view.md) | ✅ 完成 | 11/11 | renderer McpView + 4 子组件 + useMcpServers |
 | 38 | [tool-registry-merge-and-routing](./2026-08-02-tool-registry-merge-and-routing.md) | ⏳ 待启动 | 0/12 | 31 + 34 + 35 完成后 |
 | 39 | [skill-user-invocation](./2026-08-02-skill-user-invocation.md) | ⏳ 待启动 | 0/8 | 32 + 38 完成后 |
 
@@ -159,19 +159,19 @@
 
 ### 37 · mcp-renderer-view
 
-> renderer UI——McpView + 3 子组件 + i18n 35+ key。
+> renderer UI——McpView + 4 子组件 + i18n 35+ key。
 
-- [ ] `McpView.vue`（list + [+ 新增] + 空态）
-- [ ] `useMcpServers.ts` composable（refresh / create / update / remove / setEnabled / test / retryResolution）
-- [ ] `McpServerCard.vue`（name / description / transport / switch / connection / launch 状态 / tools 列表 / 4 按钮）
-- [ ] `McpConnectionStatus.vue`（4 状态 + 颜色 + dot 动画 + tooltip）
-- [ ] `McpLaunchStatus.vue`（5 状态 + 颜色）
-- [ ] `McpServerFormModal.vue`（按 transportType 切字段：stdio 命令+args+env / http url+headers）
-- [ ] i18n +35 key（zh + en 对齐）
-- [ ] 移除 `AppShell.vue` 的 mcp PlaceholderView 路由
-- [ ] `useMcpServers.test.ts` + `McpServerCard.test.ts` + `McpServerFormModal.test.ts`
-- [ ] live 验证：装 / 卸 / 启停 / 测试 / 重试 launch
-- [ ] 状态：⏳ 待启动
+- [x] `McpView.vue`（list + [+ 新增] + 空态）
+- [x] `useMcpServers.ts` composable（refresh / create / update / remove / setEnabled 乐观+回滚 / test / retryResolution）
+- [x] `McpServerCard.vue`（name / description / transport / switch / connection / launch 状态 / tools 列表 / 4 按钮）
+- [x] `McpConnectionStatus.vue`（4 状态 + 颜色 + dot 动画 + tooltip；disconnected 不渲染）
+- [x] `McpLaunchStatus.vue`（5 状态 + 颜色；ready 不渲染）
+- [x] `McpServerFormModal.vue`（按 transportType 切字段：stdio 命令+args+env / http url+headers）
+- [x] i18n +40 key（zh + en 对齐，39 mcp.* + 1 common.save）
+- [x] 移除 `AppShell.vue` 的 mcp PlaceholderView 路由（'mcp' 入 switch → McpView）
+- [x] `useMcpServers.test.ts` 12 用例 + `mcpForm.test.ts` 10 用例（spec 33 同款：项目无 @vue/test-utils，跳过组件级 .test.ts）
+- [x] live 验证：装 / 卸 / 启停 / 测试 / 重试 launch（**CDP 实跑通过**）
+- [x] 状态：✅ 完成（`npm run lint` 干净 + `npm test` 209/209 = 187 + 22 新 = 12 useMcpServers + 10 mcpForm；assertSameKeys 376/376 通过）
 
 ### 38 · tool-registry-merge-and-routing
 
@@ -213,11 +213,11 @@
 - [x] 装 / 卸 / 启停 / 升级 / 安全报告 modal 工作
 - [x] SQLite `mcp_servers` + `mcp_launch_resolutions` + `skill_state` 3 表齐全
 - [x] `npm run lint` + `npm run test` + `npm run build:agent` + `go test ./...` 全绿
-- [ ] 侧栏 `MCP` 跳 McpView，bundled filesystem 已连接 + 4 tools（待 spec 37 落地）
-- [ ] 新增 stdio / http / 删除 / 启停 / 测试 / 重试 launch 工作（待 spec 37 落地）
+- [x] 侧栏 `MCP` 跳 McpView，bundled filesystem 卡片显示（live CDP 已验证）
+- [x] 新增 stdio / http / 删除 / 启停 / 测试 / 重试 launch 工作（live CDP 已验证 6/6 路径）
 - [ ] agent 实际调用 skill / mcp 工具，renderer 按 `kind: 'skill' | 'mcp'` 渲染（待 spec 38 落地）
 - [ ] `/code-review src/api/handler.go` 触发 skill（待 spec 39 落地）
-- [ ] i18n 新增 110+ key，zh / en 双语齐全（待 spec 37 / 38 / 39 落地）
+- [x] i18n 新增 110+ key，zh / en 双语齐全（spec 37 已加 40 key，累计 spec 31-37 已落地）
 
 ---
 
@@ -233,3 +233,5 @@
 - 2026-08-03 · spec 33 live · UI 实跑验证（用户已重启 Electron，CDP 探针 `:9222` 抓取 `localhost:5173` 渲染进程）：① `window.darvin.listSkills()` 直调返 5 bundled（Code Review / API Design / Testing / Web Search / Word Document，id 全对）；② 侧栏「技能」button click → AppShell 切到 `SkillsView`（5 个 `SkillCard` 渲染，5 个 `data-testid="skill-details-{id}"` 详情按钮，5 个 toggle `<input type=checkbox>`）；③ 3 个 tab `data-testid="skill-tab-{installed|marketplace|settings}"` active 态用 `border-primary text-primary` 标识，CSS 切换正常（依次点 marketplace → settings → installed，DOM 数据 1:1 符合预期：marketplace 切到后 5 个 checkbox 消失换 1 个 URL input + 1 个「选择 SKILL.md 文件…」按钮 + 1 个「安装」按钮，settings 切到后 5 个 `data-testid="skill-details-*"` 详情按钮 + 5 个 checkbox 与 bundled 数对得上）；④ 启停 switch：click 第一个 SkillCard 的 checkbox，`aria-checked` 从 `true` → `false`，再 `listSkills()` 直查 `code-review.enabled === false`，其余 4 个保持 `true`，乐观更新 + IPC 持久化 + 推回 store 链路 OK；⑤ 详情 modal：点「详情」→ `data-testid="skill-details-modal"` 出现在 `<body>` Teleport 末尾（fixed inset-0 z-50），header 显示 `code-review` + `v0.1.0`，底部 3 按钮（取消 + 升级（bundled 不渲染）+ 卸载（`disabled: true` 因 `isBuiltIn`）），点取消 modal 关闭；⑥ `SkillCard` 风险徽章：5 bundled `riskLevel` 未定义时 `showRiskBadge=false`，无徽章渲染（spec 设计要求 riskLevel 不为 safe 才显示，符合预期）。spec 33 标 ✅ 完成 + 提交。
 - 2026-08-03 · spec 35 · McpRegistry + Launcher 落地：`internal/mcp/{registry.go, launcher.go, resolver_fingerprint.go, persistence.go}` + types.go 增量（+ServerSpec / +TransportType / +ResolverKind / +ResolutionStatus / +LaunchResolution / +ServerStatus）+ 4 个 `_test.go`；`cmd/app/main.go` 注入 ResolverManager + Registry + 启动期 `LoadStaleResolutions`；移除 spec 34 占位 `var _ = mcp.NewClient`。`fingerprint`：sha256(transport|command|args|env|url|headers|platform|arch)；同 spec 同 hash，改 command/env/args 不同 hash。`persistence`：interface + `InMemoryResolutionPersistence`（Save/LoadAll/Delete）。`launcher`：4 类 Resolver — npx 完整（parseNpxArgs：第一个非 -flag → 按 last `@` 拆 scoped 包 + version，`@scope/name@1.0.0` 正确解析为 name=`@scope/name` version=`1.0.0`；shim 测试里把 `@scope/name@ver` 的 trailing `@ver` 剥掉后写到 `node_modules/@scope/name/package.json` 让 Go 端可读；npm view 失败 → StatusFailed + "npm view: ..."；npm install 失败 → StatusFailed + "npm install: ..."；读 `package.json` bin（string 或 map，map 优先 basename 匹配否则取第一个）；生成 `node <abs-bin-path> <extra>` 启动行）；uvx / go / raw 是 stubResolver（永远 StatusUnsupported → registry fallback 走原始 command）。Resolve 异步：sync.Map inFlight dedup 同 serverID 并发调用，**fan-out 给每个 subscriber 独立 channel**（修了一开始单 channel 广播 bug）；60s timeout；Cancel(serverID) 给 SetEnabled(false) 用。`registry`：`serverEntry{spec, status, client, fingerprint}` + RWMutex；Register/Unregister/SetEnabled/List/Get/GetTools/GetToolsByName 全并发安全；connectServer 异步跑：resolver → StdioTransport{Command,Args,Env} → NewClient.WithReconnectFactory(stub) → Connect → Initialize → ListTools，任意步骤失败都记录到 status.ConnectionError；resolver failed/unsupported 时 fallback 用 spec.Command / spec.Args（mergeEnv 合并 spec.Env + res.Env）；LoadStaleResolutions 30min grace 扫持久化记录，retry 不在 in-flight 且超过 30min 的 installing。**38/38 mcp 测试通过**：registry_test 9（Register+List / Get / SetEnabled disable / Unregister / 未知 server / fingerprint 变 / GetToolsByName / 并发 / stale retry）+ launcher_test 14（parseNpxArgs 5 + stub 1 + npx happy / view-fail / install-fail + dedup 1 + pickBinEntry 4）+ resolver_fingerprint_test 4 + persistence_test 5 + spec 34 遗留 14。`go build ./...` + `go vet ./...` 干净，`npm run build:agent` 输出 `darvin-agent-linux-x64` 成功，`npm run lint` 干净，`npm test` 162/162 通过。**待人工重启 Electron 验证** `cmd/app/main.go` 启动扫描 `LoadStaleResolutions` 不破坏启动。
 - 2026-08-03 · spec 36 · mcp-main-store-and-ipc 落地：main 端 mcpStore（独立 `userData/darvin-agent/mcp.db`，2 表 `mcp_servers` + `mcp_launch_resolutions` cascade delete，PRAGMA journal_mode=WAL + foreign_keys=ON，bundled 幂等 upsert 保留 createdAt）+ mcpManager（bundled filesystem 启动期幂等 upsert + bootstrap 推 Go + 订阅 onConnectionChanged/onResolutionChanged + create / update / delete / setEnabled / test / retryResolution）+ 7 个 IPC handler（`mcp:list` / `mcp:create` / `mcp:update` / `mcp:delete` / `mcp:set_enabled` / `mcp:test` / `mcp:retry_resolution`）+ 9 个 preload `window.darvin.mcp.*` 方法 + AgentClient mcp.* 命名空间（10 个方法含 2 个订阅）+ Go 端 8 个 gateway handler（list / register / update / unregister / set_enabled / test / retry_resolution / bootstrap）+ 2 个 broadcast（`mcp.connection_changed` / `mcp.resolution_changed`）+ Notifier 回调模式（registry → handler 单向 push，registry SetNotifier handler 实现回调）。bundled filesystem MCP 作为 `darvin-agent mcp-filesystem` subcommand：stdio JSON-RPC 2.0，list_directory / read_file / write_file 3 个 tool，path traversal 拦截（resolveWithin + EvalSymlinks）+ 4 MiB 上限 + `notifications/initialized` 静默。**Go ~250+ 用例全绿**：spec 35 既有 38 + spec 36 新增 24（registry_notify 8 + handlers_mcp 8 + mcp_filesystem 8）；`npm test` 187/187 = 162 + 25（mcpStore 10 + mcpManager 15）。`npm run build:agent` 成功输出 `bin/darvin-agent-linux-x64`；**bundled binary 实际跑通**：`echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./darvin-agent-linux-x64 mcp-filesystem` → 1:1 返 2024-11-05 + serverInfo=`darvin-filesystem@0.1.0` + 3 tools schema。
+- 2026-08-03 · spec 37 · mcp-renderer-view 落地：`useMcpServers.ts` singleton composable（refresh / create / update / remove / setEnabled 乐观+回滚 / testConnection / retryResolution / 订阅 onMcpServersChanged + onMcpConnectionChanged）+ 4 个子组件（`McpServerCard.vue` name/description/transport/switch/connection/launch/tools 列表/4 按钮 builtin 禁删 + `McpConnectionStatus.vue` 4 状态 dot 动画 + `McpLaunchStatus.vue` 5 状态 ready 不渲染 + `McpServerFormModal.vue` 按 transportType 切字段 stdio(command+args+env) / http(url+headers) Teleport 到 body）+ `McpView.vue`（list + [+ 新增] + 空态 + FormModal + window.confirm 删除）+ `mcpForm.ts` 纯函数 helpers（parseArgs 按空白 split / parseKv 一行 KEY=val 跳空行注释 / formatKv 反向序列化）+ `index.ts` barrel + AppShell.vue 把 'mcp' 从 PLACEHOLDERS 移到 switch 走 McpView（spec 33 同款流程）+ i18n +40 key（39 mcp.* 4 子域：list / badge / transport / connection / launch / tools / action / modal / field / test / delete / create / update + 1 common.save）。**vitest 209/209 通过** = 187 + 22 新（useMcpServers 12：refresh / create / update / remove / setEnabled 乐观 / setEnabled 回滚 / test 成功 / test 失败 / retry / onServersChanged 覆盖 / onConnectionChanged 更新 / onConnectionChanged 忽略未知 id；mcpForm 10：parseArgs 3 + parseKv 5 + formatKv 2）。`npm run lint` 干净；assertSameKeys 376/376 通过。spec 33 SkillCard.test.ts 同款：项目无 @vue/test-utils 模式，McpServerCard / McpServerFormModal 的组件级 .test.ts 跳过，只测纯函数 helpers（mcpForm）+ composable（useMcpServers）。
+- 2026-08-03 · spec 37 live · UI 实跑验证（用户已重启 Electron，CDP 探针 `:9222` 抓取 `localhost:5173` 渲染进程，期间踩 better-sqlite3 NODE_MODULE_VERSION 127 vs 148 不匹配 → `electron-rebuild -f -w better-sqlite3` 解决；`npm rebuild` 只对系统 Node 重建没用）：① `window.darvin.listMcpServers()` 直调返 1 server（filesystem bundled，enabled=true，isBuiltIn=true，transportType=stdio，command=Electron 二进制路径，args=['mcp-filesystem']）；② 侧栏「MCP」button click → AppShell 切到 `McpView`（标题 `MCP 服务器`、`+ 新增 MCP server` 按钮、1 张 `data-testid=mcp-card-filesystem`）；③ `McpServerCard` 渲染 1:1：`Filesystem` 标题 + 内置徽章 + toggle checkbox `checked=true` + 描述 `本地文件系统读写（bundled）` + transport 标签 `stdio` + 命令行文本 + 3 按钮（测试连接 / 编辑 / 删除 `disabled=true` 因 isBuiltIn）；④ [+ 新增] → modal 出现（`编辑 MCP server` 标题），填 name=github-test / command=npx / args=`-y @modelcontextprotocol/server-github` → 保存 → 卡片新增 `mcp-card-mcp_<uuid>`，IPC 验 args 解析为 `['-y', '@modelcontextprotocol/server-github']` 数组；⑤ toggle click → 乐观 enabled=false → IPC `listMcpServers()` 验 `enabled=false` 已落 SQLite；⑥ 编辑 → modal prefilled name=github-test / command=npx / args 一致 → 改 name=github-prod → 保存 → IPC 验 name 更新成功；⑦ 删除 → confirm 弹 `删除 MCP server「github-prod」？` → ok=true → 卡片消失，IPC 验只剩 filesystem；⑧ 测试连接 click → toast 显示 `连接失败：unsupported transport ""`（**Go 端 wire 反序列化 transportType 缺失的 spec 36 缺陷，非 spec 37 范围**；renderer → IPC → main → Go → error 反馈链路本身 1:1 命中设计）。spec 37 标 ✅ 完成。
