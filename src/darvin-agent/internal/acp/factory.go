@@ -8,7 +8,7 @@ import (
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
-	"darvin-cowork/backend/internal/agents/tool"
+	"darvin-cowork/backend/internal/tools"
 )
 
 // AgentFactory 携带构建一个 *agent.Agent 所需的共享依赖;main.go 构造

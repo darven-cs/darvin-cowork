@@ -15,7 +15,7 @@ import (
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/queue"
-	"darvin-cowork/backend/internal/agents/tool"
+	"darvin-cowork/backend/internal/tools"
 )
 
 const (

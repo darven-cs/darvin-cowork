@@ -7,7 +7,7 @@ import (
 
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/llm"
-	"darvin-cowork/backend/internal/agents/tool"
+	"darvin-cowork/backend/internal/tools"
 )
 
 // toolUseScript drives one tool call then a stop turn, matching the

@@ -10,7 +10,7 @@ import (
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
-	"darvin-cowork/backend/internal/agents/tool"
+	"darvin-cowork/backend/internal/tools"
 )
 
 // scriptedProvider is a minimal llm.ModelProvider that returns the same

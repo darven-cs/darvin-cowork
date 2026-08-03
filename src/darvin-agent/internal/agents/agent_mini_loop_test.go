@@ -7,7 +7,7 @@ import (
 
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
-	"darvin-cowork/backend/internal/agents/tool"
+	"darvin-cowork/backend/internal/tools"
 )
 
 // recordingProvider captures the last CompletionRequest so the test can

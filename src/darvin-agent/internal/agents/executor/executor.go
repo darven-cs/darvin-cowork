@@ -16,7 +16,7 @@ import (
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
-	"darvin-cowork/backend/internal/agents/tool"
+	"darvin-cowork/backend/internal/tools"
 )
 
 // ErrMaxTurns is returned by RunConversation when the loop reaches the

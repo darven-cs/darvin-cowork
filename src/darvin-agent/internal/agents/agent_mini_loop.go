@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"darvin-cowork/backend/internal/agents/tool"
+	"darvin-cowork/backend/internal/tools"
 )
 
 // RunSkillSession drives one user-invoked skill turn through the same
