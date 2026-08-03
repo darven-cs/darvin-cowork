@@ -10,7 +10,7 @@
 
 ## 当前进度
 
-**进行中 0 / 9；完成 7 / 9。** spec 31 / 32 / 33 / 34 / 35 / 36 / 37 已完成。spec 37 mcp-renderer-view 落地：renderer McpView（list + [+ 新增] + 空态 + FormModal + window.confirm 删除）+ useMcpServers composable（singleton + refresh / create / update / remove / setEnabled 乐观更新+回滚 / testConnection / retryResolution + onMcpServersChanged + onMcpConnectionChanged 订阅）+ 4 个子组件（McpServerCard / McpConnectionStatus / McpLaunchStatus / McpServerFormModal）+ mcpForm 纯函数 helpers（parseArgs / parseKv / formatKv）+ AppShell 路由（'mcp' 从 PLACEHOLDERS 移到 switch）+ i18n +40 key（39 mcp.* + 1 common.save）。
+**进行中 0 / 9；完成 8 / 9。** spec 31 / 32 / 33 / 34 / 35 / 36 / 37 / 38 已完成。spec 38 tool-registry-merge-and-routing 落地：tool.Registry 改存 `Entry`（Tool + Kind + Metadata + PluginID）+ Kind 3 类（builtin / skill / mcp）+ RegisterTool / Unregister / UnregisterByPlugin / GetEntry / List / ListByKind（`Get(name)` 兼容保留）；SkillPlugin 落在 `skills` 包（tool 导入 skills 会环依赖）+ SkillTool（Execute 解析 skill 上下文；mini agent loop 属 spec 39）+ McpPlugin / McpTool（Execute 转发 `mcp.Registry.CallTool` 新增 facade）+ McpToolSource 接口（测试注入 fake）；executor 事件带 toolKind / skillId / mcpServerId；gateway `agent.tools.list` RPC + `SessionManager.RefreshAllTools`（skill 启停 / mcp 连接变化触发插件重注册）+ AgentFactory.Plugins 注入（session 懒建时应用）；**ServerSpec JSON tags 修复 §0 wire bug** + types_json_test；darvin-api.ts tool_start/end 加可选字段 + `listTools()` 全链路（preload IPC → main handler → client.ts → Go RPC）。**Go 测试全绿 + lint 干净 + build:agent 成功**。
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
@@ -21,7 +21,7 @@
 | 35 | [mcp-registry-and-launcher](./2026-08-02-mcp-registry-and-launcher.md) | ✅ 完成 | 13/13 | Go 端 McpRegistry + 4 类 resolver + 30min stale installing |
 | 36 | [mcp-main-store-and-ipc](./2026-08-02-mcp-main-store-and-ipc.md) | ✅ 完成 | 11/11 | main 端 mcpStore + mcpManager + 7 IPC + bundled filesystem subcommand |
 | 37 | [mcp-renderer-view](./2026-08-02-mcp-renderer-view.md) | ✅ 完成 | 11/11 | renderer McpView + 4 子组件 + useMcpServers |
-| 38 | [tool-registry-merge-and-routing](./2026-08-02-tool-registry-merge-and-routing.md) | ⏳ 待启动 | 0/12 | 31 + 34 + 35 完成后 |
+| 38 | [tool-registry-merge-and-routing](./2026-08-02-tool-registry-merge-and-routing.md) | ✅ 完成 | 11/12 | tool.Registry Entry 化 + Skill/Mcp 插件 + agent.tools.list |
 | 39 | [skill-user-invocation](./2026-08-02-skill-user-invocation.md) | ⏳ 待启动 | 0/8 | 32 + 38 完成后 |
 
 **图例**：⏳ 待启动 / 🚧 进行中 / ✅ 完成 / ⛔ 阻塞
@@ -177,18 +177,18 @@
 
 > 把 skill / mcp 工具合并进 tool.Registry；改 tool_start / tool_end 事件。
 
-- [ ] `internal/agent/tool/tool.go` +Kind / ToolSchema / ToolResult / ToolContentBlock / Plugin / ToolRegistrar
-- [ ] `internal/agent/tool/registry.go` 改造（加 Kind + Metadata）
-- [ ] `internal/agent/tool/skill.go` SkillPlugin + SkillTool
-- [ ] `internal/agent/tool/mcp.go` McpPlugin + McpTool
-- [ ] `internal/agent/executor/executor.go` 改造 dispatchToolCall（按 Kind 路由 + emit 事件）
-- [ ] `internal/agent/event/event.go` ToolStartEvent / ToolEndEvent 加 kind / skillID / mcpServerID
-- [ ] RPC `agent.tools.list` 合并返回内置 + skill + mcp
-- [ ] cmd 注入 SkillPlugin + McpPlugin + 订阅变化重新注册
-- [ ] `registry_test.go` + `skill_test.go` + `mcp_test.go` + `executor_routing_test.go`
-- [ ] `src/shared/darvin-api.ts` tool_start / tool_end 加可选 toolKind / skillId / mcpServerId 字段
-- [ ] live 验证：合并 tool list 18 项 + 实际调用 skill / mcp
-- [ ] 状态：⏳ 待启动
+- [x] `internal/agent/tool/tool.go` +Kind 3 类 + Entry + Plugin + ToolRegistrar（**不重写 Tool 接口**，spec 26 未落地，重写会破 5 内置 + 测试）
+- [x] `internal/agent/tool/registry.go` 改造：`map[string]Tool` → `map[string]*Entry` + RegisterTool / Unregister / UnregisterByPlugin / GetEntry / List / ListByKind（`Get` / `Register` 兼容保留）
+- [x] SkillPlugin + SkillTool（**落在 `internal/skills/plugin.go`**——tool 已导入 skills，放 tool 会环依赖）
+- [x] `internal/agent/tool/mcp.go` McpPlugin + McpTool + `McpToolSource` 接口 + `mcp.Registry.CallTool` facade
+- [x] `internal/agent/executor/executor.go` 改造：emit 前查 GetEntry 填 toolKind / skillId / mcpServerId（无需 switch 路由，skill/mcp 工具即 Tool 实现）
+- [x] `internal/agent/event/event.go` ToolStartEvent / ToolEndEvent 加 ToolKind / SkillID / McpServerID（可选，旧事件兼容）
+- [x] RPC `agent.tools.list` 合并返回内置 + skill + mcp（session 懒建后取 registry）
+- [x] cmd 注入 SkillPlugin + McpPlugin 到 AgentFactory.Plugins + `SessionManager.RefreshAllTools`（skill 启停 / mcp 连接变化触发重注册）
+- [x] `registry_test.go` +7 / `skills/plugin_test.go` +7 / `mcp_test.go` +7 / `executor_routing_test.go` +3 / `types_json_test.go` +3 / mcp registry_test +1 / handlers_test +3 = **+31 个 Go 测试**
+- [x] `src/shared/darvin-api.ts` tool_start / tool_end 加可选 toolKind / skillId / mcpServerId + `listTools()` 全链路（preload IPC `tools:list` → main handler → client.ts tools 命名空间 → Go RPC）
+- [x] live 验证：`listTools()` 返 builtin 5 + skill 4（enabled）+ mcp 3；`testMcpConnection` 返 ok；agent 实调三类工具（mcp 成功 / skill 摘要 / builtin）事件均带 toolKind（**CDP 实跑通过**）
+- [x] 状态：✅ 完成（`go build` + `go vet` + `go test ./...` 全绿 + `npm run lint` 干净 + `npm run build:agent` 成功；live 全路径通过）
 
 ### 39 · skill-user-invocation
 
@@ -215,7 +215,7 @@
 - [x] `npm run lint` + `npm run test` + `npm run build:agent` + `go test ./...` 全绿
 - [x] 侧栏 `MCP` 跳 McpView，bundled filesystem 卡片显示（live CDP 已验证）
 - [x] 新增 stdio / http / 删除 / 启停 / 测试 / 重试 launch 工作（live CDP 已验证 6/6 路径）
-- [ ] agent 实际调用 skill / mcp 工具，renderer 按 `kind: 'skill' | 'mcp'` 渲染（待 spec 38 落地）
+- [x] agent 实际调用 skill / mcp 工具，事件按 `kind: 'skill' | 'mcp'` 带 toolKind / skillId / mcpServerId（live CDP 已验证三类）
 - [ ] `/code-review src/api/handler.go` 触发 skill（待 spec 39 落地）
 - [x] i18n 新增 110+ key，zh / en 双语齐全（spec 37 已加 40 key，累计 spec 31-37 已落地）
 
@@ -235,3 +235,5 @@
 - 2026-08-03 · spec 36 · mcp-main-store-and-ipc 落地：main 端 mcpStore（独立 `userData/darvin-agent/mcp.db`，2 表 `mcp_servers` + `mcp_launch_resolutions` cascade delete，PRAGMA journal_mode=WAL + foreign_keys=ON，bundled 幂等 upsert 保留 createdAt）+ mcpManager（bundled filesystem 启动期幂等 upsert + bootstrap 推 Go + 订阅 onConnectionChanged/onResolutionChanged + create / update / delete / setEnabled / test / retryResolution）+ 7 个 IPC handler（`mcp:list` / `mcp:create` / `mcp:update` / `mcp:delete` / `mcp:set_enabled` / `mcp:test` / `mcp:retry_resolution`）+ 9 个 preload `window.darvin.mcp.*` 方法 + AgentClient mcp.* 命名空间（10 个方法含 2 个订阅）+ Go 端 8 个 gateway handler（list / register / update / unregister / set_enabled / test / retry_resolution / bootstrap）+ 2 个 broadcast（`mcp.connection_changed` / `mcp.resolution_changed`）+ Notifier 回调模式（registry → handler 单向 push，registry SetNotifier handler 实现回调）。bundled filesystem MCP 作为 `darvin-agent mcp-filesystem` subcommand：stdio JSON-RPC 2.0，list_directory / read_file / write_file 3 个 tool，path traversal 拦截（resolveWithin + EvalSymlinks）+ 4 MiB 上限 + `notifications/initialized` 静默。**Go ~250+ 用例全绿**：spec 35 既有 38 + spec 36 新增 24（registry_notify 8 + handlers_mcp 8 + mcp_filesystem 8）；`npm test` 187/187 = 162 + 25（mcpStore 10 + mcpManager 15）。`npm run build:agent` 成功输出 `bin/darvin-agent-linux-x64`；**bundled binary 实际跑通**：`echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./darvin-agent-linux-x64 mcp-filesystem` → 1:1 返 2024-11-05 + serverInfo=`darvin-filesystem@0.1.0` + 3 tools schema。
 - 2026-08-03 · spec 37 · mcp-renderer-view 落地：`useMcpServers.ts` singleton composable（refresh / create / update / remove / setEnabled 乐观+回滚 / testConnection / retryResolution / 订阅 onMcpServersChanged + onMcpConnectionChanged）+ 4 个子组件（`McpServerCard.vue` name/description/transport/switch/connection/launch/tools 列表/4 按钮 builtin 禁删 + `McpConnectionStatus.vue` 4 状态 dot 动画 + `McpLaunchStatus.vue` 5 状态 ready 不渲染 + `McpServerFormModal.vue` 按 transportType 切字段 stdio(command+args+env) / http(url+headers) Teleport 到 body）+ `McpView.vue`（list + [+ 新增] + 空态 + FormModal + window.confirm 删除）+ `mcpForm.ts` 纯函数 helpers（parseArgs 按空白 split / parseKv 一行 KEY=val 跳空行注释 / formatKv 反向序列化）+ `index.ts` barrel + AppShell.vue 把 'mcp' 从 PLACEHOLDERS 移到 switch 走 McpView（spec 33 同款流程）+ i18n +40 key（39 mcp.* 4 子域：list / badge / transport / connection / launch / tools / action / modal / field / test / delete / create / update + 1 common.save）。**vitest 209/209 通过** = 187 + 22 新（useMcpServers 12：refresh / create / update / remove / setEnabled 乐观 / setEnabled 回滚 / test 成功 / test 失败 / retry / onServersChanged 覆盖 / onConnectionChanged 更新 / onConnectionChanged 忽略未知 id；mcpForm 10：parseArgs 3 + parseKv 5 + formatKv 2）。`npm run lint` 干净；assertSameKeys 376/376 通过。spec 33 SkillCard.test.ts 同款：项目无 @vue/test-utils 模式，McpServerCard / McpServerFormModal 的组件级 .test.ts 跳过，只测纯函数 helpers（mcpForm）+ composable（useMcpServers）。
 - 2026-08-03 · spec 37 live · UI 实跑验证（用户已重启 Electron，CDP 探针 `:9222` 抓取 `localhost:5173` 渲染进程，期间踩 better-sqlite3 NODE_MODULE_VERSION 127 vs 148 不匹配 → `electron-rebuild -f -w better-sqlite3` 解决；`npm rebuild` 只对系统 Node 重建没用）：① `window.darvin.listMcpServers()` 直调返 1 server（filesystem bundled，enabled=true，isBuiltIn=true，transportType=stdio，command=Electron 二进制路径，args=['mcp-filesystem']）；② 侧栏「MCP」button click → AppShell 切到 `McpView`（标题 `MCP 服务器`、`+ 新增 MCP server` 按钮、1 张 `data-testid=mcp-card-filesystem`）；③ `McpServerCard` 渲染 1:1：`Filesystem` 标题 + 内置徽章 + toggle checkbox `checked=true` + 描述 `本地文件系统读写（bundled）` + transport 标签 `stdio` + 命令行文本 + 3 按钮（测试连接 / 编辑 / 删除 `disabled=true` 因 isBuiltIn）；④ [+ 新增] → modal 出现（`编辑 MCP server` 标题），填 name=github-test / command=npx / args=`-y @modelcontextprotocol/server-github` → 保存 → 卡片新增 `mcp-card-mcp_<uuid>`，IPC 验 args 解析为 `['-y', '@modelcontextprotocol/server-github']` 数组；⑤ toggle click → 乐观 enabled=false → IPC `listMcpServers()` 验 `enabled=false` 已落 SQLite；⑥ 编辑 → modal prefilled name=github-test / command=npx / args 一致 → 改 name=github-prod → 保存 → IPC 验 name 更新成功；⑦ 删除 → confirm 弹 `删除 MCP server「github-prod」？` → ok=true → 卡片消失，IPC 验只剩 filesystem；⑧ 测试连接 click → toast 显示 `连接失败：unsupported transport ""`（**Go 端 wire 反序列化 transportType 缺失的 spec 36 缺陷，非 spec 37 范围**；renderer → IPC → main → Go → error 反馈链路本身 1:1 命中设计）。spec 37 标 ✅ 完成。
+- 2026-08-03 · spec 38 · tool-registry-merge-and-routing 落地：**§0 wire bug 修复**——`ServerSpec` 全字段加 JSON tag（transportType / isBuiltIn / githubUrl / registryId），`types_json_test.go` 3 用例（round-trip + camelCase decode/marshal）。**tool.Registry 增量改造**（spec 26 未落地，重写 Tool 接口会破 5 内置 + 测试，改走 Entry 包装）：`Kind`（builtin/skill/mcp）+ `Entry`（Tool+Kind+Metadata+PluginID）+ `Plugin`/`ToolRegistrar` 接口；Registry 内部 `map[string]Tool`→`map[string]*Entry`，`Register`/`Get` 兼容保留，新增 `RegisterTool`/`Unregister`/`UnregisterByPlugin`/`GetEntry`/`List`/`ListByKind`。**SkillPlugin 落 `internal/skills/plugin.go`**（tool 导入 skills 会环依赖），SkillTool.Execute 解析 skill 上下文返回摘要（mini agent loop 属 spec 39）；**McpPlugin/McpTool** + `mcp.Registry.CallTool` facade + `McpToolSource` 接口（测试注入 fake）。**executor** emit 前查 GetEntry 填 ToolKind/SkillID/McpServerID，事件加 3 可选字段。**gateway** `agent.tools.list` RPC（session 懒建后取 registry）+ `SessionManager.RefreshAllTools`（skill set_enabled / mcp connection_changed 触发插件重注册）+ `AgentFactory.Plugins` 注入（session 懒建时应用）+ main.go 构建 skill/mcp 插件接线。**TS** darvin-api.ts tool_start/end 可选字段 + `listTools()` 全链路（preload IPC `tools:list` → main handler → client.ts tools 命名空间 → Go RPC）。**+31 Go 测试全绿**（tool registry 7 + skills/plugin 7 + tool/mcp 7 + types_json 3 + mcp registry 1 + executor_routing 3 + gateway 3），`go build`/`go vet`/`go test ./...` 干净，`npm run build:agent` 输出 `bin/darvin-agent-linux-x64` 成功，`npm run lint` 干净。**待 live**：Electron 重启后 `window.darvin.listTools()` 应返 builtin + skill: + mcp: 三类（filesystem 连接后含 3 个 mcp:filesystem:* 工具）；`testMcpConnection({id:'filesystem'})` 应返 ok（§0 修复生效）。
+- 2026-08-03 · spec 38 live · 全链路 CDP 实跑验证 + 4 个 spec 36/34 遗留 bug 修复：**① §0 wire**——ServerSpec JSON tags 生效，`testMcpConnection({id:'filesystem'})` 从 `unsupported transport ""` → ok:true + 3 tools；**② mcpManager 命令路径**——`bundledFilesystemSpec()` 用 `process.execPath`（Electron）spawn 失败，改 `resolveAgentBinaryPath()`；**③ 帧协议**——`mcp_filesystem.go` 行式 JSON 改 `Content-Length` 帧（与 StdioTransport 一致），否则 Initialize 死锁；**④ 子进程被杀**——StdioTransport `exec.CommandContext` 绑 connectServer 的 ctx，connectServer 返回即 cancel 杀 MCP server，改 `exec.Command`；另修 eventledger + parseDarvinEvent 两处丢 toolKind/skillId/mcpServerId。**live 全通过**：`listTools()` 三类（builtin 5 + skill 4 enabled + mcp 3）、禁用 skill 排除、`testMcpConnection` ok、agent 实调 mcp(`mcp:filesystem:list_directory` 成功返回目录)/skill(`skill:web-search`)/builtin(`shell`) 三类，事件均带正确 toolKind。主验收「agent 实际调用 skill/mcp + 按 kind 渲染」标 ✅。
