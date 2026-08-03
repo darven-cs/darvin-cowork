@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
@@ -18,7 +17,6 @@ import (
 
 	"darvin-cowork/backend/internal/acp"
 	"darvin-cowork/backend/internal/agents"
-	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/llm"
@@ -553,12 +551,8 @@ func TestHandlePrompt_RoutesBySessionID(t *testing.T) {
 
 	entryA, _ := c.sessions.GetOrCreateEntry("a")
 	entryB, _ := c.sessions.GetOrCreateEntry("b")
-	subA := entryA.Acp.Agent.Subscribe(8)
-	subB := entryB.Acp.Agent.Subscribe(8)
-	defer subA.Unsubscribe()
-	defer subB.Unsubscribe()
-	waitForSubEvent(t, subA)
-	waitForSubEvent(t, subB)
+	waitForActiveRun(t, entryA.Acp)
+	waitForActiveRun(t, entryB.Acp)
 	if got := entryA.Acp.Loop.ActiveRunID(); got == "" {
 		t.Errorf("a ActiveRunID is empty; expected in-flight")
 	}
@@ -590,12 +584,8 @@ func TestHandleAbort_RoutesBySessionIDAndRunID(t *testing.T) {
 
 	entryA, _ := c.sessions.GetOrCreateEntry("a")
 	entryB, _ := c.sessions.GetOrCreateEntry("b")
-	subA := entryA.Acp.Agent.Subscribe(8)
-	subB := entryB.Acp.Agent.Subscribe(8)
-	defer subA.Unsubscribe()
-	defer subB.Unsubscribe()
-	waitForSubEvent(t, subA)
-	waitForSubEvent(t, subB)
+	waitForActiveRun(t, entryA.Acp)
+	waitForActiveRun(t, entryB.Acp)
 
 	abortResp := dispatchRequest(context.Background(), &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"3"`), Method: "agent.abort",
@@ -626,9 +616,7 @@ func TestHandlePrompt_QueuedForActiveSession(t *testing.T) {
 		t.Fatalf("first prompt should not be queued")
 	}
 	entryA, _ := c.sessions.GetOrCreateEntry("a")
-	subA := entryA.Acp.Agent.Subscribe(8)
-	defer subA.Unsubscribe()
-	waitForSubEvent(t, subA)
+	waitForActiveRun(t, entryA.Acp)
 
 	second := dispatchRequest(context.Background(), &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.prompt",
@@ -669,15 +657,12 @@ func TestHandleSubscribeEvents_BuildsEntryNotAcp(t *testing.T) {
 	}
 }
 
-// waitForSubEvent 等订阅拿到任意事件,证明 Loop.run goroutine 已取出
-// 请求并设了 activeRun。
-func waitForSubEvent(t *testing.T, sub *event.Subscription) {
+// waitForActiveRun 轮询 Loop.ActiveRunID 证明 prompt 已取出并设了
+// activeRun。基于状态而非订阅事件,避免"订阅晚于事件 burst"导致
+// waitForSubEvent 空等超时的竞态。
+func waitForActiveRun(t *testing.T, sess *acp.AcpSession) {
 	t.Helper()
-	select {
-	case <-sub.C():
-	case <-time.After(2 * time.Second):
-		t.Fatal("agent did not start running")
-	}
+	waitForCondition(t, func() bool { return sess.Loop.ActiveRunID() != "" })
 }
 
 // TestHandler_CreateSession covers agent.create_session: it walks the
