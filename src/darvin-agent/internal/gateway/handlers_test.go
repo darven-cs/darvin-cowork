@@ -22,6 +22,7 @@ import (
 	"darvin-cowork/backend/internal/agent/llm"
 	"darvin-cowork/backend/internal/agent/session"
 	"darvin-cowork/backend/internal/agent/store"
+	"darvin-cowork/backend/internal/agent/tool"
 	"darvin-cowork/backend/internal/skills"
 )
 
@@ -1212,4 +1213,163 @@ func (s *skillsForTestSource) LoadAll(_ context.Context) ([]*skills.SkillEntry, 
 		IsBuiltIn:   true,
 		IsOfficial:  true,
 	}}, nil
+}
+
+type stubGatewayTool struct{ name string }
+
+func (s *stubGatewayTool) Name() string                    { return s.name }
+func (s *stubGatewayTool) Description() string             { return "stub tool" }
+func (s *stubGatewayTool) Parameters() llm.ParameterSchema { return llm.ParameterSchema{Type: "object"} }
+func (s *stubGatewayTool) Execute(_ context.Context, _ map[string]any) tool.Result {
+	return tool.Result{}
+}
+
+type stubGatewayPlugin struct {
+	pluginID string
+	tool     *stubGatewayTool
+}
+
+func (p *stubGatewayPlugin) PluginID() string { return p.pluginID }
+func (p *stubGatewayPlugin) Register(reg tool.ToolRegistrar) error {
+	return reg.RegisterTool(p.tool, tool.KindSkill, map[string]any{
+		"pluginID": p.pluginID,
+		"skillID":  "test-skill",
+	})
+}
+func (p *stubGatewayPlugin) Unregister(reg tool.ToolRegistrar) error {
+	return reg.UnregisterByPlugin(p.pluginID)
+}
+
+// newTestHandlerWithPlugins wires the same session manager as
+// newTestHandler but injects plugins into the agent factory.
+func newTestHandlerWithPlugins(t *testing.T, plugins []tool.Plugin) (*Handler, *client) {
+	t.Helper()
+	prov := &blockingProvider{}
+	store := store.NewMemoryStore()
+	factory := &acp.AgentFactory{
+		Provider: prov,
+		Store:    store,
+		Logger:   zap.NewNop(),
+		Plugins:  plugins,
+	}
+	steerAgent, err := agent.New(agent.NewAgentConfig{
+		Session:  session.NewSession("steer-placeholder"),
+		Provider: prov,
+		Store:    store,
+	})
+	if err != nil {
+		t.Fatalf("agent.New steer: %v", err)
+	}
+	steer := acp.NewSteerControl(steerAgent)
+	sessions := NewSessionManager(WithAgentFactory(factory))
+	ledger := NewEventLedger(zap.NewNop())
+	ledger.fakeDelay = 0
+	handler := NewHandler(sessions, ledger, steer, nil, nil, nil)
+	client := &client{
+		sessions: sessions,
+		ledger:   ledger,
+		handler:  handler,
+		log:      zap.NewNop(),
+	}
+	return handler, client
+}
+
+func hasToolWire(tools []ToolDescriptorWire, name string) bool {
+	for _, td := range tools {
+		if td.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func TestHandleListTools_IncludesPluginTools(t *testing.T) {
+	_, c := newTestHandlerWithPlugins(t, []tool.Plugin{
+		&stubGatewayPlugin{pluginID: "skill", tool: &stubGatewayTool{name: "skill:test-skill"}},
+	})
+	req := &Request{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`"1"`),
+		Method:  "agent.tools.list",
+		Params:  json.RawMessage(`{}`),
+	}
+	resp := dispatchRequest(context.Background(), req, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res := resp.Result.(ListToolsResult)
+	found := false
+	for _, td := range res.Tools {
+		if td.Name == "skill:test-skill" {
+			found = true
+			if td.Kind != "skill" {
+				t.Errorf("kind = %q, want skill", td.Kind)
+			}
+			if td.Metadata["skillID"] != "test-skill" {
+				t.Errorf("Metadata[skillID] = %v, want test-skill", td.Metadata["skillID"])
+			}
+		}
+	}
+	if !found {
+		t.Errorf("skill:test-skill missing from tools: %+v", res.Tools)
+	}
+}
+
+func TestHandleListTools_NoSessions(t *testing.T) {
+	h := NewHandler(nil, nil, nil, nil, nil, nil)
+	c := &client{handler: h, log: zap.NewNop()}
+	req := &Request{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`"1"`),
+		Method:  "agent.tools.list",
+		Params:  json.RawMessage(`{}`),
+	}
+	resp := dispatchRequest(context.Background(), req, c, h)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	if res := resp.Result.(ListToolsResult); len(res.Tools) != 0 {
+		t.Errorf("tools = %+v, want empty", res.Tools)
+	}
+}
+
+func TestSetSkillEnabled_RefreshTools(t *testing.T) {
+	reg := skillsForTest(t)
+	runner := skills.NewSkillRunner(reg, tool.NewRegistry())
+	plugin := skills.NewSkillPlugin(reg, runner)
+	_, c := newTestHandlerWithPlugins(t, []tool.Plugin{plugin})
+	c.handler.Skills = reg
+
+	listReq := &Request{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`"1"`),
+		Method:  "agent.tools.list",
+		Params:  json.RawMessage(`{}`),
+	}
+	resp := dispatchRequest(context.Background(), listReq, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("list error: %+v", resp.Error)
+	}
+	if !hasToolWire(resp.Result.(ListToolsResult).Tools, "skill:code-review") {
+		t.Fatal("skill:code-review missing before disable")
+	}
+
+	disableReq := &Request{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`"2"`),
+		Method:  "agent.skills.set_enabled",
+		Params:  json.RawMessage(`{"skillId":"code-review","enabled":false}`),
+	}
+	resp = dispatchRequest(context.Background(), disableReq, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("set_enabled error: %+v", resp.Error)
+	}
+
+	resp = dispatchRequest(context.Background(), listReq, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("list error after disable: %+v", resp.Error)
+	}
+	if hasToolWire(resp.Result.(ListToolsResult).Tools, "skill:code-review") {
+		t.Error("skill:code-review still present after disable")
+	}
 }

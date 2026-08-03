@@ -17,6 +17,7 @@ import (
 	"darvin-cowork/backend/internal/agent/ctxengine"
 	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/executor"
+	"darvin-cowork/backend/internal/agent/llm"
 	"darvin-cowork/backend/internal/agent/queue"
 	"darvin-cowork/backend/internal/agent/store"
 	"darvin-cowork/backend/internal/mcp"
@@ -343,6 +344,8 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleMcpRetryResolution(req.ID, req.Params, h)
 	case "agent.mcp.bootstrap":
 		return handleMcpBootstrap(req.ID, req.Params, h)
+	case "agent.tools.list":
+		return handleListTools(req.ID, req.Params, h)
 	default:
 		return errorResp(req.ID, CodeMethodNotFound,
 			"Method not found: "+req.Method, nil)
@@ -1201,6 +1204,77 @@ type BootstrapSkillsResult struct {
 	OK bool `json:"ok"`
 }
 
+// ToolDescriptorWire is one entry of agent.tools.list. Mirrors
+// DarvinToolDescriptor in src/shared/darvin-api.ts.
+type ToolDescriptorWire struct {
+	Name        string         `json:"name"`
+	Kind        string         `json:"kind"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"inputSchema,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+}
+
+// ListToolsResult is the JSON-RPC result for agent.tools.list.
+type ListToolsResult struct {
+	Tools []ToolDescriptorWire `json:"tools"`
+}
+
+// ListToolsParams is the optional sessionId for agent.tools.list. When
+// omitted the default session's tool surface is returned — all sessions
+// share the same plugin registries, so the surface is identical.
+type ListToolsParams struct {
+	SessionID string `json:"sessionId,omitempty"`
+}
+
+// handleListTools 返回指定 session(缺省 default)的 agent tool registry
+// 合并视图。session 尚未建 AcpSession 时懒建一次,让首次查询就能拿到
+// 包含 skill / mcp 插件的完整列表。
+func handleListTools(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if h.Sessions == nil {
+		return successResp(id, ListToolsResult{Tools: []ToolDescriptorWire{}})
+	}
+	var p ListToolsParams
+	if len(params) > 0 {
+		_ = json.Unmarshal(params, &p)
+	}
+	sessionID := p.SessionID
+	if sessionID == "" {
+		sessionID = DefaultSessionID
+	}
+	entry, err := h.Sessions.GetOrCreateEntry(sessionID)
+	if err != nil {
+		return errorResp(id, CodeInternalError, err.Error(), err)
+	}
+	if entry.Acp == nil {
+		return successResp(id, ListToolsResult{Tools: []ToolDescriptorWire{}})
+	}
+	reg := entry.Acp.Agent.Tools()
+	entries := reg.List()
+	out := make([]ToolDescriptorWire, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, ToolDescriptorWire{
+			Name:        e.Tool.Name(),
+			Kind:        string(e.Kind),
+			Description: e.Tool.Description(),
+			InputSchema: parameterSchemaToMap(e.Tool.Parameters()),
+			Metadata:    e.Metadata,
+		})
+	}
+	return successResp(id, ListToolsResult{Tools: out})
+}
+
+func parameterSchemaToMap(ps llm.ParameterSchema) map[string]any {
+	b, err := json.Marshal(ps)
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil
+	}
+	return m
+}
+
 // handleListSkills 返回 Go 端 registry 的当前快照。Go 端既会从 embed
 // 的 bundled 5 skill 加载,也会从 user 目录加载;list 是 source of truth
 // 之一(enabled 状态由 main 端 bootstrap 覆盖)。
@@ -1233,7 +1307,16 @@ func handleSetSkillEnabled(id json.RawMessage, params json.RawMessage, h *Handle
 		return errorResp(id, CodeInvalidParams, err.Error(), err)
 	}
 	h.broadcastSkillsChanged()
+	h.refreshToolsIfNeeded()
 	return successResp(id, SetSkillEnabledResult{OK: true})
+}
+
+// refreshToolsIfNeeded 在 skill / mcp 状态变化后重跑各 session 的插件注
+// 册,让 agent 工具面保持最新。没有 SessionManager 时 no-op。
+func (h *Handler) refreshToolsIfNeeded() {
+	if h.Sessions != nil {
+		h.Sessions.RefreshAllTools()
+	}
 }
 
 // handleBootstrapSkills 接受 main 端推过来的初始 enabled 状态,逐条覆盖
@@ -1578,14 +1661,14 @@ func handleMcpBootstrap(id json.RawMessage, params json.RawMessage, h *Handler) 
 // mcp.connection_changed notification; main forwards the payload to
 // renderer via darvin:push:mcp-connection-changed.
 func (h *Handler) OnMcpConnectionChanged(serverID string, status mcp.ConnectionStatus, errMsg string) {
-	if h.Ledger == nil {
-		return
+	if h.Ledger != nil {
+		h.Ledger.Broadcast("mcp.connection_changed", map[string]any{
+			"id":     serverID,
+			"status": string(status),
+			"error":  errMsg,
+		})
 	}
-	h.Ledger.Broadcast("mcp.connection_changed", map[string]any{
-		"id":     serverID,
-		"status": string(status),
-		"error":  errMsg,
-	})
+	h.refreshToolsIfNeeded()
 }
 
 // OnMcpResolutionChanged is the mcp.Notifier callback for resolver

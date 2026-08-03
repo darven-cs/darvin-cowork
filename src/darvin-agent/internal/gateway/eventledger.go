@@ -227,20 +227,24 @@ func mapEventToTS(ev event.Event, _ string) any {
 			"type": ev.EventName(),
 		})
 	case event.ToolStartEvent:
-		return withCommon(map[string]any{
+		start := map[string]any{
 			"type":      ev.EventName(),
 			"tool":      e.Name,
 			"input":     e.Arguments,
 			"messageId": ev.Common().MessageID,
 			"message":   map[string]any{"id": e.CallID},
-		})
+		}
+		addToolKindFields(start, e.ToolKind, e.SkillID, e.McpServerID)
+		return withCommon(start)
 	case event.ToolEndEvent:
-		return withCommon(map[string]any{
+		end := map[string]any{
 			"type":      ev.EventName(),
 			"tool":      e.Result.Content,
 			"messageId": ev.Common().MessageID,
 			"message":   map[string]any{"id": e.CallID},
-		})
+		}
+		addToolKindFields(end, e.ToolKind, e.SkillID, e.McpServerID)
+		return withCommon(end)
 	case event.AgentErrorEvent:
 		// Field names match the DarvinEvent 'error' variant in
 		// src/shared/darvin-api.ts: the renderer looks the message up by
@@ -287,6 +291,21 @@ func mapEventToTS(ev event.Event, _ string) any {
 		return withCommon(map[string]any{"type": "context_usage", "usage": usage})
 	default:
 		return withCommon(map[string]any{"type": ev.EventName()})
+	}
+}
+
+// addToolKindFields appends the kind attribution fields to a tool event's
+// wire payload. Empty values are omitted so old events without a kind stay
+// backward-compatible.
+func addToolKindFields(m map[string]any, toolKind, skillID, mcpServerID string) {
+	if toolKind != "" {
+		m["toolKind"] = toolKind
+	}
+	if skillID != "" {
+		m["skillId"] = skillID
+	}
+	if mcpServerID != "" {
+		m["mcpServerId"] = mcpServerID
 	}
 }
 

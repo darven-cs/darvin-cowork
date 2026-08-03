@@ -122,6 +122,30 @@ func TestMapEventToTSCarriesMessageID(t *testing.T) {
 				"tool": "ok", "message": map[string]any{"id": "c1"},
 			},
 		},
+		{
+			name: "tool_start carries kind attribution",
+			ev: event.ToolStartEvent{
+				EventBase: ec, CallID: "c1", Name: "skill:web-search",
+				ToolKind: "skill", SkillID: "web-search", Arguments: map[string]any{"args": "go"},
+			},
+			want: map[string]any{
+				"type": "tool_start", "sessionId": "s1", "runId": "r1", "messageId": "m1",
+				"tool": "skill:web-search", "toolKind": "skill", "skillId": "web-search",
+				"input": map[string]any{"args": "go"}, "message": map[string]any{"id": "c1"},
+			},
+		},
+		{
+			name: "tool_end carries mcp attribution",
+			ev: event.ToolEndEvent{
+				EventBase: ec, CallID: "c1", ToolKind: "mcp", McpServerID: "filesystem",
+				Result: event.ToolResult{Content: "file contents"},
+			},
+			want: map[string]any{
+				"type": "tool_end", "sessionId": "s1", "runId": "r1", "messageId": "m1",
+				"tool": "file contents", "toolKind": "mcp", "mcpServerId": "filesystem",
+				"message": map[string]any{"id": "c1"},
+			},
+		},
 	}
 
 	for _, tc := range cases {

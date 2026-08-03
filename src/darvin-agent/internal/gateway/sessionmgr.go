@@ -172,6 +172,32 @@ func (m *SessionManager) Has(id string) bool {
 	return ok
 }
 
+// RefreshAllTools 对每个已建 AcpSession 的 agent 重跑 factory 插件
+// (Unregister + Register),让工具面跟随 skill / mcp 状态变化。无 factory
+// 或某个插件失败时静默跳过。返回成功刷新的 session 数。
+func (m *SessionManager) RefreshAllTools() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.factory == nil {
+		return 0
+	}
+	var n int
+	for _, e := range m.byID {
+		if e.Acp == nil {
+			continue
+		}
+		reg := e.Acp.Agent.Tools()
+		for _, p := range m.factory.Plugins {
+			_ = p.Unregister(reg)
+			if err := p.Register(reg); err != nil {
+				continue
+			}
+		}
+		n++
+	}
+	return n
+}
+
 // GetOrCreateEntry 返回 id 对应的 SessionEntry;未知 id 时创建并在
 // factory 注入时懒建 AcpSession。
 //
