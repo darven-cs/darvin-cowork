@@ -30,6 +30,10 @@ import type {
   DarvinOpenWorkspaceFileResponse,
   DarvinLLMConfig,
   DarvinLocaleResponse,
+  DarvinMcpConnectionChangedEvent,
+  DarvinMcpServer,
+  DarvinMcpServerCreate,
+  DarvinMcpServerPatch,
   DarvinPermissionResponse,
   DarvinPickAttachmentsResponse,
   DarvinPromptRequest,
@@ -46,6 +50,8 @@ import type {
   DarvinSetWorkspaceResult,
   DarvinSession,
   DarvinSkillSummary,
+  DarvinTestMcpConnectionRequest,
+  DarvinTestMcpConnectionResponse,
   DarvinWorkspaceInfoResponse,
   DarvinWorkspaceRootResult,
 } from '../shared/darvin-api';
@@ -227,6 +233,44 @@ const api: DarvinApi = {
   },
   async getSkillDetails(req: { skillId: string }): Promise<{ skill: DarvinSkillSummary; body: string; scripts?: Array<{ path: string; content: string }> }> {
     return ipcRenderer.invoke('darvin:get_skill_details', req);
+  },
+
+  // spec 36 — MCP server 命名空间。renderer 不直接持有 server 状态,
+  // 走 IPC 调 main 端 mcpManager,后者是 SQLite + Go RPC 的中转。
+  async listMcpServers(): Promise<{ servers: DarvinMcpServer[] }> {
+    return ipcRenderer.invoke('mcp:list');
+  },
+  async createMcpServer(req: DarvinMcpServerCreate): Promise<{ server: DarvinMcpServer }> {
+    return ipcRenderer.invoke('mcp:create', req);
+  },
+  async updateMcpServer(req: { id: string; patch: DarvinMcpServerPatch }): Promise<{ server: DarvinMcpServer }> {
+    return ipcRenderer.invoke('mcp:update', req);
+  },
+  async deleteMcpServer(req: { id: string }): Promise<{ ok: boolean }> {
+    return ipcRenderer.invoke('mcp:delete', req);
+  },
+  async setMcpServerEnabled(req: { id: string; enabled: boolean }): Promise<{ ok: boolean }> {
+    return ipcRenderer.invoke('mcp:set_enabled', req);
+  },
+  async testMcpConnection(req: DarvinTestMcpConnectionRequest): Promise<DarvinTestMcpConnectionResponse> {
+    return ipcRenderer.invoke('mcp:test', req);
+  },
+  async retryMcpLaunchResolution(req: { id: string }): Promise<{ ok: boolean }> {
+    return ipcRenderer.invoke('mcp:retry_resolution', req);
+  },
+  onMcpServersChanged(handler: (servers: DarvinMcpServer[]) => void): () => void {
+    const wrap = (_e: unknown, servers: DarvinMcpServer[]) => handler(servers);
+    ipcRenderer.on(DarvinPushEvent.McpServersChanged, wrap);
+    return () => {
+      ipcRenderer.off(DarvinPushEvent.McpServersChanged, wrap);
+    };
+  },
+  onMcpConnectionChanged(handler: (e: DarvinMcpConnectionChangedEvent) => void): () => void {
+    const wrap = (_e: unknown, ev: DarvinMcpConnectionChangedEvent) => handler(ev);
+    ipcRenderer.on(DarvinPushEvent.McpConnectionChanged, wrap);
+    return () => {
+      ipcRenderer.off(DarvinPushEvent.McpConnectionChanged, wrap);
+    };
   },
 };
 

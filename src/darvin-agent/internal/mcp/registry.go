@@ -30,6 +30,7 @@ type Registry struct {
 	servers     map[string]*serverEntry
 	resolver    *ResolverManager
 	persistence ResolutionPersistence
+	notifier    Notifier
 }
 
 type serverEntry struct {
@@ -47,7 +48,25 @@ func NewRegistry(resolver *ResolverManager, persistence ResolutionPersistence) *
 		servers:     make(map[string]*serverEntry),
 		resolver:    resolver,
 		persistence: persistence,
+		notifier:    noopNotifier(),
 	}
+}
+
+// SetNotifier installs the callbacks that the registry fires on
+// connection / resolution state changes. Safe to call once after
+// construction; the gateway package uses this to wire a registry
+// back to the handler that hosts it (handler embeds the registry,
+// registry calls back into the handler).
+func (r *Registry) SetNotifier(n Notifier) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if n.OnConnectionChanged == nil {
+		n.OnConnectionChanged = func(string, ConnectionStatus, string) {}
+	}
+	if n.OnResolutionChanged == nil {
+		n.OnResolutionChanged = func(string, LaunchResolution) {}
+	}
+	r.notifier = n
 }
 
 // Register adds or replaces the server for spec.ID. If spec.Enabled is
@@ -76,23 +95,89 @@ func (r *Registry) Register(ctx context.Context, spec ServerSpec) error {
 	return nil
 }
 
+// Update replaces the server's spec with patch. Resolver fingerprint is
+// recomputed; if enabled the entry is re-resolved and reconnected.
+func (r *Registry) Update(ctx context.Context, serverID string, patch ServerSpec) error {
+	r.mu.Lock()
+	r.resolver.Cancel(serverID)
+	entry, ok := r.servers[serverID]
+	if !ok {
+		r.mu.Unlock()
+		return fmt.Errorf("mcp registry: %s not registered", serverID)
+	}
+	merged := cloneSpec(entry.spec)
+	if patch.Name != "" {
+		merged.Name = patch.Name
+	}
+	if patch.Description != "" {
+		merged.Description = patch.Description
+	}
+	merged.Enabled = patch.Enabled
+	if patch.Transport != "" {
+		merged.Transport = patch.Transport
+	}
+	if patch.Command != "" {
+		merged.Command = patch.Command
+	}
+	if patch.Args != nil {
+		merged.Args = append([]string(nil), patch.Args...)
+	}
+	if patch.Env != nil {
+		merged.Env = CloneStringMap(patch.Env)
+	}
+	if patch.URL != "" {
+		merged.URL = patch.URL
+	}
+	if patch.Headers != nil {
+		merged.Headers = CloneStringMap(patch.Headers)
+	}
+	if patch.GitHubURL != "" {
+		merged.GitHubURL = patch.GitHubURL
+	}
+	if patch.RegistryID != "" {
+		merged.RegistryID = patch.RegistryID
+	}
+	fp := ComputeFingerprint(merged)
+	old := entry.client
+	entry.spec = merged
+	entry.status.Enabled = merged.Enabled
+	entry.status.Resolution = nil
+	entry.status.Tools = nil
+	entry.status.Connected = false
+	entry.status.ConnectionError = ""
+	entry.fingerprint = fp
+	notifier := r.notifier
+	r.mu.Unlock()
+	if old != nil {
+		_ = old.Close()
+	}
+	if merged.Enabled {
+		go r.connectServer(serverID)
+	} else {
+		notifier.OnConnectionChanged(serverID, ConnectionDisconnected, "")
+	}
+	return nil
+}
 // Unregister closes the client (if any), removes the entry, and drops
 // any persisted LaunchResolution. The next Register starts clean.
 func (r *Registry) Unregister(_ context.Context, serverID string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.resolver.Cancel(serverID)
 	entry, ok := r.servers[serverID]
 	if !ok {
+		r.mu.Unlock()
 		return nil
 	}
 	if entry.client != nil {
 		_ = entry.client.Close()
 	}
 	delete(r.servers, serverID)
+	notifier := r.notifier
+	r.mu.Unlock()
 	if r.persistence != nil {
 		_ = r.persistence.DeleteResolution(context.Background(), serverID)
 	}
+	notifier.OnConnectionChanged(serverID, ConnectionDisconnected, "")
 	return nil
 }
 
@@ -117,7 +202,9 @@ func (r *Registry) SetEnabled(ctx context.Context, serverID string, enabled bool
 		entry.status.Connected = false
 		entry.status.Tools = nil
 		entry.status.Resolution = nil
+		notifier := r.notifier
 		r.mu.Unlock()
+		notifier.OnConnectionChanged(serverID, ConnectionDisconnected, "")
 		return nil
 	}
 	r.mu.Unlock()
@@ -149,6 +236,18 @@ func (r *Registry) Get(serverID string) (ServerStatus, bool) {
 	return e.status, true
 }
 
+// GetSpec returns a copy of the spec for serverID. Used by the gateway
+// handler to wire a list / update result back to the renderer.
+func (r *Registry) GetSpec(serverID string) (ServerSpec, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	e, ok := r.servers[serverID]
+	if !ok {
+		return ServerSpec{}, false
+	}
+	return cloneSpec(e.spec), true
+}
+
 // GetTools returns the live tool list for serverID, or nil if not
 // connected. The slice is a copy — callers may mutate freely.
 func (r *Registry) GetTools(serverID string) []ToolDescriptor {
@@ -178,6 +277,52 @@ func (r *Registry) GetToolsByName(name string) (string, *ToolDescriptor, bool) {
 		}
 	}
 	return "", nil, false
+}
+
+// Test returns the current connection state for serverID without dialing.
+// ok=true means the client is connected; tools is a copy of the most recent
+// ListTools payload. The caller (gateway) maps ConnectionError straight
+// to the IPC response; main renders it as a toast.
+func (r *Registry) Test(serverID string) (ok bool, errMsg string, tools []ToolDescriptor) {
+	r.mu.RLock()
+	entry, exists := r.servers[serverID]
+	r.mu.RUnlock()
+	if !exists {
+		return false, "server not found", nil
+	}
+	if !entry.status.Enabled {
+		return false, "server disabled", nil
+	}
+	if !entry.status.Connected {
+		msg := entry.status.ConnectionError
+		if msg == "" {
+			msg = "not connected"
+		}
+		return false, msg, nil
+	}
+	out := make([]ToolDescriptor, len(entry.status.Tools))
+	copy(out, entry.status.Tools)
+	return true, "", out
+}
+
+// RetryResolution re-triggers connectServer for serverID. Caller is
+// main: a user clicks [retry] on a failed launch. The resolver will
+// see the existing fingerprint; if it changed since the last failed
+// attempt the resolution is re-run from scratch. Safe to call while a
+// resolution is in flight — the resolver's dedup collapses to the
+// existing task.
+func (r *Registry) RetryResolution(serverID string) error {
+	r.mu.RLock()
+	entry, ok := r.servers[serverID]
+	r.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("mcp registry: %s not registered", serverID)
+	}
+	if !entry.spec.Enabled {
+		return fmt.Errorf("mcp registry: %s is disabled", serverID)
+	}
+	go r.connectServer(serverID)
+	return nil
 }
 
 // LoadStaleResolutions walks every persisted LaunchResolution and
@@ -233,7 +378,10 @@ func (r *Registry) connectServer(serverID string) {
 	}
 	spec := cloneSpec(entry.spec)
 	fp := entry.fingerprint
+	notifier := r.notifier
 	r.mu.RUnlock()
+
+	notifier.OnConnectionChanged(serverID, ConnectionConnecting, "")
 
 	// Step 1: resolve the launch line.
 	res, ok := r.lookupResolution(serverID)
@@ -246,6 +394,7 @@ func (r *Registry) connectServer(serverID string) {
 		}
 		r.persistResolution(res)
 		r.recordResolution(serverID, res)
+		notifier.OnResolutionChanged(serverID, res)
 	} else {
 		r.recordResolution(serverID, res)
 	}
@@ -275,6 +424,7 @@ func (r *Registry) connectServer(serverID string) {
 		}
 	default:
 		r.recordConnectionError(serverID, fmt.Sprintf("unsupported transport %q", spec.Transport))
+		notifier.OnConnectionChanged(serverID, ConnectionError, fmt.Sprintf("unsupported transport %q", spec.Transport))
 		return
 	}
 
@@ -286,17 +436,20 @@ func (r *Registry) connectServer(serverID string) {
 	if err := client.Connect(ctx); err != nil {
 		_ = client.Close()
 		r.recordConnectionError(serverID, fmt.Sprintf("connect: %v", err))
+		notifier.OnConnectionChanged(serverID, ConnectionError, fmt.Sprintf("connect: %v", err))
 		return
 	}
 	if _, err := client.Initialize(ctx); err != nil {
 		_ = client.Close()
 		r.recordConnectionError(serverID, fmt.Sprintf("initialize: %v", err))
+		notifier.OnConnectionChanged(serverID, ConnectionError, fmt.Sprintf("initialize: %v", err))
 		return
 	}
 	tools, err := client.ListTools(ctx)
 	if err != nil {
 		_ = client.Close()
 		r.recordConnectionError(serverID, fmt.Sprintf("list tools: %v", err))
+		notifier.OnConnectionChanged(serverID, ConnectionError, fmt.Sprintf("list tools: %v", err))
 		return
 	}
 
@@ -308,6 +461,7 @@ func (r *Registry) connectServer(serverID string) {
 		entry.status.Tools = tools
 	}
 	r.mu.Unlock()
+	notifier.OnConnectionChanged(serverID, ConnectionConnected, "")
 }
 
 // recordResolution updates the entry's resolution field after a resolve.
@@ -383,6 +537,17 @@ func cloneSpec(s ServerSpec) ServerSpec {
 	}
 	if s.Args != nil {
 		out.Args = append([]string(nil), s.Args...)
+	}
+	return out
+}
+
+func CloneStringMap(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
 	}
 	return out
 }

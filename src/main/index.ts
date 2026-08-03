@@ -26,6 +26,8 @@ import { readWorkspaceMap, writeWorkspaceMap } from './libs/workspace-map';
 import { readWorkspaceTextFile, resolveWorkspacePath, walkWorkspace } from './libs/workspaceFiles';
 import { artifactPreviewServer } from './services/artifact-preview-server';
 import { SkillManager } from './libs/skillManager';
+import { McpManager } from './libs/mcpManager';
+import { McpStore } from './libs/mcpStore';
 import type {
   DarvinActiveSessionResponse,
   DarvinAppInfo,
@@ -45,6 +47,17 @@ import type {
   DarvinListSessionsResponse,
   DarvinListSkillsResponse,
   DarvinListWorkspaceFilesResponse,
+  DarvinMcpServerCreate,
+  DarvinMcpServerPatch,
+  DarvinListMcpServersResponse,
+  DarvinCreateMcpServerResponse,
+  DarvinUpdateMcpServerResponse,
+  DarvinDeleteMcpServerResponse,
+  DarvinSetMcpServerEnabledRequest,
+  DarvinSetMcpServerEnabledResponse,
+  DarvinTestMcpConnectionRequest,
+  DarvinTestMcpConnectionResponse,
+  DarvinRetryMcpLaunchResolutionResponse,
   DarvinOpenWorkspaceFileResponse,
   DarvinLLMConfig,
   DarvinLocale,
@@ -94,6 +107,11 @@ const client = new AgentClient({ logger: console });
 // spec 32 — main 端 skills 状态管理器。启动期调 bootstrap()，restart 路径
 // 通过 restartGoSubprocess 重置后再 bootstrap。
 const skillManager = new SkillManager({ client, logger: console });
+// spec 36 — main 端 mcp 状态管理器。SQLite 独立，bundled filesystem
+// 启动期幂等插入；list 走本地缓存（source of truth），增 / 删 / 改 /
+// 启停走 SQLite + Go RPC；connection / resolution 变更由 Go → main 推回。
+const mcpStore = new McpStore();
+const mcpManager = new McpManager({ client, store: mcpStore, logger: console });
 
 // 每个 session 当前在跑的 runId；abort 时按 (sessionId, runId) 精确停。
 // prompt 时写入；session 删时清掉。
@@ -679,6 +697,83 @@ ipcMain.handle(
   },
 );
 
+// spec 36 — mcp 命名空间。list 走本地 mcpManager 缓存（SQLite + Go
+// runtime 状态合并），其它写操作先落 SQLite 再调 Go 端对应 RPC。
+// 失败不阻塞本地状态——mcpManager 内部容错,IPC 总是返回结构化响应
+// 而不是 throw(便于 renderer catch 后给用户 toast)。
+ipcMain.handle('mcp:list', async (): Promise<DarvinListMcpServersResponse> => {
+  return { servers: mcpManager.list() };
+});
+
+ipcMain.handle(
+  'mcp:create',
+  async (_e, req: DarvinMcpServerCreate): Promise<DarvinCreateMcpServerResponse> => {
+    if (!req?.name || !req.transportType) {
+      throw new Error('name + transportType required');
+    }
+    const server = await mcpManager.createServer(req);
+    return { server };
+  },
+);
+
+ipcMain.handle(
+  'mcp:update',
+  async (
+    _e,
+    req: { id: string; patch: DarvinMcpServerPatch },
+  ): Promise<DarvinUpdateMcpServerResponse> => {
+    if (!req?.id) throw new Error('id required');
+    const server = await mcpManager.updateServer(req.id, req.patch);
+    if (!server) throw new Error(`mcp server not found: ${req.id}`);
+    return { server };
+  },
+);
+
+ipcMain.handle(
+  'mcp:delete',
+  async (_e, req: { id: string }): Promise<DarvinDeleteMcpServerResponse> => {
+    if (!req?.id) throw new Error('id required');
+    const ok = await mcpManager.deleteServer(req.id);
+    return { ok };
+  },
+);
+
+ipcMain.handle(
+  'mcp:set_enabled',
+  async (
+    _e,
+    req: DarvinSetMcpServerEnabledRequest,
+  ): Promise<DarvinSetMcpServerEnabledResponse> => {
+    if (!req?.id || typeof req.enabled !== 'boolean') {
+      throw new Error('id + enabled required');
+    }
+    const ok = await mcpManager.setEnabled(req.id, req.enabled);
+    return { ok };
+  },
+);
+
+ipcMain.handle(
+  'mcp:test',
+  async (
+    _e,
+    req: DarvinTestMcpConnectionRequest,
+  ): Promise<DarvinTestMcpConnectionResponse> => {
+    if (!req?.id) throw new Error('id required');
+    return mcpManager.testConnection(req);
+  },
+);
+
+ipcMain.handle(
+  'mcp:retry_resolution',
+  async (
+    _e,
+    req: { id: string },
+  ): Promise<DarvinRetryMcpLaunchResolutionResponse> => {
+    if (!req?.id) throw new Error('id required');
+    return mcpManager.retryResolution(req.id);
+  },
+);
+
 // spec 13 — 图片附件 base64 读取上限（对齐 LobsterAI 的 10MB 阈值）。
 const MAX_READ_AS_DATA_URL_BYTES = 10 * 1024 * 1024;
 
@@ -966,6 +1061,7 @@ async function restartGoSubprocess(workspaceRoot?: string): Promise<boolean> {
     // 把 main 端 SQLite 状态再覆盖一次,避免跨会话切换 workspace 时
     // 残留旧 enabled 值。
     void skillManager.bootstrap();
+    void mcpManager.bootstrap();
     return true;
   } catch (e) {
     console.error(`[runtime] restart failed: ${(e as Error).message}`);
@@ -1019,6 +1115,9 @@ app.whenReady().then(async () => {
     // 此处调用是首次启动路径(空 skillManager)，与 restart 路径不重复
     // 执行(SkillManager.bootstrap 内置幂等守卫)。
     void skillManager.bootstrap();
+    // spec 36 — 启动期推 mcp bootstrap：bundled filesystem 幂等 upsert
+    // + 全部 server 推 Go。restart 路径在 restartGoSubprocess 内也调一次。
+    void mcpManager.bootstrap();
   } catch (e) {
     console.error(`[runtime] ${(e as Error).message}`);
   }
@@ -1043,6 +1142,12 @@ app.on('before-quit', (e) => {
       /* 已退出 */
     }
     skillManager.shutdown();
+    mcpManager.shutdown();
+    try {
+      mcpStore.close();
+    } catch {
+      /* 已关闭或文件不存在 */
+    }
     app.quit();
   })();
 });

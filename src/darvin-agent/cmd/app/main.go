@@ -52,6 +52,16 @@ func configPath() string {
 }
 
 func main() {
+	// spec 36 — bundled filesystem MCP subcommand。`darvin-agent
+	// mcp-filesystem` 走 stdio 充当一个 JSON-RPC 2.0 MCP server,暴露
+	// list_directory / read_file / write_file 三个 tool。Root 由
+	// DARVIN_MCP_FS_ROOT 决定;缺省 cwd。launcher.go 把它当 stdio server
+	// 直接 spawn,不走 npx。
+	if len(os.Args) > 1 && os.Args[1] == "mcp-filesystem" {
+		runFilesystemMCP()
+		return
+	}
+
 	cfg, err := config.Load(configPath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
@@ -221,19 +231,10 @@ func main() {
 		}
 	}
 
-	handler := gateway.NewHandler(sessions, ledger, steer, sqliteStore, msgStore, appState,
-		gateway.HandlerOptions{
-			ImportedFiles: importedFiles,
-			WorkspaceRoot: effectiveWorkdir,
-			Skills:        skillsResult.Registry,
-			Log:           log.Logger,
-		})
-
-	// MCP registry: spec 36 wires the SQLite-backed persistence and
-	// registers user-configured servers. For now we stand up the
-	// manager + in-memory persistence so LoadStaleResolutions has a
-	// home; userData/mcp-packages is created eagerly so the first
-	// Register does not race the filesystem.
+	// MCP registry: spec 35/36 落地。注册 bundled filesystem (走自身二进制
+	// 的 mcp-filesystem subcommand) + 启动期 LoadStaleResolutions 扫上
+	// 次卡 installing 状态。SQLite 持久化在 spec 36 由 main 端接管,
+	// Go 端目前用 in-memory + main 端 push resolution_changed 落库。
 	mcpRoot := filepath.Join(effectiveWorkdir, "mcp-packages")
 	if err := os.MkdirAll(mcpRoot, 0o755); err != nil {
 		log.Warn("mcp packages dir create failed", zap.Error(err))
@@ -243,6 +244,39 @@ func main() {
 	if err := mcpRegistry.LoadStaleResolutions(rootCtx); err != nil {
 		log.Warn("mcp stale resolution scan failed", zap.Error(err))
 	}
+	// bundled filesystem：跟随 darvin-agent 二进制自己,永远 enabled。
+	// main 端 mcpManager.bootstrap 会幂等 upsert,这里同步注册避免 main
+	// 推 bootstrap 之前 Go 端没有 entry。
+	exe, _ := os.Executable()
+	if exe != "" {
+		_ = mcpRegistry.Register(rootCtx, mcp.ServerSpec{
+			ID:          "filesystem",
+			Name:        "Filesystem",
+			Description: "本地文件系统读写（bundled）",
+			Enabled:     true,
+			Transport:   mcp.TransportStdio,
+			Command:     exe,
+			Args:        []string{"mcp-filesystem"},
+			IsBuiltIn:   true,
+		})
+		log.Info("mcp bundled filesystem registered", zap.String("command", exe))
+	}
+
+	handler := gateway.NewHandler(sessions, ledger, steer, sqliteStore, msgStore, appState,
+		gateway.HandlerOptions{
+			ImportedFiles: importedFiles,
+			WorkspaceRoot: effectiveWorkdir,
+			Skills:        skillsResult.Registry,
+			Mcp:           mcpRegistry,
+			Log:           log.Logger,
+		})
+	// mcp registry → handler 回调：connectServer / Unregister / SetEnabled /
+	// Update 触发的状态变化通过 ledger 广播成 mcp.connection_changed 与
+	// mcp.resolution_changed 通知，main 端 mcpManager 订阅后落 SQLite。
+	mcpRegistry.SetNotifier(mcp.Notifier{
+		OnConnectionChanged: handler.OnMcpConnectionChanged,
+		OnResolutionChanged: handler.OnMcpResolutionChanged,
+	})
 
 	gs := gateway.NewServer(handler, log.Logger)
 	if err := gs.Start(rootCtx); err != nil {

@@ -55,6 +55,24 @@ export function getSkillsRoot(): string {
   return path.join(agentDataDir(), 'SKILLs');
 }
 
+/**
+ * spec 36 — main 端独立 SQLite 文件，存 MCP server 列表 + launch
+ * resolution。独立于 Go 端 sessions.db 与 skill-state.db，main 端是
+ * server 元数据 / resolution 的 source of truth，Go 端重启后从 main
+ * 端 bootstrap 拉回。
+ */
+export function mcpStoreDbPath(): string {
+  return path.join(agentDataDir(), 'mcp.db');
+}
+
+/**
+ * spec 36 — Go 端 mcp-packages 根目录（用户安装 npx 类 server 时的隔离
+ * 落点）。main 端负责把 effective root 注入 Go 子进程的 env。
+ */
+export function getMcpPackagesDir(): string {
+  return path.join(agentDataDir(), 'mcp-packages');
+}
+
 /** 单 workspace 总容量上限（软上限，触发后 import 拒；不主动 GC）。 */
 export const MAX_WORKSPACE_BYTES = 500 * 1024 * 1024; // 500 MiB
 

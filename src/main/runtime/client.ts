@@ -21,11 +21,17 @@ import type {
   DarvinGetMessagesResponse,
   DarvinListSessionsResponse,
   DarvinListSkillsResponse,
+  DarvinMcpConnectionChangedEvent,
+  DarvinMcpResolutionChangedEvent,
+  DarvinMcpServer,
+  DarvinMcpServerPatch,
   DarvinPromptRequest,
   DarvinPromptResponse,
   DarvinSetSkillEnabledRequest,
   DarvinSetSkillEnabledResponse,
   DarvinSkillSummary,
+  DarvinTestMcpConnectionRequest,
+  DarvinTestMcpConnectionResponse,
 } from '../../shared/darvin-api';
 
 /**
@@ -48,6 +54,8 @@ export class AgentClient extends EventEmitter {
   private pending = new Map<string, Pending>();
   private eventListeners = new Set<(e: DarvinEvent) => void>();
   private skillsListeners = new Set<(skills: DarvinSkillSummary[]) => void>();
+  private mcpConnListeners = new Set<(e: DarvinMcpConnectionChangedEvent) => void>();
+  private mcpResListeners = new Set<(e: DarvinMcpResolutionChangedEvent) => void>();
   private logger: Logger;
 
   constructor(opts: { logger?: Logger } = {}) {
@@ -148,6 +156,55 @@ export class AgentClient extends EventEmitter {
       return;
     }
 
+    if (frame.method === 'mcp.connection_changed') {
+      if (typeof frame.params !== 'object' || frame.params === null) {
+        this.logger.warn('[agentclient] mcp.connection_changed 缺少 params');
+        return;
+      }
+      const p = frame.params as { id?: unknown; status?: unknown; error?: unknown };
+      if (typeof p.id !== 'string' || typeof p.status !== 'string') {
+        this.logger.warn('[agentclient] mcp.connection_changed id/status 缺失');
+        return;
+      }
+      const e: DarvinMcpConnectionChangedEvent = {
+        id: p.id,
+        status: p.status as DarvinMcpConnectionChangedEvent['status'],
+        error: typeof p.error === 'string' ? p.error : undefined,
+      };
+      for (const cb of this.mcpConnListeners) {
+        try {
+          cb(e);
+        } catch (err) {
+          this.logger.warn(`[agentclient] mcp conn listener 抛错: ${(err as Error).message}`);
+        }
+      }
+      return;
+    }
+
+    if (frame.method === 'mcp.resolution_changed') {
+      if (typeof frame.params !== 'object' || frame.params === null) {
+        this.logger.warn('[agentclient] mcp.resolution_changed 缺少 params');
+        return;
+      }
+      const p = frame.params as { serverId?: unknown; resolution?: unknown };
+      if (typeof p.serverId !== 'string' || !p.resolution || typeof p.resolution !== 'object') {
+        this.logger.warn('[agentclient] mcp.resolution_changed 缺字段');
+        return;
+      }
+      const e: DarvinMcpResolutionChangedEvent = {
+        serverId: p.serverId,
+        resolution: p.resolution as DarvinMcpResolutionChangedEvent['resolution'],
+      };
+      for (const cb of this.mcpResListeners) {
+        try {
+          cb(e);
+        } catch (err) {
+          this.logger.warn(`[agentclient] mcp res listener 抛错: ${(err as Error).message}`);
+        }
+      }
+      return;
+    }
+
     if (frame.method !== 'agent.event') return;
     if (typeof frame.params !== 'object' || frame.params === null) {
       this.logger.warn('[agentclient] agent.event 缺少 params');
@@ -238,6 +295,43 @@ export class AgentClient extends EventEmitter {
       this.skillsListeners.add(cb);
       return () => {
         this.skillsListeners.delete(cb);
+      };
+    },
+  };
+
+  /**
+   * spec 36 — Go 端 MCP 命名空间。bootstrap 由 main 端在启动期调用一次推
+   * 初始 server 列表；list / register / update / unregister / setEnabled /
+   * test / retryResolution 既可被 main 端主动调（renderer 通过 IPC 触发），
+   * 也可由 Go 端连接状态变化时 broadcast notification 回到 main。
+   */
+  mcp = {
+    list: (): Promise<{ servers: DarvinMcpServer[] }> =>
+      this.request<{ servers: DarvinMcpServer[] }>('agent.mcp.list', {}),
+    register: (req: { server: DarvinMcpServer }): Promise<{ ok: boolean }> =>
+      this.request<{ ok: boolean }>('agent.mcp.register', req),
+    update: (req: { id: string; patch: DarvinMcpServerPatch }): Promise<{ server: DarvinMcpServer }> =>
+      this.request<{ server: DarvinMcpServer }>('agent.mcp.update', req),
+    unregister: (req: { id: string }): Promise<{ ok: boolean }> =>
+      this.request<{ ok: boolean }>('agent.mcp.unregister', req),
+    setEnabled: (req: { id: string; enabled: boolean }): Promise<{ ok: boolean }> =>
+      this.request<{ ok: boolean }>('agent.mcp.set_enabled', req),
+    test: (req: DarvinTestMcpConnectionRequest): Promise<DarvinTestMcpConnectionResponse> =>
+      this.request<DarvinTestMcpConnectionResponse>('agent.mcp.test', req),
+    retryResolution: (req: { id: string }): Promise<{ ok: boolean }> =>
+      this.request<{ ok: boolean }>('agent.mcp.retry_resolution', req),
+    bootstrap: (req: { servers: DarvinMcpServer[] }): Promise<{ ok: boolean }> =>
+      this.request<{ ok: boolean }>('agent.mcp.bootstrap', req),
+    onConnectionChanged: (cb: (e: DarvinMcpConnectionChangedEvent) => void): (() => void) => {
+      this.mcpConnListeners.add(cb);
+      return () => {
+        this.mcpConnListeners.delete(cb);
+      };
+    },
+    onResolutionChanged: (cb: (e: DarvinMcpResolutionChangedEvent) => void): (() => void) => {
+      this.mcpResListeners.add(cb);
+      return () => {
+        this.mcpResListeners.delete(cb);
       };
     },
   };

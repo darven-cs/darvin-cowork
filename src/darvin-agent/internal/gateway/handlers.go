@@ -19,6 +19,7 @@ import (
 	"darvin-cowork/backend/internal/agent/executor"
 	"darvin-cowork/backend/internal/agent/queue"
 	"darvin-cowork/backend/internal/agent/store"
+	"darvin-cowork/backend/internal/mcp"
 	"darvin-cowork/backend/internal/skills"
 )
 
@@ -214,6 +215,8 @@ type HandlerOptions struct {
 	WorkspaceRoot string
 	// Skills 是 skills registry。spec 32 落地后由 main.go 注入。
 	Skills *skills.SkillRegistry
+	// Mcp 是 MCP server registry。spec 35 + 36 落地后由 main.go 注入。
+	Mcp *mcp.Registry
 	// Log 是 skills handler 的日志出口;nil 时 handler 不打 warn。
 	Log *zap.Logger
 }
@@ -238,6 +241,9 @@ type Handler struct {
 	// Skills 支撑 agent.skills.list / set_enabled / bootstrap。spec 32 落地；
 	// nil 时这些 handler 返回空结果,handler 测试 stub 不需要构造 registry。
 	Skills *skills.SkillRegistry
+	// Mcp 支撑 agent.mcp.list / register / update / unregister /
+	// set_enabled / test / retry_resolution / bootstrap。spec 35 + 36 落地。
+	Mcp *mcp.Registry
 	// Log 用来记录 skills handler 异常;nil 时走 zap.NewNop()。
 	Log *zap.Logger
 }
@@ -268,6 +274,7 @@ func NewHandler(
 		ImportedFiles: o.ImportedFiles,
 		WorkspaceRoot: o.WorkspaceRoot,
 		Skills:        o.Skills,
+		Mcp:           o.Mcp,
 		Log:           o.Log,
 	}
 }
@@ -320,6 +327,22 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleSetSkillEnabled(req.ID, req.Params, h)
 	case "agent.skills.bootstrap":
 		return handleBootstrapSkills(req.ID, req.Params, h)
+	case "agent.mcp.list":
+		return handleMcpList(req.ID, h)
+	case "agent.mcp.register":
+		return handleMcpRegister(req.ID, req.Params, h)
+	case "agent.mcp.update":
+		return handleMcpUpdate(req.ID, req.Params, h)
+	case "agent.mcp.unregister":
+		return handleMcpUnregister(req.ID, req.Params, h)
+	case "agent.mcp.set_enabled":
+		return handleMcpSetEnabled(req.ID, req.Params, h)
+	case "agent.mcp.test":
+		return handleMcpTest(req.ID, req.Params, h)
+	case "agent.mcp.retry_resolution":
+		return handleMcpRetryResolution(req.ID, req.Params, h)
+	case "agent.mcp.bootstrap":
+		return handleMcpBootstrap(req.ID, req.Params, h)
 	default:
 		return errorResp(req.ID, CodeMethodNotFound,
 			"Method not found: "+req.Method, nil)
@@ -1246,4 +1269,334 @@ func (h *Handler) broadcastSkillsChanged() {
 		"skills": skills.ToSummaries(entries),
 	}
 	h.Ledger.Broadcast("agent.skills.changed", params)
+}
+
+// --- MCP handlers (spec 35 / 36) ---
+
+// ListMcpServersResult is the JSON-RPC result for agent.mcp.list.
+// Mirrors DarvinListMcpServersResponse in src/shared/darvin-api.ts.
+type ListMcpServersResult struct {
+	Servers []McpServerWire `json:"servers"`
+}
+
+// McpServerWire is the IPC wire shape for a server. CreatedAt /
+// UpdatedAt are unix ms; LaunchStatus / ConnectionStatus / etc. are
+// nilable so the renderer can distinguish "not yet reported" from
+// "reported as disconnected".
+type McpServerWire struct {
+	ID               string                    `json:"id"`
+	Name             string                    `json:"name"`
+	Description      string                    `json:"description"`
+	Enabled          bool                      `json:"enabled"`
+	TransportType    string                    `json:"transportType"`
+	Command          string                    `json:"command,omitempty"`
+	Args             []string                  `json:"args,omitempty"`
+	Env              map[string]string         `json:"env,omitempty"`
+	URL              string                    `json:"url,omitempty"`
+	Headers          map[string]string         `json:"headers,omitempty"`
+	IsBuiltIn        bool                      `json:"isBuiltIn"`
+	GithubURL        string                    `json:"githubUrl,omitempty"`
+	RegistryID       string                    `json:"registryId,omitempty"`
+	CreatedAt        int64                     `json:"createdAt"`
+	UpdatedAt        int64                     `json:"updatedAt"`
+	LaunchStatus     string                    `json:"launchStatus,omitempty"`
+	LaunchError      string                    `json:"launchError,omitempty"`
+	ConnectionStatus string                    `json:"connectionStatus,omitempty"`
+	ConnectionError  string                    `json:"connectionError,omitempty"`
+	ExposedTools     []McpServerExposedToolWire `json:"exposedTools,omitempty"`
+}
+
+type McpServerExposedToolWire struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"inputSchema"`
+}
+
+// McpLaunchResolutionWire is the wire shape for the resolution payload
+// of mcp.resolution_changed.
+type McpLaunchResolutionWire struct {
+	ServerID          string            `json:"serverId"`
+	ResolverKind      string            `json:"resolverKind"`
+	SourceFingerprint string            `json:"sourceFingerprint"`
+	Status            string            `json:"status"`
+	PackageName       string            `json:"packageName,omitempty"`
+	RequestedVersion  string            `json:"requestedVersion,omitempty"`
+	ResolvedVersion   string            `json:"resolvedVersion,omitempty"`
+	InstallDir        string            `json:"installDir,omitempty"`
+	Command           string            `json:"command,omitempty"`
+	Args              []string          `json:"args"`
+	Env               map[string]string `json:"env"`
+	Error             string            `json:"error,omitempty"`
+	InstalledAt       *int64            `json:"installedAt,omitempty"`
+	ResolvedAt        *int64            `json:"resolvedAt,omitempty"`
+	UpdatedAt         int64             `json:"updatedAt"`
+}
+
+func wireFromServer(s mcp.ServerSpec, st mcp.ServerStatus, now int64) McpServerWire {
+	w := McpServerWire{
+		ID:            s.ID,
+		Name:          s.Name,
+		Description:   s.Description,
+		Enabled:       st.Enabled,
+		TransportType: string(s.Transport),
+		Command:       s.Command,
+		Args:          append([]string(nil), s.Args...),
+		URL:           s.URL,
+		Headers:       mcp.CloneStringMap(s.Headers),
+		IsBuiltIn:     s.IsBuiltIn,
+		GithubURL:     s.GitHubURL,
+		RegistryID:    s.RegistryID,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if len(s.Env) > 0 {
+		w.Env = mcp.CloneStringMap(s.Env)
+	}
+	if st.Connected {
+		w.ConnectionStatus = string(mcp.ConnectionConnected)
+	} else if st.ConnectionError != "" {
+		w.ConnectionStatus = string(mcp.ConnectionError)
+		w.ConnectionError = st.ConnectionError
+	} else if st.Resolving {
+		w.ConnectionStatus = string(mcp.ConnectionConnecting)
+	} else {
+		w.ConnectionStatus = string(mcp.ConnectionDisconnected)
+	}
+	if st.Resolution != nil {
+		w.LaunchStatus = string(st.Resolution.Status)
+		w.LaunchError = st.Resolution.Error
+	}
+	if len(st.Tools) > 0 {
+		w.ExposedTools = make([]McpServerExposedToolWire, 0, len(st.Tools))
+		for _, t := range st.Tools {
+			w.ExposedTools = append(w.ExposedTools, McpServerExposedToolWire{
+				Name:        t.Name,
+				Description: t.Description,
+				InputSchema: t.InputSchema,
+			})
+		}
+	}
+	return w
+}
+
+func wireFromResolution(r mcp.LaunchResolution) McpLaunchResolutionWire {
+	w := McpLaunchResolutionWire{
+		ServerID:          r.ServerID,
+		ResolverKind:      string(r.ResolverKind),
+		SourceFingerprint: r.SourceFingerprint,
+		Status:            string(r.Status),
+		PackageName:       r.PackageName,
+		RequestedVersion:  r.RequestedVersion,
+		ResolvedVersion:   r.ResolvedVersion,
+		InstallDir:        r.InstallDir,
+		Command:           r.Command,
+		Args:              append([]string(nil), r.Args...),
+		Env:               mcp.CloneStringMap(r.Env),
+		Error:             r.Error,
+		UpdatedAt:         r.UpdatedAt.UnixMilli(),
+	}
+	if !r.InstalledAt.IsZero() {
+		ms := r.InstalledAt.UnixMilli()
+		w.InstalledAt = &ms
+	}
+	if !r.ResolvedAt.IsZero() {
+		ms := r.ResolvedAt.UnixMilli()
+		w.ResolvedAt = &ms
+	}
+	return w
+}
+
+func handleMcpList(id json.RawMessage, h *Handler) *Response {
+	if h.Mcp == nil {
+		return successResp(id, ListMcpServersResult{Servers: []McpServerWire{}})
+	}
+	statuses := h.Mcp.List()
+	now := time.Now().UnixMilli()
+	out := make([]McpServerWire, 0, len(statuses))
+	for _, st := range statuses {
+		spec, ok := h.Mcp.GetSpec(st.ServerID)
+		if !ok {
+			continue
+		}
+		out = append(out, wireFromServer(spec, st, now))
+	}
+	return successResp(id, ListMcpServersResult{Servers: out})
+}
+
+type McpRegisterParams struct {
+	Server mcp.ServerSpec `json:"server"`
+}
+
+func handleMcpRegister(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if h.Mcp == nil {
+		return errorResp(id, CodeNoAcpSession, "mcp registry not configured", nil)
+	}
+	var p McpRegisterParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if p.Server.ID == "" {
+		return errorResp(id, CodeInvalidParams, "server.id required", nil)
+	}
+	if err := h.Mcp.Register(context.Background(), p.Server); err != nil {
+		return errorResp(id, CodeInternalError, err.Error(), nil)
+	}
+	return successResp(id, map[string]any{"ok": true})
+}
+
+type McpUpdateParams struct {
+	ID    string             `json:"id"`
+	Patch mcp.ServerSpec     `json:"patch"`
+}
+
+func handleMcpUpdate(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if h.Mcp == nil {
+		return errorResp(id, CodeNoAcpSession, "mcp registry not configured", nil)
+	}
+	var p McpUpdateParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if p.ID == "" {
+		return errorResp(id, CodeInvalidParams, "id required", nil)
+	}
+	if err := h.Mcp.Update(context.Background(), p.ID, p.Patch); err != nil {
+		return errorResp(id, CodeInternalError, err.Error(), nil)
+	}
+	spec, ok := h.Mcp.GetSpec(p.ID)
+	if !ok {
+		return errorResp(id, CodeInternalError, "server disappeared after update", nil)
+	}
+	st, _ := h.Mcp.Get(p.ID)
+	return successResp(id, map[string]any{"server": wireFromServer(spec, st, time.Now().UnixMilli())})
+}
+
+type McpServerIDParams struct {
+	ID string `json:"id"`
+}
+
+func handleMcpUnregister(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if h.Mcp == nil {
+		return errorResp(id, CodeNoAcpSession, "mcp registry not configured", nil)
+	}
+	var p McpServerIDParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if err := h.Mcp.Unregister(context.Background(), p.ID); err != nil {
+		return errorResp(id, CodeInternalError, err.Error(), nil)
+	}
+	return successResp(id, map[string]any{"ok": true})
+}
+
+type McpSetEnabledParams struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+}
+
+func handleMcpSetEnabled(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if h.Mcp == nil {
+		return errorResp(id, CodeNoAcpSession, "mcp registry not configured", nil)
+	}
+	var p McpSetEnabledParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if err := h.Mcp.SetEnabled(context.Background(), p.ID, p.Enabled); err != nil {
+		return errorResp(id, CodeInternalError, err.Error(), nil)
+	}
+	return successResp(id, map[string]any{"ok": true})
+}
+
+func handleMcpTest(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if h.Mcp == nil {
+		return successResp(id, map[string]any{"ok": false, "error": "mcp registry not configured"})
+	}
+	var p McpServerIDParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	ok, errMsg, tools := h.Mcp.Test(p.ID)
+	resp := map[string]any{
+		"ok":    ok,
+		"error": errMsg,
+	}
+	if len(tools) > 0 {
+		wire := make([]McpServerExposedToolWire, 0, len(tools))
+		for _, t := range tools {
+			wire = append(wire, McpServerExposedToolWire{
+				Name:        t.Name,
+				Description: t.Description,
+				InputSchema: t.InputSchema,
+			})
+		}
+		resp["tools"] = wire
+	}
+	return successResp(id, resp)
+}
+
+func handleMcpRetryResolution(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if h.Mcp == nil {
+		return errorResp(id, CodeNoAcpSession, "mcp registry not configured", nil)
+	}
+	var p McpServerIDParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if err := h.Mcp.RetryResolution(p.ID); err != nil {
+		return errorResp(id, CodeInternalError, err.Error(), nil)
+	}
+	return successResp(id, map[string]any{"ok": true})
+}
+
+type McpBootstrapParams struct {
+	Servers []mcp.ServerSpec `json:"servers"`
+}
+
+func handleMcpBootstrap(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if h.Mcp == nil {
+		return successResp(id, map[string]any{"ok": true})
+	}
+	var p McpBootstrapParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	for i := range p.Servers {
+		if err := h.Mcp.Register(context.Background(), p.Servers[i]); err != nil {
+			if h.Log != nil {
+				h.Log.Warn("mcp bootstrap register failed",
+					zap.String("id", p.Servers[i].ID),
+					zap.Error(err))
+			}
+		}
+	}
+	return successResp(id, map[string]any{"ok": true})
+}
+
+// OnMcpConnectionChanged is the mcp.Notifier callback wired up by
+// main.go after both registry and handler exist. It broadcasts the
+// mcp.connection_changed notification; main forwards the payload to
+// renderer via darvin:push:mcp-connection-changed.
+func (h *Handler) OnMcpConnectionChanged(serverID string, status mcp.ConnectionStatus, errMsg string) {
+	if h.Ledger == nil {
+		return
+	}
+	h.Ledger.Broadcast("mcp.connection_changed", map[string]any{
+		"id":     serverID,
+		"status": string(status),
+		"error":  errMsg,
+	})
+}
+
+// OnMcpResolutionChanged is the mcp.Notifier callback for resolver
+// output (pending / installing / ready / failed). main 落 SQLite + 推
+// renderer via darvin:push:mcp-servers-changed(launchStatus 字段)。
+func (h *Handler) OnMcpResolutionChanged(serverID string, res mcp.LaunchResolution) {
+	if h.Ledger == nil {
+		return
+	}
+	h.Ledger.Broadcast("mcp.resolution_changed", map[string]any{
+		"serverId":   serverID,
+		"resolution": wireFromResolution(res),
+	})
 }

@@ -557,6 +557,148 @@ export interface DarvinGetSkillDetailsResponse {
   scripts?: Array<{ path: string; content: string }>;
 }
 
+/** spec 36 — MCP transport 种类。stdio 走子进程 + Content-Length,
+ * sse/http 走 streamable-HTTP。 */
+export type DarvinMcpTransportType = 'stdio' | 'sse' | 'http';
+
+/** spec 36 — resolver 优化后的 launch 状态。strings 对齐 Go 端
+ * ResolutionStatus(IPC 协议字段)。 */
+export type DarvinMcpLaunchStatus =
+  | 'pending' | 'installing' | 'ready' | 'failed' | 'unsupported';
+
+/** spec 36 — 实际 MCP 连接状态。connecting / connected / error 由
+ * Go 端 registry 推 connection_changed;main 端只做转发。 */
+export type DarvinMcpConnectionStatus =
+  | 'disconnected' | 'connecting' | 'connected' | 'error';
+
+/** spec 36 — 单个 tool 暴露给 agent / renderer 的视图。 */
+export interface DarvinMcpServerExposedTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+/** spec 36 — 单 MCP server 的 renderer 视图;spec / status 合一。 */
+export interface DarvinMcpServer {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  transportType: DarvinMcpTransportType;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  isBuiltIn: boolean;
+  githubUrl?: string;
+  registryId?: string;
+  createdAt: number;
+  updatedAt: number;
+  launchStatus?: DarvinMcpLaunchStatus;
+  launchError?: string;
+  connectionStatus?: DarvinMcpConnectionStatus;
+  connectionError?: string;
+  exposedTools?: DarvinMcpServerExposedTool[];
+}
+
+export interface DarvinMcpServerCreate {
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  transportType: DarvinMcpTransportType;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+export interface DarvinMcpServerPatch {
+  name?: string;
+  description?: string;
+  enabled?: boolean;
+  transportType?: DarvinMcpTransportType;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+export interface DarvinListMcpServersResponse {
+  servers: DarvinMcpServer[];
+}
+
+export interface DarvinCreateMcpServerResponse {
+  server: DarvinMcpServer;
+}
+
+export interface DarvinUpdateMcpServerResponse {
+  server: DarvinMcpServer;
+}
+
+export interface DarvinDeleteMcpServerResponse {
+  ok: boolean;
+}
+
+export interface DarvinSetMcpServerEnabledRequest {
+  id: string;
+  enabled: boolean;
+}
+
+export interface DarvinSetMcpServerEnabledResponse {
+  ok: boolean;
+}
+
+export interface DarvinTestMcpConnectionRequest {
+  id: string;
+}
+
+export interface DarvinTestMcpConnectionResponse {
+  ok: boolean;
+  error?: string;
+  tools?: DarvinMcpServerExposedTool[];
+}
+
+export interface DarvinRetryMcpLaunchResolutionRequest {
+  id: string;
+}
+
+export interface DarvinRetryMcpLaunchResolutionResponse {
+  ok: boolean;
+}
+
+export interface DarvinMcpConnectionChangedEvent {
+  id: string;
+  status: DarvinMcpConnectionStatus;
+  error?: string;
+}
+
+/** spec 36 — Go → main 的 resolution 推送。`updatedAt` 是 unix ms。 */
+export interface DarvinMcpLaunchResolution {
+  serverId: string;
+  resolverKind: 'npx' | 'uvx' | 'go' | 'raw';
+  sourceFingerprint: string;
+  status: DarvinMcpLaunchStatus;
+  packageName: string | null;
+  requestedVersion: string | null;
+  resolvedVersion: string | null;
+  installDir: string | null;
+  command: string | null;
+  args: string[];
+  env: Record<string, string>;
+  error: string | null;
+  installedAt: number | null;
+  resolvedAt: number | null;
+  updatedAt: number;
+}
+
+export interface DarvinMcpResolutionChangedEvent {
+  serverId: string;
+  resolution: DarvinMcpLaunchResolution;
+}
+
 /** spec 12 — 选取待附加文件（只记路径，不复制）。 */
 export interface DarvinPickAttachmentsResponse {
   attachments: DarvinAttachmentRef[];
@@ -594,6 +736,8 @@ export const DarvinPushEvent = {
   SessionEvent: 'darvin:push:session-event',
   WorkspaceChanged: 'darvin:push:workspace-changed',
   SkillsChanged: 'darvin:push:skills-changed',
+  McpServersChanged: 'darvin:push:mcp-servers-changed',
+  McpConnectionChanged: 'darvin:push:mcp-connection-changed',
 } as const;
 export type DarvinPushEvent = typeof DarvinPushEvent[keyof typeof DarvinPushEvent];
 
@@ -696,4 +840,25 @@ export interface DarvinApi {
   upgradeSkill(req: DarvinUpgradeSkillRequest): Promise<DarvinUpgradeSkillResponse>;
   /** spec 33 — 拉取 skill 详情（SKILL.md body + 同目录脚本），用于详情 modal。 */
   getSkillDetails(req: DarvinGetSkillDetailsRequest): Promise<DarvinGetSkillDetailsResponse>;
+
+  /** spec 36 — 列所有 MCP server（含 bundled filesystem + user 配置）。 */
+  listMcpServers(): Promise<DarvinListMcpServersResponse>;
+  /** spec 36 — 新增一个 user MCP server；main 写 SQLite + 调 Go 端 register。 */
+  createMcpServer(req: DarvinMcpServerCreate): Promise<DarvinCreateMcpServerResponse>;
+  /** spec 36 — 改任意字段（不含 launchStatus / connectionStatus，这两个由 Go 端推）。 */
+  updateMcpServer(req: { id: string; patch: DarvinMcpServerPatch }): Promise<DarvinUpdateMcpServerResponse>;
+  /** spec 36 — 删除一个 MCP server；cascade 清 launch resolution。 */
+  deleteMcpServer(req: { id: string }): Promise<DarvinDeleteMcpServerResponse>;
+  /** spec 36 — 切换启用 / 禁用；Go 端关 client / 重连。 */
+  setMcpServerEnabled(req: DarvinSetMcpServerEnabledRequest): Promise<DarvinSetMcpServerEnabledResponse>;
+  /** spec 36 — 测试当前连接；返回 {ok, error?, tools?}。 */
+  testMcpConnection(req: DarvinTestMcpConnectionRequest): Promise<DarvinTestMcpConnectionResponse>;
+  /** spec 36 — 重新跑 resolver（适用 npx install 失败后人工点重试）。 */
+  retryMcpLaunchResolution(req: DarvinRetryMcpLaunchResolutionRequest): Promise<DarvinRetryMcpLaunchResolutionResponse>;
+  /** spec 36 — 订阅 server 列表变更（create/update/delete/setEnabled 之后 main 推）。 */
+  onMcpServersChanged(handler: (servers: DarvinMcpServer[]) => void): () => void;
+  /** spec 36 — 订阅单 server 连接状态变更（Go → main → renderer push）。 */
+  onMcpConnectionChanged(handler: (e: DarvinMcpConnectionChangedEvent) => void): () => void;
+  /** spec 36 — 订阅 resolver 输出（npx 装包进度 / 失败原因），main 端落 SQLite。 */
+  onMcpResolutionChanged(handler: (e: DarvinMcpResolutionChangedEvent) => void): () => void;
 }

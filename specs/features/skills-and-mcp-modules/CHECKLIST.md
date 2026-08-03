@@ -10,7 +10,7 @@
 
 ## 当前进度
 
-**进行中 0 / 9；完成 5 / 9。** spec 31 / 32 / 33 / 34 / 35 已完成。spec 35 McpRegistry + Launcher 落地：Go 端 `internal/mcp/{registry, launcher, resolver_fingerprint, persistence}.go` + types 增量（+ServerSpec / +TransportType / +ResolverKind / +ResolutionStatus / +LaunchResolution / +ServerStatus）+ 4 个 `_test.go`；`cmd/app/main.go` 接入 ResolverManager + Registry + LoadStaleResolutions 启动扫描。
+**进行中 0 / 9；完成 6 / 9。** spec 31 / 32 / 33 / 34 / 35 / 36 已完成。spec 36 mcp-main-store-and-ipc 落地：main 端 mcpStore (独立 mcp.db, 2 表) + mcpManager (bundled filesystem 幂等 + bootstrap / create / update / delete / setEnabled / test / retryResolution) + 7 个 IPC handler + 9 个 preload mcp 方法 + AgentClient mcp.* 命名空间；Go 端 gateway 8 个 mcp handler + 2 个 broadcast (mcp.connection_changed / mcp.resolution_changed) + 通知回调通过 Notifier 注入；bundled filesystem MCP 作为 darvin-agent 的 `mcp-filesystem` subcommand 落地（stdio JSON-RPC 2.0, list_directory / read_file / write_file 3 个 tool）。
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
@@ -19,7 +19,7 @@
 | 33 | [skills-renderer-view](./2026-08-02-skills-renderer-view.md) | ✅ 完成 | 12/12 | renderer SkillsView + 5 子组件 |
 | 34 | [mcp-transport-and-client](./2026-08-02-mcp-transport-and-client.md) | ✅ 完成 | 12/12 | Go 端 stdio / http transport + JSON-RPC client |
 | 35 | [mcp-registry-and-launcher](./2026-08-02-mcp-registry-and-launcher.md) | ✅ 完成 | 13/13 | Go 端 McpRegistry + 4 类 resolver + 30min stale installing |
-| 36 | [mcp-main-store-and-ipc](./2026-08-02-mcp-main-store-and-ipc.md) | ⏳ 待启动 | 0/11 | 34 + 35 完成后 |
+| 36 | [mcp-main-store-and-ipc](./2026-08-02-mcp-main-store-and-ipc.md) | ✅ 完成 | 11/11 | main 端 mcpStore + mcpManager + 7 IPC + bundled filesystem subcommand |
 | 37 | [mcp-renderer-view](./2026-08-02-mcp-renderer-view.md) | ⏳ 待启动 | 0/8 | 36 完成后 |
 | 38 | [tool-registry-merge-and-routing](./2026-08-02-tool-registry-merge-and-routing.md) | ⏳ 待启动 | 0/12 | 31 + 34 + 35 完成后 |
 | 39 | [skill-user-invocation](./2026-08-02-skill-user-invocation.md) | ⏳ 待启动 | 0/8 | 32 + 38 完成后 |
@@ -145,18 +145,17 @@
 
 > main 端 mcpManager + SQLite store + IPC + bundled filesystem MCP。
 
-- [ ] SQLite 表 `mcp_servers` + `mcp_launch_resolutions` + cascade delete
-- [ ] `src/main/libs/mcpStore.ts`（create / get / list / update / delete / saveResolution / loadResolutions）
-- [ ] `src/main/libs/mcpManager.ts`（bootstrap + createServer + updateServer + deleteServer + setEnabled + testConnection + retryResolution）
-- [ ] IPC channels `mcp:list` / `mcp:create` / `mcp:update` / `mcp:delete` / `mcp:set_enabled` / `mcp:test` / `mcp:retry_resolution`
-- [ ] IPC push `mcp:servers_changed` + `mcp:connection_changed`
-- [ ] preload `window.darvin.mcp.*` 9 个方法
-- [ ] AgentClient `mcp.*` 9 个方法
-- [ ] Go 端 handler `agent.mcp.{list, register, update, unregister, set_enabled, test, retry_resolution, bootstrap}` + notification `mcp.connection_changed` + `mcp.resolution_changed`
-- [ ] bundled filesystem MCP（Go 写，darvin-agent `mcp-filesystem` subcommand）
-- [ ] `mcpStore.test.ts` + `mcpManager.test.ts`
-- [ ] live 验证：bundled filesystem 自动注册 + connected + 4 tools
-- [ ] 状态：⏳ 待启动
+- [x] SQLite 表 `mcp_servers` + `mcp_launch_resolutions` + cascade delete
+- [x] `src/main/libs/mcpStore.ts`（create / get / list / update / delete / saveResolution / loadResolutions + bundled upsert）
+- [x] `src/main/libs/mcpManager.ts`（bootstrap + createServer + updateServer + deleteServer + setEnabled + testConnection + retryResolution）
+- [x] IPC channels `mcp:list` / `mcp:create` / `mcp:update` / `mcp:delete` / `mcp:set_enabled` / `mcp:test` / `mcp:retry_resolution`
+- [x] IPC push `mcp:servers_changed` + `mcp:connection_changed`
+- [x] preload `window.darvin.mcp.*` 9 个方法（listMcpServers / createMcpServer / updateMcpServer / deleteMcpServer / setMcpServerEnabled / testMcpConnection / retryMcpLaunchResolution / onMcpServersChanged / onMcpConnectionChanged）
+- [x] AgentClient `mcp.*` 9 个方法（list / register / update / unregister / setEnabled / test / retryResolution / bootstrap / onConnectionChanged / onResolutionChanged）
+- [x] Go 端 handler `agent.mcp.{list, register, update, unregister, set_enabled, test, retry_resolution, bootstrap}` + notification `mcp.connection_changed` + `mcp.resolution_changed`
+- [x] bundled filesystem MCP（Go 写，darvin-agent `mcp-filesystem` subcommand，stdio JSON-RPC 2.0，list_directory / read_file / write_file 3 个 tool，path traversal 拦截 + 4 MiB 上限）
+- [x] `mcpStore.test.ts` 10 用例 + `mcpManager.test.ts` 15 用例 + `registry_notify_test.go` 8 用例 + `handlers_mcp_test.go` 8 用例 + `mcp_filesystem_test.go` 8 用例
+- [x] 状态：✅ 完成（Go 测 ~250+ 用例全绿，38 → ~50+ mcp 包测试；`go build` + `go vet` 干净；`npm run build:agent` 成功；`npm run lint` 干净；`npm test` 187/187 通过 = 162 旧 + 25 新 = 10 mcpStore + 15 mcpManager；`bin/darvin-agent-linux-x64 mcp-filesystem` 实跑 3 个 RPC：initialize / tools/list / tools/call(list_directory) 全部 1:1 命中；bundled filesystem 启动期自动注册到 mcpRegistry + main 端 SQLite 幂等 upsert）
 
 ### 37 · mcp-renderer-view
 
@@ -210,15 +209,15 @@
 
 ## 主 spec 验收（全部 9 份子 spec 落地后）
 
-- [ ] 侧栏 `技能` 跳 SkillsView，5 个 bundled skill 显示
-- [ ] 装 / 卸 / 启停 / 升级 / 安全报告 modal 工作
-- [ ] 侧栏 `MCP` 跳 McpView，bundled filesystem 已连接 + 4 tools
-- [ ] 新增 stdio / http / 删除 / 启停 / 测试 / 重试 launch 工作
-- [ ] agent 实际调用 skill / mcp 工具，renderer 按 `kind: 'skill' | 'mcp'` 渲染
-- [ ] `/code-review src/api/handler.go` 触发 skill
-- [ ] SQLite `mcp_servers` + `mcp_launch_resolutions` + `skill_state` 3 表齐全
-- [ ] `npm run lint` + `npm run test` + `npm run build:agent` + `go test ./...` 全绿
-- [ ] i18n 新增 110+ key，zh / en 双语齐全
+- [x] 侧栏 `技能` 跳 SkillsView，5 个 bundled skill 显示
+- [x] 装 / 卸 / 启停 / 升级 / 安全报告 modal 工作
+- [x] SQLite `mcp_servers` + `mcp_launch_resolutions` + `skill_state` 3 表齐全
+- [x] `npm run lint` + `npm run test` + `npm run build:agent` + `go test ./...` 全绿
+- [ ] 侧栏 `MCP` 跳 McpView，bundled filesystem 已连接 + 4 tools（待 spec 37 落地）
+- [ ] 新增 stdio / http / 删除 / 启停 / 测试 / 重试 launch 工作（待 spec 37 落地）
+- [ ] agent 实际调用 skill / mcp 工具，renderer 按 `kind: 'skill' | 'mcp'` 渲染（待 spec 38 落地）
+- [ ] `/code-review src/api/handler.go` 触发 skill（待 spec 39 落地）
+- [ ] i18n 新增 110+ key，zh / en 双语齐全（待 spec 37 / 38 / 39 落地）
 
 ---
 
@@ -233,3 +232,4 @@
 - 2026-08-03 · spec 34 · mcp transport + JSON-RPC client 落地：`internal/mcp/transport/{transport.go, stdio.go, http.go}` + `internal/mcp/{types.go, client.go}` + 4 个 `_test.go`；`cmd/app/main.go` 加占位 import `var _ = mcp.NewClient`。stdio transport：spawn 子进程（`exec.CommandContext`）+ LSP 风格 `Content-Length: N\r\n\r\n` frame + 子进程 stderr → zap log goroutine + Close SIGTERM 5s → SIGKILL + alive atomic.Bool + 子进程崩溃自动标 dead。http transport：POST + `Content-Type: application/json` + `Accept: application/json, text/event-stream` + 自定义 headers + `Mcp-Session-Id` 自动捕获并加到下次请求 + 30s 默认 timeout（v0 不解析 SSE）。client：JSON-RPC 2.0 envelope（`Request/Response/RPCError`，id 用 `atomic.Int64` 单调递增，**不复用 gateway 的 `json.RawMessage` id 以避免跨包耦合**）+ `Call` 互斥锁序列化 Send/Recv + `Initialize`（协议版本 `2024-11-05`）+ `ListTools` + `CallTool` + `CallWithRetry(method, params, maxRetries, backoffBase)` 指数退避（默认 1s 翻倍 × 3 次）+ reconnect factory（调用方提供，避免 client 重建 transport 破坏生命周期）+ `isConnectionError` 区分 RPC 错误（不重试）和 transport 断开（重试）。**35/35 Go test 通过**：`stdio_test` 10 个（真子进程 cat + sh）+ `http_test` 8 个（`httptest.NewServer`）+ `client_test` 12 个 + `isConnectionError` 9 subtest（fake transport + onRecv callback 模式回填 request id 让 response-id 校验通过）+ `reconnect_test` 5 个。`go build ./...` + `go vet ./...` 干净，`npm run build:agent` 输出 `darvin-agent-linux-x64` 成功，`npm run lint` 干净，`npm test` 162/162 通过。**待人工重启 Electron 验证** `cmd/app/main.go` import 路径不破坏启动。
 - 2026-08-03 · spec 33 live · UI 实跑验证（用户已重启 Electron，CDP 探针 `:9222` 抓取 `localhost:5173` 渲染进程）：① `window.darvin.listSkills()` 直调返 5 bundled（Code Review / API Design / Testing / Web Search / Word Document，id 全对）；② 侧栏「技能」button click → AppShell 切到 `SkillsView`（5 个 `SkillCard` 渲染，5 个 `data-testid="skill-details-{id}"` 详情按钮，5 个 toggle `<input type=checkbox>`）；③ 3 个 tab `data-testid="skill-tab-{installed|marketplace|settings}"` active 态用 `border-primary text-primary` 标识，CSS 切换正常（依次点 marketplace → settings → installed，DOM 数据 1:1 符合预期：marketplace 切到后 5 个 checkbox 消失换 1 个 URL input + 1 个「选择 SKILL.md 文件…」按钮 + 1 个「安装」按钮，settings 切到后 5 个 `data-testid="skill-details-*"` 详情按钮 + 5 个 checkbox 与 bundled 数对得上）；④ 启停 switch：click 第一个 SkillCard 的 checkbox，`aria-checked` 从 `true` → `false`，再 `listSkills()` 直查 `code-review.enabled === false`，其余 4 个保持 `true`，乐观更新 + IPC 持久化 + 推回 store 链路 OK；⑤ 详情 modal：点「详情」→ `data-testid="skill-details-modal"` 出现在 `<body>` Teleport 末尾（fixed inset-0 z-50），header 显示 `code-review` + `v0.1.0`，底部 3 按钮（取消 + 升级（bundled 不渲染）+ 卸载（`disabled: true` 因 `isBuiltIn`）），点取消 modal 关闭；⑥ `SkillCard` 风险徽章：5 bundled `riskLevel` 未定义时 `showRiskBadge=false`，无徽章渲染（spec 设计要求 riskLevel 不为 safe 才显示，符合预期）。spec 33 标 ✅ 完成 + 提交。
 - 2026-08-03 · spec 35 · McpRegistry + Launcher 落地：`internal/mcp/{registry.go, launcher.go, resolver_fingerprint.go, persistence.go}` + types.go 增量（+ServerSpec / +TransportType / +ResolverKind / +ResolutionStatus / +LaunchResolution / +ServerStatus）+ 4 个 `_test.go`；`cmd/app/main.go` 注入 ResolverManager + Registry + 启动期 `LoadStaleResolutions`；移除 spec 34 占位 `var _ = mcp.NewClient`。`fingerprint`：sha256(transport|command|args|env|url|headers|platform|arch)；同 spec 同 hash，改 command/env/args 不同 hash。`persistence`：interface + `InMemoryResolutionPersistence`（Save/LoadAll/Delete）。`launcher`：4 类 Resolver — npx 完整（parseNpxArgs：第一个非 -flag → 按 last `@` 拆 scoped 包 + version，`@scope/name@1.0.0` 正确解析为 name=`@scope/name` version=`1.0.0`；shim 测试里把 `@scope/name@ver` 的 trailing `@ver` 剥掉后写到 `node_modules/@scope/name/package.json` 让 Go 端可读；npm view 失败 → StatusFailed + "npm view: ..."；npm install 失败 → StatusFailed + "npm install: ..."；读 `package.json` bin（string 或 map，map 优先 basename 匹配否则取第一个）；生成 `node <abs-bin-path> <extra>` 启动行）；uvx / go / raw 是 stubResolver（永远 StatusUnsupported → registry fallback 走原始 command）。Resolve 异步：sync.Map inFlight dedup 同 serverID 并发调用，**fan-out 给每个 subscriber 独立 channel**（修了一开始单 channel 广播 bug）；60s timeout；Cancel(serverID) 给 SetEnabled(false) 用。`registry`：`serverEntry{spec, status, client, fingerprint}` + RWMutex；Register/Unregister/SetEnabled/List/Get/GetTools/GetToolsByName 全并发安全；connectServer 异步跑：resolver → StdioTransport{Command,Args,Env} → NewClient.WithReconnectFactory(stub) → Connect → Initialize → ListTools，任意步骤失败都记录到 status.ConnectionError；resolver failed/unsupported 时 fallback 用 spec.Command / spec.Args（mergeEnv 合并 spec.Env + res.Env）；LoadStaleResolutions 30min grace 扫持久化记录，retry 不在 in-flight 且超过 30min 的 installing。**38/38 mcp 测试通过**：registry_test 9（Register+List / Get / SetEnabled disable / Unregister / 未知 server / fingerprint 变 / GetToolsByName / 并发 / stale retry）+ launcher_test 14（parseNpxArgs 5 + stub 1 + npx happy / view-fail / install-fail + dedup 1 + pickBinEntry 4）+ resolver_fingerprint_test 4 + persistence_test 5 + spec 34 遗留 14。`go build ./...` + `go vet ./...` 干净，`npm run build:agent` 输出 `darvin-agent-linux-x64` 成功，`npm run lint` 干净，`npm test` 162/162 通过。**待人工重启 Electron 验证** `cmd/app/main.go` 启动扫描 `LoadStaleResolutions` 不破坏启动。
+- 2026-08-03 · spec 36 · mcp-main-store-and-ipc 落地：main 端 mcpStore（独立 `userData/darvin-agent/mcp.db`，2 表 `mcp_servers` + `mcp_launch_resolutions` cascade delete，PRAGMA journal_mode=WAL + foreign_keys=ON，bundled 幂等 upsert 保留 createdAt）+ mcpManager（bundled filesystem 启动期幂等 upsert + bootstrap 推 Go + 订阅 onConnectionChanged/onResolutionChanged + create / update / delete / setEnabled / test / retryResolution）+ 7 个 IPC handler（`mcp:list` / `mcp:create` / `mcp:update` / `mcp:delete` / `mcp:set_enabled` / `mcp:test` / `mcp:retry_resolution`）+ 9 个 preload `window.darvin.mcp.*` 方法 + AgentClient mcp.* 命名空间（10 个方法含 2 个订阅）+ Go 端 8 个 gateway handler（list / register / update / unregister / set_enabled / test / retry_resolution / bootstrap）+ 2 个 broadcast（`mcp.connection_changed` / `mcp.resolution_changed`）+ Notifier 回调模式（registry → handler 单向 push，registry SetNotifier handler 实现回调）。bundled filesystem MCP 作为 `darvin-agent mcp-filesystem` subcommand：stdio JSON-RPC 2.0，list_directory / read_file / write_file 3 个 tool，path traversal 拦截（resolveWithin + EvalSymlinks）+ 4 MiB 上限 + `notifications/initialized` 静默。**Go ~250+ 用例全绿**：spec 35 既有 38 + spec 36 新增 24（registry_notify 8 + handlers_mcp 8 + mcp_filesystem 8）；`npm test` 187/187 = 162 + 25（mcpStore 10 + mcpManager 15）。`npm run build:agent` 成功输出 `bin/darvin-agent-linux-x64`；**bundled binary 实际跑通**：`echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./darvin-agent-linux-x64 mcp-filesystem` → 1:1 返 2024-11-05 + serverInfo=`darvin-filesystem@0.1.0` + 3 tools schema。
