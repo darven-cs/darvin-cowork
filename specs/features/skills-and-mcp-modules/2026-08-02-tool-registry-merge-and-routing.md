@@ -10,6 +10,59 @@
 
 ---
 
+## 0. 前置阻塞（spec 36 遗留 wire bug，必须在 FR-4 之前修）
+
+**发现时机**：spec 37 live CDP 验证（2026-08-03）— 点击 `McpServerCard` 的「测试连接」按钮，Go 端返回 `{ ok: false, error: "unsupported transport \"\"" }`；进一步 IPC 直查 `window.darvin.testMcpConnection({ id: 'filesystem' })` 复现。
+
+**根因**：
+
+| 文件 | 行号 | 问题 |
+|------|------|------|
+| `src/darvin-agent/internal/mcp/types.go` | L137-151 | `ServerSpec` struct **没加 JSON tag**，`Transport TransportType` 字段在 `encoding/json` 反序列化时按 Go 字段名 `Transport` 匹配 |
+| `src/darvin-agent/internal/gateway/handlers.go` | L1427 / L1449 | `McpRegisterParams.Server` / `McpUpdateParams.Patch` 直接用 `mcp.ServerSpec`，期望 main 端 IPC payload 字段名 = Go 字段名 |
+| main 端 `mcpManager.ts` + preload + `DarvinMcpServer` 契约 | — | 一直发 camelCase：`transportType` / `isBuiltIn` / `githubUrl` / `registryId` |
+
+`encoding/json` 在 lookup 时大小写不敏感，所以 `id` / `name` / `enabled` / `command` / `args` / `env` / `url` / `headers` 这些字段名 Go 端能匹配到（`ID` ↔ `id`、`Name` ↔ `name`、`Enabled` ↔ `enabled`、`IsBuiltIn` ↔ `isBuiltIn`）。**唯独 `Transport` ↔ `transportType` 字段名根本不同**，所以 Go 端拿到 `spec.Transport == ""`。
+
+`registry.connectServer` 走到 `switch spec.Transport`（registry.go:413）落 default 分支 → 报 `unsupported transport ""` → bundled filesystem 永远连不上 → `mcpRegistry.List()` 永远不返 connected server → spec 38 FR-4 `McpPlugin.Register` 注册不到任何 mcp tool → `agent.tools.list` 不含 mcp → §2 场景 3「调用 mcp filesystem read_file」集成手测**不可能通过**。
+
+**修复方案（首选 A）**：给 `ServerSpec` 加 JSON tag，与 main 端契约对齐。
+
+```go
+// src/darvin-agent/internal/mcp/types.go 增量
+type ServerSpec struct {
+    ID          string            `json:"id"`
+    Name        string            `json:"name"`
+    Description string            `json:"description"`
+    Enabled     bool              `json:"enabled"`
+    Transport   TransportType     `json:"transportType"`
+    Command     string            `json:"command,omitempty"`
+    Args        []string          `json:"args,omitempty"`
+    Env         map[string]string `json:"env,omitempty"`
+    URL         string            `json:"url,omitempty"`
+    Headers     map[string]string `json:"headers,omitempty"`
+    IsBuiltIn   bool              `json:"isBuiltIn"`
+    GitHubURL   string            `json:"githubUrl,omitempty"`
+    RegistryID  string            `json:"registryId,omitempty"`
+}
+```
+
+**修复方案（备选 B）**：在 handlers.go 增加专用 wire 入参类型（与 `McpServerWire` 对称），unmarshal 后显式转 `mcp.ServerSpec`。代码量更大但隔离更彻底。
+
+**决策**：选 A。`ServerSpec` 是 spec 35 的内部类型，不暴露给外部；给它加 JSON tag 等于把已有契约写进类型定义，不影响任何下游用法（registry / launcher 都用 Go 字段名读写，不经过 JSON）。
+
+**验收**：
+- [ ] bundled filesystem `testMcpConnection` 返回 `{ ok: true, tools: [list_directory / read_file / write_file] }`
+- [ ] `mcpRegistry.List()[0].Connected == true`
+- [ ] 新增 Go 单测 `types_json_test.go`：Marshal / Unmarshal ServerSpec round-trip，断言 `Transport == "stdio"`
+- [ ] live CDP `window.darvin.testMcpConnection({ id: 'filesystem' })` 返 ok
+
+**关联文件**（本 spec 落地时一起改）：
+- `src/darvin-agent/internal/mcp/types.go` — `ServerSpec` 加 JSON tag
+- `src/darvin-agent/internal/mcp/types_json_test.go` — 🆕 round-trip 测试
+
+---
+
 ## 1. 概述
 
 ### 1.1 问题 / 背景
@@ -516,6 +569,7 @@ src/shared/
 | mcp server 返回 content 是 image（不是 text） | ToolContentBlock 加 image 类型（v0 仅 text） |
 | skill 工具 schema 输入校验 | 复用 executor 现有 schema 校验 |
 | 内置工具名与 skill/mcp 重名 | 命名空间前缀（`skill:` / `mcp:`）天然隔离 |
+| **spec 36 遗留：`ServerSpec.Transport` 反序列化丢字段** | 见 §0 前置阻塞；落地 spec 38 FR-4 之前先给 `ServerSpec` 加 JSON tag + round-trip 测试 |
 
 ---
 
@@ -629,3 +683,4 @@ const r = await window.darvin.agent.tools.list()
 ## 9. 状态变更日志
 
 - 2026-08-02 · 完成 spec 设计；待用户确认后启动实现
+- 2026-08-03 · 补充 §0 前置阻塞：spec 37 live CDP 验证时发现 spec 36 遗留的 `ServerSpec.Transport` JSON wire 字段名不匹配 bug（Go struct 无 JSON tag，main 端发 `transportType` Go 反序列化拿不到，导致 `registry.connectServer` 落 default 分支报 `unsupported transport ""`）。spec 38 FR-4 McpPlugin 依赖 `mcpRegistry.List()` 返 connected server，必须先修这个 bug，否则 §2 场景 3 集成手测不可能通过。修复方案 A：给 `ServerSpec` 加 JSON tag；新增 `types_json_test.go` round-trip 测试。
