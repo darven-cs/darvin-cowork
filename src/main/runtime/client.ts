@@ -21,6 +21,7 @@ import type {
   DarvinGetMessagesResponse,
   DarvinListSessionsResponse,
   DarvinListSkillsResponse,
+  DarvinListToolsResponse,
   DarvinMcpConnectionChangedEvent,
   DarvinMcpResolutionChangedEvent,
   DarvinMcpServer,
@@ -336,6 +337,15 @@ export class AgentClient extends EventEmitter {
     },
   };
 
+  /**
+   * spec 38 — Go 端工具面命名空间。list 返回内置 + skill + mcp 合并
+   * 视图，renderer / 调试用；skill / mcp 状态变化后 Go 端自动重注册。
+   */
+  tools = {
+    list: (): Promise<DarvinListToolsResponse> =>
+      this.request<DarvinListToolsResponse>('agent.tools.list', {}),
+  };
+
   onEvent(cb: (e: DarvinEvent) => void): () => void {
     this.eventListeners.add(cb);
     return () => {
@@ -414,6 +424,9 @@ export function parseDarvinEvent(
         messageId: raw.messageId,
         toolUseId: readToolUseId(raw),
         tool: raw.tool,
+        toolKind: raw.toolKind as string | undefined,
+        skillId: raw.skillId as string | undefined,
+        mcpServerId: raw.mcpServerId as string | undefined,
         input: raw.input,
       } as unknown as DarvinEvent;
     case 'tool_end':
@@ -426,6 +439,9 @@ export function parseDarvinEvent(
         messageId: raw.messageId,
         toolUseId: readToolUseId(raw),
         tool: raw.tool,
+        toolKind: raw.toolKind as string | undefined,
+        skillId: raw.skillId as string | undefined,
+        mcpServerId: raw.mcpServerId as string | undefined,
         output: raw.output ?? raw.tool,
       } as unknown as DarvinEvent;
     case 'text_delta':

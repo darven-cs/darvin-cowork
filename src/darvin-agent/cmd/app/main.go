@@ -196,11 +196,9 @@ func main() {
 		AssemblerEnabled: cfg.Agent.AssemblerEnabled,
 	}
 
-	// spec 31: bootstrap the skills registry + runner. Built-in tools are
-	// auto-registered inside agent.New; the agent we keep here only exists
-	// for type-compat with the steer control. The real tools registry is
-	// built on demand by the executor when an AcpSession is created — until
-	// spec 38 lands, the runner sees an empty tool set, which is fine.
+	// Bootstrap skills registry + runner. The runner resolves skill
+	// execution contexts against toolsReg (built-ins only); per-session
+	// skill/mcp tools are added by the plugins wired onto the factory below.
 	toolsReg, toolsErr := tool.NewBuiltins(effectiveWorkdir, cfg.Agent.ShellAllowlist)
 	if toolsErr != nil {
 		log.Warn("skills: tool registry init failed, using empty registry", zap.Error(toolsErr))
@@ -277,6 +275,13 @@ func main() {
 		OnConnectionChanged: handler.OnMcpConnectionChanged,
 		OnResolutionChanged: handler.OnMcpResolutionChanged,
 	})
+
+	// skill / mcp 插件注入 factory：每个新 AcpSession 建好后工具面自动带上
+	// skill:<id> 与 mcp:<server>:<tool>。skill 启停与 mcp 连接变化由
+	// handler 的 RefreshAllTools 重跑这两组插件（见 gateway 侧钩子）。
+	skillPlugin := skills.NewSkillPlugin(skillsResult.Registry, skillsResult.Runner)
+	mcpPlugin := tool.NewMcpPlugin(mcpRegistry)
+	factory.Plugins = []tool.Plugin{skillPlugin, mcpPlugin}
 
 	gs := gateway.NewServer(handler, log.Logger)
 	if err := gs.Start(rootCtx); err != nil {

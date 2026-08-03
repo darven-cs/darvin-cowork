@@ -26,6 +26,7 @@ import type {
   DarvinListImportedFilesResponse,
   DarvinListSessionsResponse,
   DarvinListSkillsResponse,
+  DarvinListToolsResponse,
   DarvinListWorkspaceFilesResponse,
   DarvinOpenWorkspaceFileResponse,
   DarvinLLMConfig,
@@ -271,6 +272,11 @@ const api: DarvinApi = {
     return () => {
       ipcRenderer.off(DarvinPushEvent.McpConnectionChanged, wrap);
     };
+  },
+
+  // spec 38 — 工具面合并视图（内置 + skill + mcp），直连 Go RPC。
+  async listTools(): Promise<DarvinListToolsResponse> {
+    return ipcRenderer.invoke('tools:list');
   },
 };
 

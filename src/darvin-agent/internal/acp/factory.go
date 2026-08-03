@@ -27,6 +27,11 @@ type AgentFactory struct {
 	Tools        *tool.Registry
 	Assembler    ctxengine.ContextEngine
 
+	// Plugins 在每次 Build 后应用到该 agent 的 tool registry(skill /
+	// mcp 插件)。SessionManager.RefreshAllTools 复用同一组插件做全量
+	// Unregister + Register,让工具面跟随 skill / mcp 状态变化。
+	Plugins []tool.Plugin
+
 	// AssemblerEnabled 与 Config.AssemblerEnabled 是两条独立开关:后者
 	// 决定是否构造默认 Assembler,前者决定 executor 是否走 assembler
 	// 路径。factory 不替调用方合并这两条,各自由调用方决定。
@@ -35,9 +40,10 @@ type AgentFactory struct {
 
 // Build 用传入的 sessionID 构造一个全新的 *agent.Agent。Agent 自己的
 // session.ID 是 dispatcher 给事件打 sessionId 字段的唯一来源 —— 错了
-// EventLedger.publishLocked 就会路由到错的桶。
+// EventLedger.publishLocked 就会路由到错的桶。每个新 agent 建好后依次
+// 应用 Plugins,插件注册失败只记 warn,不阻塞 agent 可用。
 func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
-	return agent.New(agent.NewAgentConfig{
+	a, err := agent.New(agent.NewAgentConfig{
 		Name:             f.Name,
 		Instructions:     f.Instructions,
 		Model:            f.Model,
@@ -51,6 +57,17 @@ func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
 		Assembler:        f.Assembler,
 		AssemblerEnabled: f.AssemblerEnabled,
 	})
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range f.Plugins {
+		if err := p.Register(a.Tools()); err != nil {
+			if f.Logger != nil {
+				f.Logger.Warn("plugin register failed", zap.String("plugin", p.PluginID()), zap.Error(err))
+			}
+		}
+	}
+	return a, nil
 }
 
 // NewAcpSession 一次构造 Agent + Loop,并把 Loop 的 CurrentMessageID /

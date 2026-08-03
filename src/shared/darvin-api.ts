@@ -238,8 +238,33 @@ export function darvinMessageContent(m: DarvinMessage): string {
 export type DarvinEvent =
   | { type: 'text_delta'; sessionId?: string; runId?: string; messageId: string; delta: string }
   | { type: 'thinking_delta'; sessionId?: string; runId?: string; messageId: string; delta: string }
-  | { type: 'tool_start'; sessionId?: string; runId?: string; messageId: string; toolUseId?: string; tool: string; input: unknown }
-  | { type: 'tool_end'; sessionId?: string; runId?: string; messageId: string; toolUseId?: string; tool: string; output: unknown }
+  | {
+      type: 'tool_start';
+      sessionId?: string;
+      runId?: string;
+      messageId: string;
+      toolUseId?: string;
+      tool: string;
+      /** 工具来源（builtin / skill / mcp）；旧事件不带此字段。 */
+      toolKind?: DarvinToolKind;
+      /** toolKind='skill' 时非空。 */
+      skillId?: string;
+      /** toolKind='mcp' 时非空。 */
+      mcpServerId?: string;
+      input: unknown;
+    }
+  | {
+      type: 'tool_end';
+      sessionId?: string;
+      runId?: string;
+      messageId: string;
+      toolUseId?: string;
+      tool: string;
+      toolKind?: DarvinToolKind;
+      skillId?: string;
+      mcpServerId?: string;
+      output: unknown;
+    }
   | { type: 'done'; sessionId?: string; runId?: string; messageId: string; usage?: DarvinUsage }
   | { type: 'error'; sessionId?: string; runId?: string; messageId: string; message: string }
   | { type: 'agent_end'; sessionId?: string; runId?: string }
@@ -496,6 +521,20 @@ export interface DarvinSkillSummary {
 
 export interface DarvinListSkillsResponse {
   skills: DarvinSkillSummary[];
+}
+
+/** agent.tools.list 返回的单个工具描述（内置 + skill + mcp 合并视图）。 */
+export interface DarvinToolDescriptor {
+  name: string;
+  kind: string;
+  description: string;
+  inputSchema?: unknown;
+  /** kind='skill' 时含 skillID；kind='mcp' 时含 mcpServerID + mcpToolName。 */
+  metadata?: Record<string, unknown>;
+}
+
+export interface DarvinListToolsResponse {
+  tools: DarvinToolDescriptor[];
 }
 
 export interface DarvinSetSkillEnabledRequest {
@@ -861,4 +900,7 @@ export interface DarvinApi {
   onMcpConnectionChanged(handler: (e: DarvinMcpConnectionChangedEvent) => void): () => void;
   /** spec 36 — 订阅 resolver 输出（npx 装包进度 / 失败原因），main 端落 SQLite。 */
   onMcpResolutionChanged(handler: (e: DarvinMcpResolutionChangedEvent) => void): () => void;
+
+  /** spec 38 — 列合并后的工具面（内置 + skill + mcp），renderer / 调试用。 */
+  listTools(): Promise<DarvinListToolsResponse>;
 }

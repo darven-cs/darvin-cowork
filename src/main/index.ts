@@ -46,6 +46,7 @@ import type {
   DarvinListImportedFilesResponse,
   DarvinListSessionsResponse,
   DarvinListSkillsResponse,
+  DarvinListToolsResponse,
   DarvinListWorkspaceFilesResponse,
   DarvinMcpServerCreate,
   DarvinMcpServerPatch,
@@ -703,6 +704,12 @@ ipcMain.handle(
 // 而不是 throw(便于 renderer catch 后给用户 toast)。
 ipcMain.handle('mcp:list', async (): Promise<DarvinListMcpServersResponse> => {
   return { servers: mcpManager.list() };
+});
+
+// spec 38 — 工具面合并视图（内置 + skill + mcp）。直连 Go RPC，无本地缓存；
+// renderer 拿到的是当前 session 懒建后的实时工具列表。
+ipcMain.handle('tools:list', async (): Promise<DarvinListToolsResponse> => {
+  return client.tools.list();
 });
 
 ipcMain.handle(
