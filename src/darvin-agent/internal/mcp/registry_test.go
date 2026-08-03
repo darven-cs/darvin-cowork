@@ -205,3 +205,17 @@ func TestRegistry_LoadStaleResolutionsRetries(t *testing.T) {
 		t.Fatal("stale installing was not retried")
 	}
 }
+func TestRegistry_CallTool_Errors(t *testing.T) {
+	reg := NewRegistry(noopResolverManager(t), NewInMemoryResolutionPersistence())
+	if _, err := reg.CallTool(context.Background(), "nope", "read_file", nil); err == nil {
+		t.Error("CallTool unknown server: want error")
+	}
+	// Registered but never connected (no client attached).
+	reg.servers["fs"] = &serverEntry{
+		spec:   ServerSpec{ID: "fs", Enabled: true},
+		status: ServerStatus{ServerID: "fs", Enabled: true},
+	}
+	if _, err := reg.CallTool(context.Background(), "fs", "read_file", nil); err == nil {
+		t.Error("CallTool not-connected server: want error")
+	}
+}

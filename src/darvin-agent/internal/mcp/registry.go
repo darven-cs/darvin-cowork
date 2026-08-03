@@ -262,10 +262,9 @@ func (r *Registry) GetTools(serverID string) []ToolDescriptor {
 	return out
 }
 
-// GetToolsByName is the cross-server tool lookup used by the agent
-// executor (spec 38): find which server exposes a tool by name. Names
-// are unique within a server but not across servers — the registry
-// returns the first match in arbitrary order.
+// GetToolsByName finds which server exposes a tool by name. Names are
+// unique within a server but not across servers — the registry returns
+// the first match in arbitrary order.
 func (r *Registry) GetToolsByName(name string) (string, *ToolDescriptor, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -277,6 +276,22 @@ func (r *Registry) GetToolsByName(name string) (string, *ToolDescriptor, bool) {
 		}
 	}
 	return "", nil, false
+}
+
+// CallTool invokes toolName on serverID. Errors when the server is
+// missing or not connected; the caller (McpTool) surfaces that back to
+// the agent loop.
+func (r *Registry) CallTool(ctx context.Context, serverID, toolName string, args map[string]any) (*CallToolResult, error) {
+	r.mu.RLock()
+	entry, ok := r.servers[serverID]
+	r.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("mcp: server %s not registered", serverID)
+	}
+	if entry.client == nil || !entry.status.Connected {
+		return nil, fmt.Errorf("mcp: server %s not connected", serverID)
+	}
+	return entry.client.CallTool(ctx, toolName, args)
 }
 
 // Test returns the current connection state for serverID without dialing.
