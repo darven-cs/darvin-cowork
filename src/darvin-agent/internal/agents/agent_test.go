@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"darvin-cowork/backend/internal/agents/ctxengine"
-	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/tools"
 )
 
@@ -45,27 +45,6 @@ func TestNewRequiresSessionAndProvider(t *testing.T) {
 	}
 }
 
-func TestNewAutoRegistersBuiltinTools(t *testing.T) {
-	a, err := New(NewAgentConfig{
-		Session:  session.NewSession("s"),
-		Provider: &scriptedProvider{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Registry.Names() returns sorted alphabetically.
-	want := []string{"edit_file", "list_dir", "read_file", "shell", "write_file"}
-	got := a.Tools().Names()
-	if len(got) != len(want) {
-		t.Fatalf("registered %d tools, want %d (%v)", len(got), len(want), got)
-	}
-	for i, n := range want {
-		if got[i] != n {
-			t.Errorf("tools[%d] = %q, want %q", i, got[i], n)
-		}
-	}
-}
-
 func TestNewRespectsCustomTools(t *testing.T) {
 	custom := tool.NewRegistry()
 	custom.MustRegister(&echoAdapter{})
@@ -90,6 +69,7 @@ func TestNewRespectsCustomStore(t *testing.T) {
 	a, err := New(NewAgentConfig{
 		Session:  session.NewSession("s"),
 		Provider: &scriptedProvider{},
+		Tools:    tool.NewRegistry(),
 		Store:    s,
 	})
 	if err != nil {
@@ -117,6 +97,7 @@ func TestNewAutoConstructsAssembler(t *testing.T) {
 	a, err := New(NewAgentConfig{
 		Session:  session.NewSession("s"),
 		Provider: &scriptedProvider{},
+		Tools:    tool.NewRegistry(),
 		Config: Config{
 			TokenBudget:        12345,
 			CompactTailKeep:    7,
@@ -143,6 +124,7 @@ func TestNewHonorsCallerAssembler(t *testing.T) {
 	a, err := New(NewAgentConfig{
 		Session:   session.NewSession("s"),
 		Provider:  &scriptedProvider{},
+		Tools:     tool.NewRegistry(),
 		Assembler: custom,
 	})
 	if err != nil {
@@ -161,6 +143,7 @@ func TestNewAssemblerEnabledDefaultsToFalse(t *testing.T) {
 	a, err := New(NewAgentConfig{
 		Session:  session.NewSession("s"),
 		Provider: &scriptedProvider{},
+		Tools:    tool.NewRegistry(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -177,6 +160,7 @@ func TestConfigForwardsTokenBudget(t *testing.T) {
 	a, err := New(NewAgentConfig{
 		Session:  session.NewSession("s"),
 		Provider: &scriptedProvider{},
+		Tools:    tool.NewRegistry(),
 		Config:   Config{TokenBudget: 7777},
 	})
 	if err != nil {
@@ -199,6 +183,7 @@ func TestAssemblerEnabledTrue_TriggersSeam(t *testing.T) {
 	a, err := New(NewAgentConfig{
 		Session:          session.NewSession("s"),
 		Provider:         prov,
+		Tools:            tool.NewRegistry(),
 		Assembler:        rec,
 		AssemblerEnabled: true,
 	})
@@ -228,6 +213,7 @@ func TestAssemblerEnabledFalse_TakesFallback(t *testing.T) {
 	a, err := New(NewAgentConfig{
 		Session:          session.NewSession("s"),
 		Provider:         prov,
+		Tools:            tool.NewRegistry(),
 		Assembler:        rec,
 		AssemblerEnabled: false, // explicit disable
 	})

@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 )
 
 // Config is the assembler's runtime configuration. The fields mirror the
@@ -29,7 +29,7 @@ type Config struct {
 // Defined here (rather than imported from agent) to break the cycle
 // agent -> executor -> ctxengine -> agent.
 type Deps interface {
-	Provider() llm.ModelProvider
+	Provider() protocol.ModelProvider
 	ModelName() string
 	Logger() *zap.Logger
 	// Emit 发布 agent 生命周期事件；DefaultAssembler 在触发压缩后用它

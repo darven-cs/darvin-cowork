@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/queue"
 	"darvin-cowork/backend/internal/agents/session"
+	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/tools"
 )
 
 // blockingProvider emits one event then blocks until ctx is cancelled.
@@ -33,6 +34,7 @@ func newAgentForTest(t *testing.T, p llm.ModelProvider) *Agent {
 	a, err := New(NewAgentConfig{
 		Session:  session.NewSession("s"),
 		Provider: p,
+		Tools:    tool.NewRegistry(),
 	})
 	if err != nil {
 		t.Fatal(err)

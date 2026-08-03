@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/tools"
 )
 
@@ -112,10 +112,7 @@ func TestBuildSkillToolsPreservesKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scoped := buildSkillTools(full, []tool.Tool{
-		&dummyTool{name: "skill:web-search"},
-		&dummyTool{name: "mcp:filesystem:list_directory"},
-	})
+	scoped := full.ScopedForSkill([]string{"skill:web-search", "mcp:filesystem:list_directory"})
 
 	for name, wantKind := range map[string]tool.Kind{
 		"skill:web-search":              tool.KindSkill,
@@ -142,7 +139,7 @@ func TestBuildSkillToolsEmptyAllowed(t *testing.T) {
 	if err := full.RegisterTool(&dummyTool{name: "shell"}, tool.KindBuiltIn, nil); err != nil {
 		t.Fatal(err)
 	}
-	scoped := buildSkillTools(full, nil)
+	scoped := full.ScopedForSkill(nil)
 	if n := len(scoped.Names()); n != 0 {
 		t.Errorf("scoped registry has %d tools, want 0", n)
 	}

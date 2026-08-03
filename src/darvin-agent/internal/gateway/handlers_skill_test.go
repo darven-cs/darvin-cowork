@@ -13,6 +13,7 @@ import (
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/skills"
+	"darvin-cowork/backend/internal/tools"
 )
 
 type skillEntryLoader struct{ entries []*skills.SkillEntry }
@@ -27,10 +28,11 @@ func skillTestHandler(t *testing.T) (*Handler, *client) {
 	t.Helper()
 	prov := &blockingProvider{}
 	st := store.NewMemoryStore()
-	factory := &acp.AgentFactory{Provider: prov, Store: st, Logger: zap.NewNop()}
+	factory := &acp.AgentFactory{Provider: prov, Tools: tool.NewRegistry(), Store: st, Logger: zap.NewNop()}
 	steerAgent, err := agent.New(agent.NewAgentConfig{
 		Session:  session.NewSession("steer-placeholder"),
 		Provider: prov,
+		Tools:    tool.NewRegistry(),
 		Store:    st,
 	})
 	if err != nil {

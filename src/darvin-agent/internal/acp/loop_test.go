@@ -14,9 +14,10 @@ import (
 
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/tools"
 )
 
 // scriptedProvider replays a fixed StreamEvent script and closes the
@@ -62,6 +63,7 @@ func newLoopForTest(t *testing.T, p llm.ModelProvider) (*agent.Agent, *Loop) {
 	a, err := agent.New(agent.NewAgentConfig{
 		Session:  session.NewSession("default"),
 		Provider: p,
+		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 	})
 	if err != nil {
@@ -184,6 +186,7 @@ func TestLoopPersistsUserAndAssistantWithDistinctIDs(t *testing.T) {
 		Name:         "test",
 		Session:      session.NewSession("default"),
 		Provider:     prov,
+		Tools:        tool.NewRegistry(),
 		Store:        store.NewMemoryStore(),
 		MessageStore: ms,
 	})

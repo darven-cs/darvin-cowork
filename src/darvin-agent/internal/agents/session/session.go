@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 )
 
 // Session is a single conversation history. All exported methods are safe
@@ -21,7 +21,7 @@ type Session struct {
 
 	mu        sync.RWMutex
 	updatedAt time.Time
-	messages  []llm.Message
+	messages  []protocol.Message
 }
 
 // Status describes the lifecycle state of a session.
@@ -52,7 +52,7 @@ func NewSession(id string) *Session {
 }
 
 // Append adds m to the history and refreshes UpdatedAt.
-func (s *Session) Append(m llm.Message) {
+func (s *Session) Append(m protocol.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, m)
@@ -60,10 +60,10 @@ func (s *Session) Append(m llm.Message) {
 }
 
 // Messages returns a deep copy of the current message history.
-func (s *Session) Messages() []llm.Message {
+func (s *Session) Messages() []protocol.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]llm.Message, len(s.messages))
+	out := make([]protocol.Message, len(s.messages))
 	for i, m := range s.messages {
 		out[i] = cloneMessage(m)
 	}
@@ -79,10 +79,10 @@ func (s *Session) Len() int {
 
 // ReplaceAll overwrites the history wholesale. Intended for use by
 // SessionStore.Load to restore a persisted session.
-func (s *Session) ReplaceAll(messages []llm.Message) {
+func (s *Session) ReplaceAll(messages []protocol.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cloned := make([]llm.Message, len(messages))
+	cloned := make([]protocol.Message, len(messages))
 	for i, m := range messages {
 		cloned[i] = cloneMessage(m)
 	}
@@ -132,14 +132,14 @@ func (s *Session) ReplaceAllMeta(
 	}
 }
 
-func cloneMessage(m llm.Message) llm.Message {
-	out := llm.Message{
+func cloneMessage(m protocol.Message) protocol.Message {
+	out := protocol.Message{
 		Role:       m.Role,
 		Content:    m.Content,
 		ToolCallID: m.ToolCallID,
 	}
 	if len(m.ToolCalls) > 0 {
-		out.ToolCalls = make([]llm.ToolCall, len(m.ToolCalls))
+		out.ToolCalls = make([]protocol.ToolCall, len(m.ToolCalls))
 		for i, tc := range m.ToolCalls {
 			out.ToolCalls[i] = cloneToolCall(tc)
 		}
@@ -147,8 +147,8 @@ func cloneMessage(m llm.Message) llm.Message {
 	return out
 }
 
-func cloneToolCall(tc llm.ToolCall) llm.ToolCall {
-	out := llm.ToolCall{
+func cloneToolCall(tc protocol.ToolCall) protocol.ToolCall {
+	out := protocol.ToolCall{
 		ID:   tc.ID,
 		Name: tc.Name,
 	}

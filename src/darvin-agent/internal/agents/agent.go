@@ -1,7 +1,8 @@
 // Package agent is the root of the agent runtime. It wires the sub-packages
-// (event, queue, session, store, tool, executor, llm) into a single Agent
+// (event, queue, session, store, executor, protocol) into a single Agent
 // and exposes the public API (Run / Prompt / Steer / FollowUp / Abort /
-// Subscribe).
+// Subscribe). Capability implementations (provider, tool registry) are
+// injected from outside through the protocol contract.
 package agent
 
 import (
@@ -16,11 +17,10 @@ import (
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/executor"
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/queue"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
-	"darvin-cowork/backend/internal/tools"
 )
 
 // permissionTimeout is how long a permission_request waits for the renderer
@@ -87,7 +87,7 @@ type NewAgentConfig struct {
 	Name         string
 	Instructions string
 	Model        ModelRef
-	Provider     llm.ModelProvider
+	Provider     protocol.ModelProvider
 	Session      *session.Session
 	Store        store.SessionStore
 	// MessageStore is optional. When nil, dispatcher.go skips persistence
@@ -99,9 +99,9 @@ type NewAgentConfig struct {
 	Config       Config
 	// Executor is optional. If nil, executor.New() is used.
 	Executor executor.Executor
-	// Tools is optional. If nil, the 5 built-in tools are auto-registered
-	// (read_file / write_file / edit_file / list_dir / shell).
-	Tools *tool.Registry
+	// Tools is the tool registry driving the loop. Required; the concrete
+	// built-in registry is constructed by the wiring layer (cmd/app).
+	Tools protocol.ToolRegistry
 
 	// Assembler is an optional pre-built ContextEngine. When nil, New
 	// constructs a DefaultAssembler from the Config.* fields. Callers who
@@ -120,13 +120,13 @@ type Agent struct {
 	name         string
 	instructions string
 	model        ModelRef
-	provider     llm.ModelProvider
+	provider     protocol.ModelProvider
 	session      *session.Session
 	store        store.SessionStore
 	msgStore     store.MessageStore
 	logger       *zap.Logger
 	cfg          Config
-	tools        *tool.Registry
+	tools        protocol.ToolRegistry
 	exec         executor.Executor
 	bus          *event.Bus
 	queue        *queue.Queue
@@ -146,7 +146,7 @@ type Agent struct {
 	// the executor drives the loop against the skill's surface instead of
 	// the generic agent instructions. Cleared after the run.
 	runSkillPrompt string
-	runSkillTools  *tool.Registry
+	runSkillTools  protocol.ToolRegistry
 
 	// msgIDSrc is wired by the ACP loop via AttachMessageIDSrc. The
 	// executor reads it through Deps.CurrentMessageID to populate the
@@ -169,14 +169,14 @@ type Agent struct {
 	assembler        ctxengine.ContextEngine
 	assemblerEnabled bool
 
-	// lastUsage holds the most recent API-reported llm.Usage. Updated after
+	// lastUsage holds the most recent API-reported Usage. Updated after
 	// every successful LLM turn via RecordUsage (called by the executor);
 	// read by the executor during the next turn's Assemble call so the
 	// ContextEngine can prefer the provider's reported token count over the
 	// local rune/4 estimator. Mutex protects concurrent reads from the
 	// executor loop and writes from drainStream's tail.
 	lastUsageMu sync.RWMutex
-	lastUsage   llm.Usage
+	lastUsage   protocol.Usage
 
 	// Permission gate state (spec 12). pendingPerms maps requestID → the
 	// blocked executor call; permRules holds "remember this session" auto-allow
@@ -201,6 +201,10 @@ var ErrSessionRequired = errors.New("agent: Session is required")
 // ErrProviderRequired is returned by New when NewAgentConfig.Provider is nil.
 var ErrProviderRequired = errors.New("agent: Provider is required")
 
+// ErrToolsRequired is returned by New when NewAgentConfig.Tools is nil. The
+// built-in tool set is constructed by the wiring layer (cmd/app).
+var ErrToolsRequired = errors.New("agent: Tools is required")
+
 // New constructs an Agent and auto-registers the built-in tool set if
 // NewAgentConfig.Tools is nil.
 func New(cfg NewAgentConfig) (*Agent, error) {
@@ -217,11 +221,7 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		cfg.Store = store.NewMemoryStore()
 	}
 	if cfg.Tools == nil {
-		reg, err := tool.NewBuiltins(cfg.Config.Workdir, cfg.Config.ShellAllowlist)
-		if err != nil {
-			return nil, err
-		}
-		cfg.Tools = reg
+		return nil, ErrToolsRequired
 	}
 	if cfg.Executor == nil {
 		cfg.Executor = executor.New()
@@ -275,14 +275,14 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 	return a, nil
 }
 
-func (a *Agent) Session() *session.Session   { return a.session }
-func (a *Agent) Provider() llm.ModelProvider { return a.provider }
-func (a *Agent) ModelName() string           { return a.model.Model }
+func (a *Agent) Session() *session.Session        { return a.session }
+func (a *Agent) Provider() protocol.ModelProvider { return a.provider }
+func (a *Agent) ModelName() string                { return a.model.Model }
 
 // Tools returns the active tool registry. During a skill mini loop it is
 // the skill's scoped registry so the executor only sees the skill's allowed
 // surface; otherwise it is the agent's full registry.
-func (a *Agent) Tools() *tool.Registry {
+func (a *Agent) Tools() protocol.ToolRegistry {
 	if a.runSkillTools != nil {
 		return a.runSkillTools
 	}
@@ -338,7 +338,7 @@ func (a *Agent) IsRunning() bool {
 // RecordUsage stores the API-reported Usage from the just-finished turn.
 // Safe to call from the executor goroutine; readers (next turn's Assemble)
 // use LastUsage under the same mutex.
-func (a *Agent) RecordUsage(u llm.Usage) {
+func (a *Agent) RecordUsage(u protocol.Usage) {
 	a.lastUsageMu.Lock()
 	a.lastUsage = u
 	a.lastUsageMu.Unlock()
@@ -347,7 +347,7 @@ func (a *Agent) RecordUsage(u llm.Usage) {
 // LastUsage returns the most recently stored API-reported Usage. Zero value
 // when no turn has completed yet (e.g. before the first LLM call), which
 // the ContextEngine interprets as "fall back to the local estimator".
-func (a *Agent) LastUsage() llm.Usage {
+func (a *Agent) LastUsage() protocol.Usage {
 	a.lastUsageMu.RLock()
 	defer a.lastUsageMu.RUnlock()
 	return a.lastUsage
@@ -428,7 +428,7 @@ func (a *Agent) ApprovePath(path string) {
 
 // EvaluatePermission satisfies executor.Deps. Delegates to the tool
 // registry's combined path-containment + danger classification.
-func (a *Agent) EvaluatePermission(toolName string, args map[string]any) tool.PermissionEval {
+func (a *Agent) EvaluatePermission(toolName string, args map[string]any) protocol.PermissionEval {
 	return a.tools.EvaluatePermission(toolName, args)
 }
 

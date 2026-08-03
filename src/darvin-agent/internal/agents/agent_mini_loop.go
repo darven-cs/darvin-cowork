@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"darvin-cowork/backend/internal/tools"
+	"darvin-cowork/backend/internal/agents/protocol"
 )
 
 // RunSkillSession drives one user-invoked skill turn through the same
@@ -16,7 +16,7 @@ import (
 // Errors from the underlying Run are already emitted as AgentErrorEvent by
 // the dispatcher; only a rejected enqueue (e.g. session busy) surfaces here
 // so the caller (acp.Loop) can emit an explicit error event.
-func (a *Agent) RunSkillSession(ctx context.Context, systemPrompt, userContent string, skillTools []tool.Tool) error {
+func (a *Agent) RunSkillSession(ctx context.Context, systemPrompt, userContent string, skillTools []protocol.Tool) error {
 	a.runMu.Lock()
 	running := a.state == stateRunning
 	a.runMu.Unlock()
@@ -25,7 +25,7 @@ func (a *Agent) RunSkillSession(ctx context.Context, systemPrompt, userContent s
 	}
 
 	a.runSkillPrompt = systemPrompt
-	a.runSkillTools = buildSkillTools(a.tools, skillTools)
+	a.runSkillTools = a.tools.ScopedForSkill(skillToolNames(skillTools))
 	defer func() {
 		a.runSkillPrompt = ""
 		a.runSkillTools = nil
@@ -38,28 +38,14 @@ func (a *Agent) RunSkillSession(ctx context.Context, systemPrompt, userContent s
 	return nil
 }
 
-// buildSkillTools projects the skill's allowed tools into a fresh registry,
-// preserving each entry's kind/metadata so the executor's event attribution
-// (toolKind / skillId / mcpServerId) stays intact. An empty allowed set
-// yields an empty registry — the skill is not allowed to call tools, so the
-// LLM answers from the skill prompt alone.
-func buildSkillTools(full *tool.Registry, allowed []tool.Tool) *tool.Registry {
-	if full == nil {
-		return tool.NewRegistry()
-	}
-	names := make(map[string]struct{}, len(allowed))
-	for _, t := range allowed {
+// skillToolNames extracts the names of the skill's allowed tools; nil
+// entries are skipped so a partially-built list cannot panic.
+func skillToolNames(tools []protocol.Tool) []string {
+	names := make([]string, 0, len(tools))
+	for _, t := range tools {
 		if t != nil {
-			names[t.Name()] = struct{}{}
+			names = append(names, t.Name())
 		}
 	}
-	reg := tool.NewRegistry()
-	for _, e := range full.List() {
-		if _, ok := names[e.Tool.Name()]; ok {
-			// RegisterTool on an empty registry never collides; ignore the
-			// returned ErrAlreadyRegistered defensively.
-			_ = reg.RegisterTool(e.Tool, e.Kind, e.Metadata)
-		}
-	}
-	return reg
+	return names
 }

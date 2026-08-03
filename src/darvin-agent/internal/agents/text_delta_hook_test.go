@@ -12,9 +12,10 @@ import (
 	"gorm.io/gorm"
 
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/tools"
 )
 
 // noopProvider implements llm.ModelProvider; the hook tests never drive a
@@ -81,6 +82,7 @@ func TestTextDeltaHook_AppendsToMatchingSession(t *testing.T) {
 		Session:      session.NewSession("session-a"),
 		Provider:     &noopProvider{},
 		MessageStore: ms,
+		Tools:        tool.NewRegistry(),
 	})
 	if err != nil {
 		t.Fatalf("agent.New: %v", err)
@@ -131,6 +133,7 @@ func TestTextDeltaHook_IgnoresEmptyMessageID(t *testing.T) {
 		Session:      session.NewSession("noop"),
 		Provider:     &noopProvider{},
 		MessageStore: ms,
+		Tools:        tool.NewRegistry(),
 	})
 	if err != nil {
 		t.Fatalf("agent.New: %v", err)

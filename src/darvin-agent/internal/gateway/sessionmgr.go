@@ -15,6 +15,7 @@ import (
 	"github.com/jaevor/go-nanoid"
 
 	"darvin-cowork/backend/internal/acp"
+	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 )
 
@@ -187,9 +188,13 @@ func (m *SessionManager) RefreshAllTools() int {
 			continue
 		}
 		reg := e.Acp.Agent.Tools()
+		tr, ok := reg.(protocol.ToolRegistrar)
+		if !ok {
+			continue
+		}
 		for _, p := range m.factory.Plugins {
-			_ = p.Unregister(reg)
-			if err := p.Register(reg); err != nil {
+			_ = p.Unregister(tr)
+			if err := p.Register(tr); err != nil {
 				continue
 			}
 		}

@@ -5,9 +5,10 @@ import (
 
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/ctxengine"
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/tools"
 )
 
@@ -61,7 +62,14 @@ func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
 		return nil, err
 	}
 	for _, p := range f.Plugins {
-		if err := p.Register(a.Tools()); err != nil {
+		reg, ok := a.Tools().(protocol.ToolRegistrar)
+		if !ok {
+			if f.Logger != nil {
+				f.Logger.Warn("agent tools are not a registrar", zap.String("plugin", p.PluginID()))
+			}
+			continue
+		}
+		if err := p.Register(reg); err != nil {
 			if f.Logger != nil {
 				f.Logger.Warn("plugin register failed", zap.String("plugin", p.PluginID()), zap.Error(err))
 			}

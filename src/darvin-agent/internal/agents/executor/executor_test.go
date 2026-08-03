@@ -9,8 +9,9 @@ import (
 
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/tools"
 )
 
@@ -91,13 +92,13 @@ func (f *fakeDeps) injectAssembler(a ctxengine.ContextEngine) {
 	f.assemblerEnabled = true
 }
 
-func (f *fakeDeps) Session() *session.Session   { return f.sess }
-func (f *fakeDeps) Tools() *tool.Registry       { return f.tools }
-func (f *fakeDeps) Provider() llm.ModelProvider { return f.provider }
-func (f *fakeDeps) ModelName() string           { return f.modelName }
-func (f *fakeDeps) Instructions() string        { return f.instructions }
-func (f *fakeDeps) Config() Config              { return f.cfg }
-func (f *fakeDeps) Emit(ev event.Event)         { f.bus.Emit(ev) }
+func (f *fakeDeps) Session() *session.Session    { return f.sess }
+func (f *fakeDeps) Tools() protocol.ToolRegistry { return f.tools }
+func (f *fakeDeps) Provider() llm.ModelProvider  { return f.provider }
+func (f *fakeDeps) ModelName() string            { return f.modelName }
+func (f *fakeDeps) Instructions() string         { return f.instructions }
+func (f *fakeDeps) Config() Config               { return f.cfg }
+func (f *fakeDeps) Emit(ev event.Event)          { f.bus.Emit(ev) }
 func (f *fakeDeps) Assembler() ctxengine.ContextEngine {
 	return f.assembler
 }

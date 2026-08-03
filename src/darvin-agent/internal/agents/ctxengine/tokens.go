@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"unicode/utf8"
 
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 )
 
 // TokenEstimator returns the approximate token count for a piece of text.
@@ -25,7 +25,7 @@ func EstimateCharsOver4(text string) int {
 // counting Content + each ToolCall (Name + Arguments) + ToolCallID. The
 // TokenEstimator field on *DefaultAssembler does not apply here — the
 // algorithm is fixed for stability across tests.
-func EstimateMessageTokens(m llm.Message) int {
+func EstimateMessageTokens(m protocol.Message) int {
 	n := utf8.RuneCountInString(m.Content)
 	for _, tc := range m.ToolCalls {
 		n += utf8.RuneCountInString(tc.Name)

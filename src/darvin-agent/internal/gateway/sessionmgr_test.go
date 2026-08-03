@@ -15,6 +15,7 @@ import (
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/tools"
 )
 
 var idRe = regexp.MustCompile(`^[A-Za-z0-9]{21}$`)
@@ -77,6 +78,7 @@ func installRunningAcp(t *testing.T, m *SessionManager, id, runID string) *acp.A
 	t.Helper()
 	factory := &acp.AgentFactory{
 		Provider: &blockingProvider{},
+		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 		Logger:   zap.NewNop(),
 	}
@@ -417,6 +419,7 @@ func TestSessionManager_LazyBuildPerSession(t *testing.T) {
 	prov := &blockingProvider{}
 	factory := &acp.AgentFactory{
 		Provider: prov,
+		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 		Logger:   zap.NewNop(),
 	}
@@ -510,6 +513,7 @@ func TestSessionManager_LazyBuildFailureRollsBack(t *testing.T) {
 func TestSessionManager_PromptUpgradesEntryCreatedBySubscribe(t *testing.T) {
 	factory := &acp.AgentFactory{
 		Provider: &blockingProvider{},
+		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 		Logger:   zap.NewNop(),
 	}

@@ -4,24 +4,13 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+
+	"darvin-cowork/backend/internal/agents/protocol"
 )
 
 // PermissionEval is the outcome of evaluating whether a tool call needs user
 // approval before execution (spec 12 — permission gate).
-type PermissionEval struct {
-	// Authorized is true when the tool's path arguments stay within the
-	// authorized roots (workspace root read+write; attached files read-only).
-	Authorized bool
-	// Need is true when the executor must request user approval first.
-	Need bool
-	// Level is one of "safe" | "caution" | "destructive".
-	Level string
-	// Reason is the human-readable explanation surfaced in the approval modal.
-	Reason string
-	// EscapedPath is the offending path when Need is a path-escape; the
-	// executor grants it one-shot on allow so the tool can actually run.
-	EscapedPath string
-}
+type PermissionEval = protocol.PermissionEval
 
 var (
 	// destructivePatterns match commands that can irreversibly destroy data.

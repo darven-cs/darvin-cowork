@@ -194,3 +194,26 @@ func (r *Registry) ListByKind(kind Kind) []*Entry {
 	sort.Slice(out, func(i, j int) bool { return out[i].Tool.Name() < out[j].Tool.Name() })
 	return out
 }
+
+// ScopedForSkill returns a registry containing only the named tools,
+// preserving each entry's kind/metadata so the executor's event attribution
+// (toolKind / skillId / mcpServerId) stays intact. An empty allow set yields
+// an empty registry — the skill is not allowed to call tools, so the LLM
+// answers from the skill prompt alone.
+func (r *Registry) ScopedForSkill(allow []string) ToolRegistry {
+	names := make(map[string]struct{}, len(allow))
+	for _, n := range allow {
+		if n != "" {
+			names[n] = struct{}{}
+		}
+	}
+	reg := NewRegistry()
+	for _, e := range r.List() {
+		if _, ok := names[e.Tool.Name()]; ok {
+			// RegisterTool on an empty registry never collides; ignore the
+			// returned ErrAlreadyRegistered defensively.
+			_ = reg.RegisterTool(e.Tool, e.Kind, e.Metadata)
+		}
+	}
+	return reg
+}

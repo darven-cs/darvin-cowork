@@ -19,11 +19,11 @@ import (
 	"darvin-cowork/backend/internal/acp"
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
-	"darvin-cowork/backend/internal/tools"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/skills"
+	"darvin-cowork/backend/internal/tools"
 )
 
 // newTestHandler wires factory + SessionManager + SteerControl so handlers
@@ -35,12 +35,14 @@ func newTestHandler(t *testing.T) (*Handler, *client) {
 	store := store.NewMemoryStore()
 	factory := &acp.AgentFactory{
 		Provider: prov,
+		Tools:    tool.NewRegistry(),
 		Store:    store,
 		Logger:   zap.NewNop(),
 	}
 	steerAgent, err := agent.New(agent.NewAgentConfig{
 		Session:  session.NewSession("steer-placeholder"),
 		Provider: prov,
+		Tools:    tool.NewRegistry(),
 		Store:    store,
 	})
 	if err != nil {
@@ -71,12 +73,14 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 	memStore := store.NewMemoryStore()
 	factory := &acp.AgentFactory{
 		Provider: prov,
+		Tools:    tool.NewRegistry(),
 		Store:    memStore,
 		Logger:   zap.NewNop(),
 	}
 	steerAgent, err := agent.New(agent.NewAgentConfig{
 		Session:  session.NewSession("steer-placeholder"),
 		Provider: prov,
+		Tools:    tool.NewRegistry(),
 		Store:    memStore,
 	})
 	if err != nil {
@@ -1217,9 +1221,11 @@ func (s *skillsForTestSource) LoadAll(_ context.Context) ([]*skills.SkillEntry, 
 
 type stubGatewayTool struct{ name string }
 
-func (s *stubGatewayTool) Name() string                    { return s.name }
-func (s *stubGatewayTool) Description() string             { return "stub tool" }
-func (s *stubGatewayTool) Parameters() llm.ParameterSchema { return llm.ParameterSchema{Type: "object"} }
+func (s *stubGatewayTool) Name() string        { return s.name }
+func (s *stubGatewayTool) Description() string { return "stub tool" }
+func (s *stubGatewayTool) Parameters() llm.ParameterSchema {
+	return llm.ParameterSchema{Type: "object"}
+}
 func (s *stubGatewayTool) Execute(_ context.Context, _ map[string]any) tool.Result {
 	return tool.Result{}
 }
@@ -1248,6 +1254,7 @@ func newTestHandlerWithPlugins(t *testing.T, plugins []tool.Plugin) (*Handler, *
 	store := store.NewMemoryStore()
 	factory := &acp.AgentFactory{
 		Provider: prov,
+		Tools:    tool.NewRegistry(),
 		Store:    store,
 		Logger:   zap.NewNop(),
 		Plugins:  plugins,
@@ -1255,6 +1262,7 @@ func newTestHandlerWithPlugins(t *testing.T, plugins []tool.Plugin) (*Handler, *
 	steerAgent, err := agent.New(agent.NewAgentConfig{
 		Session:  session.NewSession("steer-placeholder"),
 		Provider: prov,
+		Tools:    tool.NewRegistry(),
 		Store:    store,
 	})
 	if err != nil {

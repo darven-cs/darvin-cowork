@@ -14,7 +14,7 @@ package event
 import (
 	"sync"
 
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 )
 
 // Mode mirrors the queue's PromptMode so PromptReceivedEvent can carry the
@@ -124,8 +124,8 @@ func (ThinkingDeltaEvent) EventName() string { return "thinking_delta" }
 // ErrorEvent), with the accumulated assistant message and usage.
 type LLMEndEvent struct {
 	EventBase
-	Assistant llm.Message
-	Usage     llm.Usage
+	Assistant protocol.Message
+	Usage     protocol.Usage
 }
 
 func (LLMEndEvent) isAgentEvent()     {}
@@ -168,7 +168,7 @@ func (ToolEndEvent) EventName() string { return "tool_end" }
 type TurnEndEvent struct {
 	EventBase
 	TurnIndex  int
-	StopReason llm.FinishReason
+	StopReason protocol.FinishReason
 }
 
 func (TurnEndEvent) isAgentEvent()     {}
@@ -199,7 +199,7 @@ func (AgentErrorEvent) EventName() string { return "agent_error" }
 type AgentEndEvent struct {
 	EventBase
 	TotalTurns int
-	TotalUsage llm.Usage
+	TotalUsage protocol.Usage
 }
 
 func (AgentEndEvent) isAgentEvent()     {}

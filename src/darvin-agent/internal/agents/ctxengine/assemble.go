@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 )
 
 // Assemble runs the per-turn prompt construction pipeline.
@@ -30,7 +30,7 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 
 	if cfg.ToolResultMaxBytes > 0 {
 		for i, m := range msgs {
-			if m.Role != llm.RoleTool {
+			if m.Role != protocol.RoleTool {
 				continue
 			}
 			if len(m.Content) > cfg.ToolResultMaxBytes {
@@ -126,12 +126,12 @@ func (a *DefaultAssembler) composeSystemAddition(extra []SystemSection) string {
 // cloneMessages returns a copy with ToolCalls slices re-allocated so caller
 // mutations to the returned ToolCalls do not leak back. Argument maps are
 // shared by reference (Assemble does not mutate them).
-func cloneMessages(msgs []llm.Message) []llm.Message {
-	out := make([]llm.Message, len(msgs))
+func cloneMessages(msgs []protocol.Message) []protocol.Message {
+	out := make([]protocol.Message, len(msgs))
 	for i := range msgs {
 		m := msgs[i]
 		if len(m.ToolCalls) > 0 {
-			tcs := make([]llm.ToolCall, len(m.ToolCalls))
+			tcs := make([]protocol.ToolCall, len(m.ToolCalls))
 			copy(tcs, m.ToolCalls)
 			m.ToolCalls = tcs
 		}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 )
 
 // BootstrapParams is the input for Bootstrap.
@@ -21,13 +21,13 @@ type MaintainParams struct {
 // IngestParams is the input for Ingest.
 type IngestParams struct {
 	SessionID string
-	Message   llm.Message
+	Message   protocol.Message
 }
 
 // IngestBatchParams is the input for IngestBatch.
 type IngestBatchParams struct {
 	SessionID string
-	Messages  []llm.Message
+	Messages  []protocol.Message
 }
 
 // IngestResult is the output of Ingest / IngestBatch.
@@ -46,7 +46,7 @@ type AfterTurnParams struct {
 // AssembleParams is the input for Assemble.
 type AssembleParams struct {
 	SessionID       string
-	Messages        []llm.Message
+	Messages        []protocol.Message
 	SystemSections  []SystemSection
 	ToolBudget      int
 	AvailableTools  []string
@@ -59,12 +59,12 @@ type AssembleParams struct {
 	// token estimate (more accurate than the rune/4 character estimator);
 	// a zero value triggers the local fallback estimator. Callers usually
 	// populate this from executor's per-turn accounting.
-	LastUsage llm.Usage
+	LastUsage protocol.Usage
 }
 
 // AssembleResult is the output of Assemble.
 type AssembleResult struct {
-	Messages        []llm.Message
+	Messages        []protocol.Message
 	EstimatedTokens int
 	SystemAddition  string
 	Budget          int
@@ -81,7 +81,7 @@ type AssembleStats struct {
 // CompactParams is the input for Compact.
 type CompactParams struct {
 	SessionID  string
-	Messages   []llm.Message
+	Messages   []protocol.Message
 	Budget     int
 	Force      bool
 	Reason     string
@@ -90,7 +90,7 @@ type CompactParams struct {
 	// LastUsage.PromptTokens > 0, Compact uses it as the authoritative
 	// tokensBefore (rather than the local rune/4 estimator) so the budget
 	// check matches what Assemble computed from the same field.
-	LastUsage llm.Usage
+	LastUsage protocol.Usage
 }
 
 // CompactResult is the output of Compact.
@@ -98,7 +98,7 @@ type CompactResult struct {
 	Success          bool
 	TokensBefore     int
 	TokensAfter      int
-	RetainedMessages []llm.Message
+	RetainedMessages []protocol.Message
 	Summary          string
 	Checkpoint       *CheckPoint
 }
@@ -108,7 +108,7 @@ type CompactResult struct {
 type CheckPoint struct {
 	ID         string
 	CapturedAt time.Time
-	Snapshot   []llm.Message
+	Snapshot   []protocol.Message
 }
 
 // SubagentSpawnParams is the input for PrepareSubagentSpawn.
@@ -121,19 +121,19 @@ type SubagentSpawnParams struct {
 // SubagentSpawnPreparation is the output of PrepareSubagentSpawn.
 type SubagentSpawnPreparation struct {
 	SubagentSessionID string
-	InitialMessages   []llm.Message
+	InitialMessages   []protocol.Message
 }
 
 // SubagentEndedParams is the input for OnSubagentEnded.
 type SubagentEndedParams struct {
 	ParentSessionID   string
 	SubagentSessionID string
-	FinalMessages     []llm.Message
-	StopReason        llm.FinishReason
+	FinalMessages     []protocol.Message
+	StopReason        protocol.FinishReason
 }
 
 // Summarizer produces a textual summary of a span of conversation messages.
-// DefaultSummarizer (in compact.go) uses llm.ModelProvider.Complete.
+// DefaultSummarizer (in compact.go) uses protocol.ModelProvider.Complete.
 type Summarizer interface {
 	Summarize(ctx context.Context, req SummarizeRequest) (string, error)
 }
@@ -141,7 +141,7 @@ type Summarizer interface {
 // SummarizeRequest is the input for Summarizer.Summarize.
 type SummarizeRequest struct {
 	Model     string
-	Messages  []llm.Message
+	Messages  []protocol.Message
 	Hint      string
 	MaxTokens int
 }

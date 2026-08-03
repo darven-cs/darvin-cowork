@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/mcp"
 )
 
@@ -78,17 +78,17 @@ func (t *McpTool) Description() string { return t.toolDesc.Description }
 // conversion is best-effort: fields that do not map onto the minimal
 // schema are dropped, and an unconvertible schema falls back to a bare
 // object so the LLM still sees the tool.
-func (t *McpTool) Parameters() llm.ParameterSchema {
+func (t *McpTool) Parameters() protocol.ParameterSchema {
 	if len(t.toolDesc.InputSchema) == 0 {
-		return llm.ParameterSchema{Type: "object"}
+		return protocol.ParameterSchema{Type: "object"}
 	}
 	b, err := json.Marshal(t.toolDesc.InputSchema)
 	if err != nil {
-		return llm.ParameterSchema{Type: "object"}
+		return protocol.ParameterSchema{Type: "object"}
 	}
-	var ps llm.ParameterSchema
+	var ps protocol.ParameterSchema
 	if err := json.Unmarshal(b, &ps); err != nil {
-		return llm.ParameterSchema{Type: "object"}
+		return protocol.ParameterSchema{Type: "object"}
 	}
 	return ps
 }

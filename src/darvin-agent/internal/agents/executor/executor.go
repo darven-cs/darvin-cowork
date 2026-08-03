@@ -14,9 +14,8 @@ import (
 
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
-	"darvin-cowork/backend/internal/tools"
 )
 
 // ErrMaxTurns is returned by RunConversation when the loop reaches the
@@ -77,8 +76,8 @@ type Config struct {
 // package satisfies this implicitly.
 type Deps interface {
 	Session() *session.Session
-	Tools() *tool.Registry
-	Provider() llm.ModelProvider
+	Tools() protocol.ToolRegistry
+	Provider() protocol.ModelProvider
 	ModelName() string
 	Instructions() string
 	Emit(event.Event)
@@ -92,8 +91,8 @@ type Deps interface {
 	// Usage accounting: RecordUsage stores the API-reported Usage for the
 	// just-finished turn; LastUsage returns the most recent Usage so the
 	// ContextEngine can prefer API token counts over the local estimator.
-	RecordUsage(u llm.Usage)
-	LastUsage() llm.Usage
+	RecordUsage(u protocol.Usage)
+	LastUsage() protocol.Usage
 	// CurrentMessageID returns the messageID the ACP loop assigned to the
 	// prompt that triggered the in-flight run. The executor embeds it on
 	// every emitted event so downstream consumers (EventLedger, renderer)
@@ -106,7 +105,7 @@ type Deps interface {
 	CurrentRunID() string
 	// EvaluatePermission decides whether a tool call needs user approval
 	// (path escapes the authorized roots, or a destructive shell command).
-	EvaluatePermission(toolName string, args map[string]any) tool.PermissionEval
+	EvaluatePermission(toolName string, args map[string]any) protocol.PermissionEval
 	// RequestPermission emits a permission_request event and blocks until
 	// the renderer answers (or ctx fires / 60s timeout → deny).
 	RequestPermission(ctx context.Context, req PermissionRequest) (PermissionResult, error)
@@ -136,7 +135,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		return err
 	}
 	cfg := d.Config()
-	var totalUsage llm.Usage
+	var totalUsage protocol.Usage
 	// ec is the EventCommon payload every emitted event in this run carries.
 	// SessionID is stable across the Run; MessageID is read at the moment of
 	// emit so it always reflects the in-flight prompt's id (no stale read
@@ -159,7 +158,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		// 1. assemble messages via the ContextEngine (fallback to the legacy
 		//    d.Session().Messages() path when the assembler is not wired or
 		//    explicitly disabled — see spec §4.11).
-		var messages []llm.Message
+		var messages []protocol.Message
 		assemblerEnabled := d.Assembler() != nil && d.AssemblerEnabled()
 		if !assemblerEnabled {
 			messages = d.Session().Messages()
@@ -179,11 +178,11 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 			EventBase: event.EventBase{EventCommon: ec()},
 			Model:     d.ModelName(),
 		})
-		req := &llm.CompletionRequest{
+		req := &protocol.CompletionRequest{
 			Model:      d.ModelName(),
 			Messages:   messages,
 			Tools:      d.Tools().Specs(),
-			ToolChoice: llm.ToolChoice{Type: "auto"},
+			ToolChoice: protocol.ToolChoice{Type: "auto"},
 			System:     d.Instructions(),
 			Stream:     true,
 			MaxTokens:  4096,
@@ -195,16 +194,16 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 
 		// 3. accumulate assistant message
 		var text string
-		var toolCalls []llm.ToolCall
+		var toolCalls []protocol.ToolCall
 		turnUsage, streamErr := drainStream(ctx, d, ec, stream, &text, &toolCalls)
 		if streamErr != nil {
 			if streamErr == context.Canceled || ctx.Err() != nil {
-				assistant := llm.Message{Role: llm.RoleAssistant, Content: text, ToolCalls: toolCalls}
+				assistant := protocol.Message{Role: protocol.RoleAssistant, Content: text, ToolCalls: toolCalls}
 				d.Session().Append(assistant)
 				d.Emit(event.TurnEndEvent{
 					EventBase:  event.EventBase{EventCommon: ec()},
 					TurnIndex:  turnIndex,
-					StopReason: llm.FinishReasonAborted,
+					StopReason: protocol.FinishReasonAborted,
 				})
 				return context.Canceled
 			}
@@ -217,7 +216,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		totalUsage.PromptTokens += turnUsage.PromptTokens
 		totalUsage.CompletionTokens += turnUsage.CompletionTokens
 		totalUsage.TotalTokens += turnUsage.TotalTokens
-		assistant := llm.Message{Role: llm.RoleAssistant, Content: text, ToolCalls: toolCalls}
+		assistant := protocol.Message{Role: protocol.RoleAssistant, Content: text, ToolCalls: toolCalls}
 		d.Emit(event.LLMEndEvent{
 			EventBase: event.EventBase{EventCommon: ec()},
 			Assistant: assistant,
@@ -230,7 +229,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 			d.Emit(event.TurnEndEvent{
 				EventBase:  event.EventBase{EventCommon: ec()},
 				TurnIndex:  turnIndex,
-				StopReason: llm.FinishReasonStop,
+				StopReason: protocol.FinishReasonStop,
 			})
 			return nil
 		}
@@ -242,14 +241,14 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		// store them alongside the call (renderer rebuilds tool_result on reload)
 		for i := range assistant.ToolCalls {
 			if i < len(results) {
-				assistant.ToolCalls[i].Result = &llm.ToolResult{Content: truncateForStore(results[i].Content), IsError: results[i].IsError}
+				assistant.ToolCalls[i].Result = &protocol.ToolResult{Content: truncateForStore(results[i].Content), IsError: results[i].IsError}
 			}
 		}
 		// 7. append assistant (with results) then tool result messages in original order
 		d.Session().Append(assistant)
 		for i, tc := range toolCalls {
-			d.Session().Append(llm.Message{
-				Role:       llm.RoleTool,
+			d.Session().Append(protocol.Message{
+				Role:       protocol.RoleTool,
 				Content:    results[i].Content,
 				ToolCallID: tc.ID,
 			})
@@ -257,7 +256,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		d.Emit(event.TurnEndEvent{
 			EventBase:  event.EventBase{EventCommon: ec()},
 			TurnIndex:  turnIndex,
-			StopReason: llm.FinishReasonToolCalls,
+			StopReason: protocol.FinishReasonToolCalls,
 		})
 	}
 	return fmt.Errorf("%w (limit: %d)", ErrMaxTurns, cfg.MaxTurns)
@@ -271,60 +270,60 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 //
 // ec is the EventCommon payload for every passthrough event; the helper
 // reads it at each emit so MessageID reflects the in-flight prompt.
-func drainStream(ctx context.Context, d Deps, ec func() event.EventCommon, stream *llm.StreamingResponse, textOut *string, callsOut *[]llm.ToolCall) (llm.Usage, error) {
+func drainStream(ctx context.Context, d Deps, ec func() event.EventCommon, stream *protocol.StreamingResponse, textOut *string, callsOut *[]protocol.ToolCall) (protocol.Usage, error) {
 	for ev := range stream.Events {
 		switch e := ev.(type) {
-		case llm.StartEvent:
+		case protocol.StartEvent:
 			// nothing to do — already emitted LLMStartEvent
-		case llm.TextDeltaEvent:
+		case protocol.TextDeltaEvent:
 			*textOut += e.Delta
 			d.Emit(event.TextDeltaEvent{
 				EventBase: event.EventBase{EventCommon: ec()},
 				Delta:     e.Delta,
 			})
-		case llm.ThinkingDeltaEvent:
+		case protocol.ThinkingDeltaEvent:
 			d.Emit(event.ThinkingDeltaEvent{
 				EventBase: event.EventBase{EventCommon: ec()},
 				Delta:     e.Delta,
 			})
-		case llm.ToolCallStartEvent:
+		case protocol.ToolCallStartEvent:
 			// we accumulate via End event; nothing here
-		case llm.ToolCallDeltaEvent:
+		case protocol.ToolCallDeltaEvent:
 			// no-op: provider delivers parsed Arguments in End
-		case llm.ToolCallEndEvent:
-			*callsOut = append(*callsOut, llm.ToolCall{
+		case protocol.ToolCallEndEvent:
+			*callsOut = append(*callsOut, protocol.ToolCall{
 				ID:        e.ID,
 				Name:      e.Name,
 				Arguments: e.Arguments,
 			})
-		case llm.DoneEvent:
+		case protocol.DoneEvent:
 			return e.Response.Usage, nil
-		case llm.ErrorEvent:
+		case protocol.ErrorEvent:
 			if ctx.Err() != nil {
-				return llm.Usage{}, context.Canceled
+				return protocol.Usage{}, context.Canceled
 			}
 			if err := stream.Err(); err != nil {
-				return llm.Usage{}, err
+				return protocol.Usage{}, err
 			}
-			return llm.Usage{}, fmt.Errorf("executor: stream error event")
+			return protocol.Usage{}, fmt.Errorf("executor: stream error event")
 		}
 	}
 	// channel closed without DoneEvent — likely ctx cancel
 	if ctx.Err() != nil {
-		return llm.Usage{}, context.Canceled
+		return protocol.Usage{}, context.Canceled
 	}
 	if err := stream.Err(); err != nil {
-		return llm.Usage{}, err
+		return protocol.Usage{}, err
 	}
-	return llm.Usage{}, nil
+	return protocol.Usage{}, nil
 }
 
-func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, ec func() event.EventCommon, turnID string, calls []llm.ToolCall) []tool.Result {
-	results := make([]tool.Result, len(calls))
+func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, ec func() event.EventCommon, turnID string, calls []protocol.ToolCall) []protocol.Result {
+	results := make([]protocol.Result, len(calls))
 	var wg sync.WaitGroup
 	for i, c := range calls {
 		wg.Add(1)
-		go func(i int, c llm.ToolCall) {
+		go func(i int, c protocol.ToolCall) {
 			defer wg.Done()
 			kind, skillID, mcpServerID := entryAttrs(d.Tools(), c.Name)
 			d.Emit(event.ToolStartEvent{
@@ -365,7 +364,7 @@ func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, ec func(
 // entryAttrs returns the kind + kind-specific identifiers for a tool from
 // its registry entry. Empty strings for unknown tools keep the events
 // backward-compatible with pre-kind registrations.
-func entryAttrs(reg *tool.Registry, name string) (kind, skillID, mcpServerID string) {
+func entryAttrs(reg protocol.ToolRegistry, name string) (kind, skillID, mcpServerID string) {
 	entry, ok := reg.GetEntry(name)
 	if !ok {
 		return "", "", ""
@@ -380,14 +379,14 @@ func entryAttrs(reg *tool.Registry, name string) (kind, skillID, mcpServerID str
 	return kind, skillID, mcpServerID
 }
 
-func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c llm.ToolCall) (res tool.Result) {
+func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c protocol.ToolCall) (res protocol.Result) {
 	t := d.Tools().Get(c.Name)
 	if t == nil {
-		return tool.Result{IsError: true, Content: fmt.Sprintf("tool not found: %s", c.Name)}
+		return protocol.Result{IsError: true, Content: fmt.Sprintf("tool not found: %s", c.Name)}
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			res = tool.Result{IsError: true, Content: fmt.Sprintf("tool %q panicked: %v", c.Name, r)}
+			res = protocol.Result{IsError: true, Content: fmt.Sprintf("tool %q panicked: %v", c.Name, r)}
 		}
 	}()
 	// 越授权根 / 危险操作 → 请求用户审批。命中记住规则时直接放行（不弹
@@ -402,14 +401,14 @@ func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c llm.Too
 				Reason:      eval.Reason,
 			})
 			if err != nil {
-				return tool.Result{IsError: true, Content: "权限请求失败：" + err.Error()}
+				return protocol.Result{IsError: true, Content: "权限请求失败：" + err.Error()}
 			}
 			if pr.Behavior != "allow" {
 				msg := "用户拒绝了该操作"
 				if pr.Message != "" {
 					msg = pr.Message
 				}
-				return tool.Result{IsError: true, Content: msg}
+				return protocol.Result{IsError: true, Content: msg}
 			}
 			if pr.Remember {
 				d.AddPermissionRule(c.Name, eval.Level, eval.Reason)

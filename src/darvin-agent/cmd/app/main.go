@@ -14,16 +14,16 @@ import (
 
 	"darvin-cowork/backend/internal/acp"
 	"darvin-cowork/backend/internal/agents"
-	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
-	"darvin-cowork/backend/internal/tools"
 	"darvin-cowork/backend/internal/config"
 	"darvin-cowork/backend/internal/database"
 	"darvin-cowork/backend/internal/gateway"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/logger"
 	"darvin-cowork/backend/internal/mcp"
 	"darvin-cowork/backend/internal/skills"
+	"darvin-cowork/backend/internal/tools"
 
 	// Blank import triggers anthropic.init() which registers the provider
 	// with llm.NewProvider's name-based factory registry.
@@ -164,6 +164,14 @@ func main() {
 		AssemblerEnabled:     cfg.Agent.AssemblerEnabled,
 	}
 
+	// Bootstrap the built-in tool registry once; the steer agent, the
+	// per-session factory and the skills runner all share it.
+	toolsReg, toolsErr := tool.NewBuiltins(effectiveWorkdir, cfg.Agent.ShellAllowlist)
+	if toolsErr != nil {
+		log.Warn("skills: tool registry init failed, using empty registry", zap.Error(toolsErr))
+		toolsReg = tool.NewRegistry()
+	}
+
 	// Steer 仍接单例 Agent(本期不迁,见 spec §1.3 非目标)。这个 steerAgent
 	// 仅给 acp.NewSteerControl 持有,不会被任何 Loop 驱动、也不会订阅事件
 	// —— UI 本期不发 steer message,实际不影响行为。
@@ -177,6 +185,7 @@ func main() {
 		MessageStore:     msgStore,
 		Logger:           log.Logger,
 		Config:           agentCfg,
+		Tools:            toolsReg,
 		AssemblerEnabled: cfg.Agent.AssemblerEnabled,
 	})
 	if err != nil {
@@ -193,17 +202,13 @@ func main() {
 		MessageStore:     msgStore,
 		Logger:           log.Logger,
 		Config:           agentCfg,
+		Tools:            toolsReg,
 		AssemblerEnabled: cfg.Agent.AssemblerEnabled,
 	}
 
 	// Bootstrap skills registry + runner. The runner resolves skill
 	// execution contexts against toolsReg (built-ins only); per-session
 	// skill/mcp tools are added by the plugins wired onto the factory below.
-	toolsReg, toolsErr := tool.NewBuiltins(effectiveWorkdir, cfg.Agent.ShellAllowlist)
-	if toolsErr != nil {
-		log.Warn("skills: tool registry init failed, using empty registry", zap.Error(toolsErr))
-		toolsReg = tool.NewRegistry()
-	}
 	skillsResult := skills.Bootstrap(rootCtx, log.Logger, skills.BootstrapConfig{
 		Bundle:      skills.Bundle{FS: skillsBundled, Dir: "resources/skills-bundled"},
 		UserDataDir: effectiveWorkdir,

@@ -12,7 +12,7 @@ import (
 
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/queue"
 	"darvin-cowork/backend/internal/agents/store"
 )
@@ -87,7 +87,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}()
 
 	var totalTurns int
-	var totalUsage llm.Usage
+	var totalUsage protocol.Usage
 	// runMsgID is overwritten after each Dequeue below; the AgentEndEvent
 	// defer reads the most recent snapshot so it always reflects the last
 	// prompt the run consumed (across FollowUp iterations).
@@ -140,7 +140,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			Content: msg.Content,
 			Mode:    event.Mode(mode),
 		})
-		a.session.Append(llm.Message{Role: llm.RoleUser, Content: msg.Content, Images: toLLMImages(msg.Images)})
+		a.session.Append(protocol.Message{Role: protocol.RoleUser, Content: msg.Content, Images: toLLMImages(msg.Images)})
 		// Hook 1 of 3: persist the user message before the LLM call so a
 		// crash mid-Run still leaves the question in sessions.db. The row is
 		// keyed by runUserMsgID (not runMsgID) so persistAssistantMessages
@@ -244,7 +244,7 @@ func (a *Agent) emitContextUsage() {
 		return
 	}
 	ctx := 0
-	if d, ok := llm.DefaultModelRegistry.Get(a.ModelName()); ok {
+	if d, ok := protocol.DefaultModelRegistry.Get(a.ModelName()); ok {
 		ctx = d.ContextWindow
 	}
 	if ctx <= 0 {
@@ -276,7 +276,7 @@ func (a *Agent) persistUserMessage(ctx context.Context, msgID, content string) {
 	rec := &store.MessageRecord{
 		ID:        msgID,
 		SessionID: a.session.ID,
-		Role:      string(llm.RoleUser),
+		Role:      string(protocol.RoleUser),
 		Content:   content,
 		Done:      true,
 		Timestamp: time.Now().UnixMilli(),
@@ -304,7 +304,7 @@ func (a *Agent) persistAssistantMessages(ctx context.Context, msgID string, befo
 	now := time.Now().UnixMilli()
 	for i := beforeLen; i < len(msgs); i++ {
 		m := msgs[i]
-		if m.Role != llm.RoleAssistant {
+		if m.Role != protocol.RoleAssistant {
 			continue
 		}
 		var toolCallsJSON string
@@ -322,7 +322,7 @@ func (a *Agent) persistAssistantMessages(ctx context.Context, msgID string, befo
 		rec := &store.MessageRecord{
 			ID:        fmt.Sprintf("%s-%d", msgID, i),
 			SessionID: a.session.ID,
-			Role:      string(llm.RoleAssistant),
+			Role:      string(protocol.RoleAssistant),
 			Content:   m.Content,
 			ToolCalls: toolCallsJSON,
 			Timestamp: now + int64(i-beforeLen),
@@ -360,7 +360,7 @@ func (a *Agent) approxTurns(beforeLen int) int {
 	msgs := a.session.Messages()
 	count := 0
 	for i := beforeLen; i < len(msgs); i++ {
-		if msgs[i].Role == llm.RoleAssistant {
+		if msgs[i].Role == protocol.RoleAssistant {
 			count++
 		}
 	}
@@ -399,14 +399,14 @@ func (a *Agent) enqueue(mode queue.Mode, content string, attachments []string, i
 // toLLMImages converts base64 image data URLs into provider-facing image
 // blocks, splitting "data:<mime>;base64,<data>" into {MediaType, Data}.
 // Malformed URLs are skipped so a bad attachment cannot break a run.
-func toLLMImages(refs []queue.ImageRef) []llm.ImageBlock {
-	out := make([]llm.ImageBlock, 0, len(refs))
+func toLLMImages(refs []queue.ImageRef) []protocol.ImageBlock {
+	out := make([]protocol.ImageBlock, 0, len(refs))
 	for _, r := range refs {
 		mediaType, data := splitDataURL(r.DataURL)
 		if mediaType == "" || data == "" {
 			continue
 		}
-		out = append(out, llm.ImageBlock{MediaType: mediaType, Data: data})
+		out = append(out, protocol.ImageBlock{MediaType: mediaType, Data: data})
 	}
 	return out
 }

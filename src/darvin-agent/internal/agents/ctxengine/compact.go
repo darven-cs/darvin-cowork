@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/agents/protocol"
 )
 
 // Compact runs the LLM-based compaction pipeline. It never mutates
@@ -102,13 +102,13 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		}
 	}
 
-	summaryMsg := llm.Message{
-		Role: llm.RoleAssistant,
+	summaryMsg := protocol.Message{
+		Role: protocol.RoleAssistant,
 		Content: "[Conversation Summary]\n" + summaryText +
 			fmt.Sprintf("\n\n(Compacted at %s; original %d messages → tail %d messages)",
 				time.Now().Format(time.RFC3339), len(span), tail),
 	}
-	newMessages := append([]llm.Message{summaryMsg}, p.Messages[len(p.Messages)-tail:]...)
+	newMessages := append([]protocol.Message{summaryMsg}, p.Messages[len(p.Messages)-tail:]...)
 	tokensAfter := estimateMessages(newMessages)
 
 	retries := 0
@@ -130,7 +130,7 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		summaryMsg.Content = "[Conversation Summary]\n" + newSpan +
 			fmt.Sprintf("\n\n(Recompacted %d times)", retries+1)
 		tailStart := half
-		newMessages = append([]llm.Message{summaryMsg}, p.Messages[tailStart:]...)
+		newMessages = append([]protocol.Message{summaryMsg}, p.Messages[tailStart:]...)
 		tokensAfter = estimateMessages(newMessages)
 		retries++
 	}
@@ -156,16 +156,16 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 }
 
 // DefaultSummarizer is the default Summarizer: it wraps
-// llm.ModelProvider.Complete with a summarisation-specific system prompt.
+// protocol.ModelProvider.Complete with a summarisation-specific system prompt.
 // It deliberately does not reuse Agent.Session or Agent.EventBus so the
 // summary call does not pollute the agent's own conversation state.
 type DefaultSummarizer struct {
-	provider llm.ModelProvider
+	provider protocol.ModelProvider
 }
 
 // NewDefaultSummarizer constructs the default Summarizer. Provider may be
 // nil — Summarize returns an error in that case.
-func NewDefaultSummarizer(provider llm.ModelProvider) *DefaultSummarizer {
+func NewDefaultSummarizer(provider protocol.ModelProvider) *DefaultSummarizer {
 	return &DefaultSummarizer{provider: provider}
 }
 
@@ -180,7 +180,7 @@ func (s *DefaultSummarizer) Summarize(ctx context.Context, req SummarizeRequest)
 		maxTokens = 800
 	}
 	system := "You are a conversation summarizer. Output a concise summary preserving tool inputs/outputs, decisions, and context that future turns might need. " + req.Hint
-	resp, err := s.provider.Complete(ctx, &llm.CompletionRequest{
+	resp, err := s.provider.Complete(ctx, &protocol.CompletionRequest{
 		Model:     req.Model,
 		Messages:  req.Messages,
 		System:    system,
@@ -194,7 +194,7 @@ func (s *DefaultSummarizer) Summarize(ctx context.Context, req SummarizeRequest)
 }
 
 // estimateMessages sums EstimateMessageTokens over a slice.
-func estimateMessages(msgs []llm.Message) int {
+func estimateMessages(msgs []protocol.Message) int {
 	n := 0
 	for _, m := range msgs {
 		n += EstimateMessageTokens(m)
