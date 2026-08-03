@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ProtocolVersion is the MCP protocol version this client announces in
@@ -91,4 +92,94 @@ type CallToolResult struct {
 type ToolContent struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
+}
+
+// TransportType picks how a server is reached. stdio is the dominant case
+// (MCP reference servers all spawn a subprocess); http covers the new
+// streamable-HTTP transport; sse is reserved for legacy servers and
+// not yet wired up (the HTTP transport accepts the SSE Accept header but
+// does not parse event frames).
+type TransportType string
+
+const (
+	TransportStdio TransportType = "stdio"
+	TransportHTTP  TransportType = "http"
+	TransportSSE   TransportType = "sse"
+)
+
+// ResolverKind classifies how a server's command is optimised before
+// launch. npx is the only fully implemented kind; the rest are stubbed
+// to return "unsupported" so the registry falls back to the raw command.
+type ResolverKind string
+
+const (
+	ResolverNpx ResolverKind = "npx"
+	ResolverUvx ResolverKind = "uvx"
+	ResolverGo  ResolverKind = "go"
+	ResolverRaw ResolverKind = "raw"
+)
+
+// ResolutionStatus is the lifecycle of a launch optimisation. The UI
+// reads this verbatim; the strings are part of the IPC contract.
+type ResolutionStatus string
+
+const (
+	StatusPending     ResolutionStatus = "pending"
+	StatusInstalling  ResolutionStatus = "installing"
+	StatusReady       ResolutionStatus = "ready"
+	StatusFailed      ResolutionStatus = "failed"
+	StatusUnsupported ResolutionStatus = "unsupported"
+)
+
+// ServerSpec is the user-facing description of one MCP server. The Go
+// side never mutates this — the registry copies it into a serverEntry
+// and uses the copy for everything.
+type ServerSpec struct {
+	ID          string
+	Name        string
+	Description string
+	Enabled     bool
+	Transport   TransportType
+	Command     string
+	Args        []string
+	Env         map[string]string
+	URL         string
+	Headers     map[string]string
+	IsBuiltIn   bool
+	GitHubURL   string
+	RegistryID  string
+}
+
+// LaunchResolution is the result of running a resolver. When Status is
+// ready, Command/Args/Env are the optimised launch line; when Status is
+// failed or unsupported, the registry falls back to ServerSpec.Command.
+type LaunchResolution struct {
+	ServerID          string
+	ResolverKind      ResolverKind
+	SourceFingerprint string
+	Status            ResolutionStatus
+	PackageName       string
+	RequestedVersion  string
+	ResolvedVersion   string
+	InstallDir        string
+	Command           string
+	Args              []string
+	Env               map[string]string
+	Error             string
+	InstalledAt       time.Time
+	ResolvedAt        time.Time
+	UpdatedAt         time.Time
+}
+
+// ServerStatus is the read-only snapshot the renderer (spec 37) consumes.
+// It bundles the spec-shaped view with the runtime state (connected,
+// tools, error) so the renderer does not have to thread two structs.
+type ServerStatus struct {
+	ServerID        string
+	Enabled         bool
+	Resolving       bool
+	Resolution      *LaunchResolution
+	Connected       bool
+	ConnectionError string
+	Tools           []ToolDescriptor
 }

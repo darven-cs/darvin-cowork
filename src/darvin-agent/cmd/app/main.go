@@ -33,10 +33,6 @@ import (
 //go:embed resources/skills-bundled
 var skillsBundled embed.FS
 
-// Reference mcp.NewClient so the import is not flagged as unused.
-// Production wiring (registry / launcher) comes in a later change.
-var _ = mcp.NewClient
-
 // configPath resolves config.yaml in three places, in order:
 //  1. $DARVIN_CONFIG, if set (lets Electron point at a project-local file)
 //  2. <exe-dir>/config.yaml, the production layout where the binary
@@ -232,6 +228,22 @@ func main() {
 			Skills:        skillsResult.Registry,
 			Log:           log.Logger,
 		})
+
+	// MCP registry: spec 36 wires the SQLite-backed persistence and
+	// registers user-configured servers. For now we stand up the
+	// manager + in-memory persistence so LoadStaleResolutions has a
+	// home; userData/mcp-packages is created eagerly so the first
+	// Register does not race the filesystem.
+	mcpRoot := filepath.Join(effectiveWorkdir, "mcp-packages")
+	if err := os.MkdirAll(mcpRoot, 0o755); err != nil {
+		log.Warn("mcp packages dir create failed", zap.Error(err))
+	}
+	mcpResolver := mcp.NewResolverManager(mcpRoot).WithLogger(log.Logger)
+	mcpRegistry := mcp.NewRegistry(mcpResolver, mcp.NewInMemoryResolutionPersistence())
+	if err := mcpRegistry.LoadStaleResolutions(rootCtx); err != nil {
+		log.Warn("mcp stale resolution scan failed", zap.Error(err))
+	}
+
 	gs := gateway.NewServer(handler, log.Logger)
 	if err := gs.Start(rootCtx); err != nil {
 		log.Error("gateway start failed", zap.Error(err))

@@ -10,7 +10,7 @@
 
 ## 当前进度
 
-**进行中 0 / 9；完成 4 / 9。** spec 31 / 32 / 33 / 34 已完成 + 提交。spec 33 UI 实跑通过：3 tab 切换、5 bundled SkillCard 渲染、启停 switch 乐观更新、详情 modal Teleport 挂载、设置 tab bundled 过滤、市场 tab 文件选择 + GitHub URL 全部就位。
+**进行中 0 / 9；完成 5 / 9。** spec 31 / 32 / 33 / 34 / 35 已完成。spec 35 McpRegistry + Launcher 落地：Go 端 `internal/mcp/{registry, launcher, resolver_fingerprint, persistence}.go` + types 增量（+ServerSpec / +TransportType / +ResolverKind / +ResolutionStatus / +LaunchResolution / +ServerStatus）+ 4 个 `_test.go`；`cmd/app/main.go` 接入 ResolverManager + Registry + LoadStaleResolutions 启动扫描。
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
@@ -18,7 +18,7 @@
 | 32 | [skills-ipc-and-bootstrap](./2026-08-02-skills-ipc-and-bootstrap.md) | ✅ 完成 | 9/9 | Go ↔ Main IPC + main 端 skillsManager |
 | 33 | [skills-renderer-view](./2026-08-02-skills-renderer-view.md) | ✅ 完成 | 12/12 | renderer SkillsView + 5 子组件 |
 | 34 | [mcp-transport-and-client](./2026-08-02-mcp-transport-and-client.md) | ✅ 完成 | 12/12 | Go 端 stdio / http transport + JSON-RPC client |
-| 35 | [mcp-registry-and-launcher](./2026-08-02-mcp-registry-and-launcher.md) | ⏳ 待启动 | 0/13 | 34 完成后 |
+| 35 | [mcp-registry-and-launcher](./2026-08-02-mcp-registry-and-launcher.md) | ✅ 完成 | 13/13 | Go 端 McpRegistry + 4 类 resolver + 30min stale installing |
 | 36 | [mcp-main-store-and-ipc](./2026-08-02-mcp-main-store-and-ipc.md) | ⏳ 待启动 | 0/11 | 34 + 35 完成后 |
 | 37 | [mcp-renderer-view](./2026-08-02-mcp-renderer-view.md) | ⏳ 待启动 | 0/8 | 36 完成后 |
 | 38 | [tool-registry-merge-and-routing](./2026-08-02-tool-registry-merge-and-routing.md) | ⏳ 待启动 | 0/12 | 31 + 34 + 35 完成后 |
@@ -127,19 +127,19 @@
 
 > Go 端 McpRegistry + ResolverManager（4 类 resolver）+ npx 优化。
 
-- [ ] `internal/mcp/types.go` +ServerSpec / TransportType / ResolverKind / ResolutionStatus / LaunchResolution / ServerStatus
-- [ ] `internal/mcp/registry.go` McpRegistry（Register / Unregister / SetEnabled / List / Get / GetTools / GetToolsByName）
-- [ ] `internal/mcp/launcher.go` ResolverManager + npxResolver（完整）+ uvx / go / raw（stub）
-- [ ] `internal/mcp/resolver_fingerprint.go` ComputeFingerprint（sha256(command|args|env|platform|arch)）
-- [ ] `internal/mcp/persistence.go` ResolutionPersistence interface + InMemory impl
-- [ ] 陈旧 installing 检测（30min 自动重试）
-- [ ] Registry 与 Client 集成（fallback 到原始 command if resolver failed）
-- [ ] `registry_test.go` 6 用例
-- [ ] `launcher_test.go` 7 用例（npx 成功 / 失败 / scoped / fallback / stale installing）
-- [ ] `resolver_fingerprint_test.go` 4 用例
-- [ ] `persistence_test.go` 3 用例
-- [ ] cmd 注入 ResolverManager + Registry
-- [ ] 状态：⏳ 待启动
+- [x] `internal/mcp/types.go` +ServerSpec / TransportType / ResolverKind / ResolutionStatus / LaunchResolution / ServerStatus
+- [x] `internal/mcp/registry.go` McpRegistry（Register / Unregister / SetEnabled / List / Get / GetTools / GetToolsByName）
+- [x] `internal/mcp/launcher.go` ResolverManager + npxResolver（完整）+ uvx / go / raw（stub）
+- [x] `internal/mcp/resolver_fingerprint.go` ComputeFingerprint（sha256(command|args|env|platform|arch)）
+- [x] `internal/mcp/persistence.go` ResolutionPersistence interface + InMemory impl
+- [x] 陈旧 installing 检测（30min 自动重试）
+- [x] Registry 与 Client 集成（fallback 到原始 command if resolver failed）
+- [x] `registry_test.go` 9 用例（Register+List / Get / SetEnabled disable / Unregister / 未知 server / fingerprint 变 / GetToolsByName / 并发 / stale retry）
+- [x] `launcher_test.go` 13 用例（parseNpxArgs 5 + stub 1 + npx 3 + dedup 1 + pickBinEntry 4）
+- [x] `resolver_fingerprint_test.go` 4 用例
+- [x] `persistence_test.go` 5 用例
+- [x] cmd 注入 ResolverManager + Registry + LoadStaleResolutions
+- [x] 状态：✅ 完成（38/38 mcp 测试通过 = spec 35 新增 24 + spec 34 遗留 14；`go build` + `go vet` 干净；`npm run build:agent` 成功；`npm run lint` 干净；`npm test` 162/162 通过）
 
 ### 36 · mcp-main-store-and-ipc
 
@@ -232,3 +232,4 @@
 - 2026-08-03 · spec 33 · SkillsView 落地：`shared/darvin-api.ts` 新增 `installSkill` / `uninstallSkill` / `upgradeSkill` / `getSkillDetails` 类型；`i18n.ts` +30 skill.* +4 common.*（assertSameKeys 17/17 通过）；preload 暴露 4 个新 IPC + main 端 4 个 stub handler；`useSkills` composable 走 singleton（refresh / 乐观更新 + 失败回滚 / install / uninstall / upgrade / 订阅 onChanged）+ 5/5 vitest 通过；5 个子组件 SkillCard / SkillMarketplace / SkillSecurityReportModal / SkillSettingsPanel / SkillDetailsModal 落地 + `index.ts` barrel + `plugin.svg` / `shield.svg` 图标；`SkillsView.vue` 三 tab 切换 + 2 modal；`AppShell.vue` 把 'skills' 从 PLACEHOLDERS 移到 main switch 直接走 SkillsView。`npm run lint` 干净 + `npm test` 162/162 通过。**待人工重启 Electron 验证** UI 渲染 + 4 个新 IPC handler（install / uninstall / upgrade / getDetails）跑通。
 - 2026-08-03 · spec 34 · mcp transport + JSON-RPC client 落地：`internal/mcp/transport/{transport.go, stdio.go, http.go}` + `internal/mcp/{types.go, client.go}` + 4 个 `_test.go`；`cmd/app/main.go` 加占位 import `var _ = mcp.NewClient`。stdio transport：spawn 子进程（`exec.CommandContext`）+ LSP 风格 `Content-Length: N\r\n\r\n` frame + 子进程 stderr → zap log goroutine + Close SIGTERM 5s → SIGKILL + alive atomic.Bool + 子进程崩溃自动标 dead。http transport：POST + `Content-Type: application/json` + `Accept: application/json, text/event-stream` + 自定义 headers + `Mcp-Session-Id` 自动捕获并加到下次请求 + 30s 默认 timeout（v0 不解析 SSE）。client：JSON-RPC 2.0 envelope（`Request/Response/RPCError`，id 用 `atomic.Int64` 单调递增，**不复用 gateway 的 `json.RawMessage` id 以避免跨包耦合**）+ `Call` 互斥锁序列化 Send/Recv + `Initialize`（协议版本 `2024-11-05`）+ `ListTools` + `CallTool` + `CallWithRetry(method, params, maxRetries, backoffBase)` 指数退避（默认 1s 翻倍 × 3 次）+ reconnect factory（调用方提供，避免 client 重建 transport 破坏生命周期）+ `isConnectionError` 区分 RPC 错误（不重试）和 transport 断开（重试）。**35/35 Go test 通过**：`stdio_test` 10 个（真子进程 cat + sh）+ `http_test` 8 个（`httptest.NewServer`）+ `client_test` 12 个 + `isConnectionError` 9 subtest（fake transport + onRecv callback 模式回填 request id 让 response-id 校验通过）+ `reconnect_test` 5 个。`go build ./...` + `go vet ./...` 干净，`npm run build:agent` 输出 `darvin-agent-linux-x64` 成功，`npm run lint` 干净，`npm test` 162/162 通过。**待人工重启 Electron 验证** `cmd/app/main.go` import 路径不破坏启动。
 - 2026-08-03 · spec 33 live · UI 实跑验证（用户已重启 Electron，CDP 探针 `:9222` 抓取 `localhost:5173` 渲染进程）：① `window.darvin.listSkills()` 直调返 5 bundled（Code Review / API Design / Testing / Web Search / Word Document，id 全对）；② 侧栏「技能」button click → AppShell 切到 `SkillsView`（5 个 `SkillCard` 渲染，5 个 `data-testid="skill-details-{id}"` 详情按钮，5 个 toggle `<input type=checkbox>`）；③ 3 个 tab `data-testid="skill-tab-{installed|marketplace|settings}"` active 态用 `border-primary text-primary` 标识，CSS 切换正常（依次点 marketplace → settings → installed，DOM 数据 1:1 符合预期：marketplace 切到后 5 个 checkbox 消失换 1 个 URL input + 1 个「选择 SKILL.md 文件…」按钮 + 1 个「安装」按钮，settings 切到后 5 个 `data-testid="skill-details-*"` 详情按钮 + 5 个 checkbox 与 bundled 数对得上）；④ 启停 switch：click 第一个 SkillCard 的 checkbox，`aria-checked` 从 `true` → `false`，再 `listSkills()` 直查 `code-review.enabled === false`，其余 4 个保持 `true`，乐观更新 + IPC 持久化 + 推回 store 链路 OK；⑤ 详情 modal：点「详情」→ `data-testid="skill-details-modal"` 出现在 `<body>` Teleport 末尾（fixed inset-0 z-50），header 显示 `code-review` + `v0.1.0`，底部 3 按钮（取消 + 升级（bundled 不渲染）+ 卸载（`disabled: true` 因 `isBuiltIn`）），点取消 modal 关闭；⑥ `SkillCard` 风险徽章：5 bundled `riskLevel` 未定义时 `showRiskBadge=false`，无徽章渲染（spec 设计要求 riskLevel 不为 safe 才显示，符合预期）。spec 33 标 ✅ 完成 + 提交。
+- 2026-08-03 · spec 35 · McpRegistry + Launcher 落地：`internal/mcp/{registry.go, launcher.go, resolver_fingerprint.go, persistence.go}` + types.go 增量（+ServerSpec / +TransportType / +ResolverKind / +ResolutionStatus / +LaunchResolution / +ServerStatus）+ 4 个 `_test.go`；`cmd/app/main.go` 注入 ResolverManager + Registry + 启动期 `LoadStaleResolutions`；移除 spec 34 占位 `var _ = mcp.NewClient`。`fingerprint`：sha256(transport|command|args|env|url|headers|platform|arch)；同 spec 同 hash，改 command/env/args 不同 hash。`persistence`：interface + `InMemoryResolutionPersistence`（Save/LoadAll/Delete）。`launcher`：4 类 Resolver — npx 完整（parseNpxArgs：第一个非 -flag → 按 last `@` 拆 scoped 包 + version，`@scope/name@1.0.0` 正确解析为 name=`@scope/name` version=`1.0.0`；shim 测试里把 `@scope/name@ver` 的 trailing `@ver` 剥掉后写到 `node_modules/@scope/name/package.json` 让 Go 端可读；npm view 失败 → StatusFailed + "npm view: ..."；npm install 失败 → StatusFailed + "npm install: ..."；读 `package.json` bin（string 或 map，map 优先 basename 匹配否则取第一个）；生成 `node <abs-bin-path> <extra>` 启动行）；uvx / go / raw 是 stubResolver（永远 StatusUnsupported → registry fallback 走原始 command）。Resolve 异步：sync.Map inFlight dedup 同 serverID 并发调用，**fan-out 给每个 subscriber 独立 channel**（修了一开始单 channel 广播 bug）；60s timeout；Cancel(serverID) 给 SetEnabled(false) 用。`registry`：`serverEntry{spec, status, client, fingerprint}` + RWMutex；Register/Unregister/SetEnabled/List/Get/GetTools/GetToolsByName 全并发安全；connectServer 异步跑：resolver → StdioTransport{Command,Args,Env} → NewClient.WithReconnectFactory(stub) → Connect → Initialize → ListTools，任意步骤失败都记录到 status.ConnectionError；resolver failed/unsupported 时 fallback 用 spec.Command / spec.Args（mergeEnv 合并 spec.Env + res.Env）；LoadStaleResolutions 30min grace 扫持久化记录，retry 不在 in-flight 且超过 30min 的 installing。**38/38 mcp 测试通过**：registry_test 9（Register+List / Get / SetEnabled disable / Unregister / 未知 server / fingerprint 变 / GetToolsByName / 并发 / stale retry）+ launcher_test 14（parseNpxArgs 5 + stub 1 + npx happy / view-fail / install-fail + dedup 1 + pickBinEntry 4）+ resolver_fingerprint_test 4 + persistence_test 5 + spec 34 遗留 14。`go build ./...` + `go vet ./...` 干净，`npm run build:agent` 输出 `darvin-agent-linux-x64` 成功，`npm run lint` 干净，`npm test` 162/162 通过。**待人工重启 Electron 验证** `cmd/app/main.go` 启动扫描 `LoadStaleResolutions` 不破坏启动。
