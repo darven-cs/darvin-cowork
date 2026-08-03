@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"darvin-cowork/backend/internal/agent/llm"
-	"darvin-cowork/backend/internal/agent/tool"
+	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/agents/tool"
 )
 
 type toolStub struct{ name string }

@@ -13,11 +13,11 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/acp"
-	"darvin-cowork/backend/internal/agent"
-	"darvin-cowork/backend/internal/agent/llm"
-	"darvin-cowork/backend/internal/agent/session"
-	"darvin-cowork/backend/internal/agent/store"
-	"darvin-cowork/backend/internal/agent/tool"
+	"darvin-cowork/backend/internal/agents"
+	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/agents/session"
+	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/agents/tool"
 	"darvin-cowork/backend/internal/config"
 	"darvin-cowork/backend/internal/database"
 	"darvin-cowork/backend/internal/gateway"
@@ -27,7 +27,7 @@ import (
 
 	// Blank import triggers anthropic.init() which registers the provider
 	// with llm.NewProvider's name-based factory registry.
-	_ "darvin-cowork/backend/internal/agent/llm/anthropic"
+	_ "darvin-cowork/backend/internal/agents/llm/anthropic"
 )
 
 //go:embed resources/skills-bundled

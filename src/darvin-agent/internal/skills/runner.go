@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"darvin-cowork/backend/internal/agent/tool"
+	"darvin-cowork/backend/internal/agents/tool"
 )
 
 type SkillExecutionContext struct {

@@ -1,7 +1,7 @@
 package acp
 
 import (
-	"darvin-cowork/backend/internal/agent"
+	"darvin-cowork/backend/internal/agents"
 )
 
 // AcpSession 捆绑一个 session id 下的 Agent + Loop。SessionManager 在

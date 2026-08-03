@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"darvin-cowork/backend/internal/agent/tool"
+	"darvin-cowork/backend/internal/agents/tool"
 )
 
 func TestSkillPluginRegisterEnabledOnly(t *testing.T) {

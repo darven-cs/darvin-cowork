@@ -12,10 +12,10 @@ import (
 
 	"github.com/jaevor/go-nanoid"
 
-	"darvin-cowork/backend/internal/agent"
-	"darvin-cowork/backend/internal/agent/event"
-	"darvin-cowork/backend/internal/agent/queue"
-	"darvin-cowork/backend/internal/agent/tool"
+	"darvin-cowork/backend/internal/agents"
+	"darvin-cowork/backend/internal/agents/event"
+	"darvin-cowork/backend/internal/agents/queue"
+	"darvin-cowork/backend/internal/agents/tool"
 )
 
 const (

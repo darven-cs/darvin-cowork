@@ -3,7 +3,7 @@ package acp
 import (
 	"context"
 
-	"darvin-cowork/backend/internal/agent/queue"
+	"darvin-cowork/backend/internal/agents/queue"
 )
 
 // Queue is a thin wrapper over agent/queue.Queue that keeps the agent

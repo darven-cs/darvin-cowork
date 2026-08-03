@@ -3,12 +3,12 @@ package acp
 import (
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/agent"
-	"darvin-cowork/backend/internal/agent/ctxengine"
-	"darvin-cowork/backend/internal/agent/llm"
-	"darvin-cowork/backend/internal/agent/session"
-	"darvin-cowork/backend/internal/agent/store"
-	"darvin-cowork/backend/internal/agent/tool"
+	"darvin-cowork/backend/internal/agents"
+	"darvin-cowork/backend/internal/agents/ctxengine"
+	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/agents/session"
+	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/agents/tool"
 )
 
 // AgentFactory 携带构建一个 *agent.Agent 所需的共享依赖;main.go 构造

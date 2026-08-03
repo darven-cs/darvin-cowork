@@ -17,12 +17,12 @@ import (
 	"gorm.io/gorm"
 
 	"darvin-cowork/backend/internal/acp"
-	"darvin-cowork/backend/internal/agent"
-	"darvin-cowork/backend/internal/agent/event"
-	"darvin-cowork/backend/internal/agent/llm"
-	"darvin-cowork/backend/internal/agent/session"
-	"darvin-cowork/backend/internal/agent/store"
-	"darvin-cowork/backend/internal/agent/tool"
+	"darvin-cowork/backend/internal/agents"
+	"darvin-cowork/backend/internal/agents/event"
+	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/agents/session"
+	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/agents/tool"
 	"darvin-cowork/backend/internal/skills"
 )
 

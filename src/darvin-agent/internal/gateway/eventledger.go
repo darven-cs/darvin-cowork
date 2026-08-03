@@ -7,8 +7,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/agent/event"
-	"darvin-cowork/backend/internal/agent/llm"
+	"darvin-cowork/backend/internal/agents/event"
+	"darvin-cowork/backend/internal/agents/llm"
 )
 
 // EventLedger is the bridge between the agent's event bus and WS clients.

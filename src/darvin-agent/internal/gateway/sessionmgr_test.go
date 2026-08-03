@@ -11,10 +11,10 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/acp"
-	"darvin-cowork/backend/internal/agent"
-	"darvin-cowork/backend/internal/agent/event"
-	"darvin-cowork/backend/internal/agent/session"
-	"darvin-cowork/backend/internal/agent/store"
+	"darvin-cowork/backend/internal/agents"
+	"darvin-cowork/backend/internal/agents/event"
+	"darvin-cowork/backend/internal/agents/session"
+	"darvin-cowork/backend/internal/agents/store"
 )
 
 var idRe = regexp.MustCompile(`^[A-Za-z0-9]{21}$`)

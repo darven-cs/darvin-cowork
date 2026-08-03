@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"darvin-cowork/backend/internal/agent"
-	"darvin-cowork/backend/internal/agent/llm"
-	"darvin-cowork/backend/internal/agent/store"
+	"darvin-cowork/backend/internal/agents"
+	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/agents/store"
 	"go.uber.org/zap"
 )
 

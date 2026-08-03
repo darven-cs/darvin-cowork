@@ -15,7 +15,7 @@ import (
 	"github.com/jaevor/go-nanoid"
 
 	"darvin-cowork/backend/internal/acp"
-	"darvin-cowork/backend/internal/agent/session"
+	"darvin-cowork/backend/internal/agents/session"
 )
 
 const (

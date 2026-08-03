@@ -7,7 +7,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/agent/tool"
+	"darvin-cowork/backend/internal/agents/tool"
 )
 
 // Bundle describes the embedded SKILL.md tree. main.go wires the

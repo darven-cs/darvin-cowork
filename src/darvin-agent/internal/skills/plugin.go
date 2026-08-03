@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"darvin-cowork/backend/internal/agent/llm"
-	"darvin-cowork/backend/internal/agent/tool"
+	"darvin-cowork/backend/internal/agents/llm"
+	"darvin-cowork/backend/internal/agents/tool"
 )
 
 // SkillPlugin exposes enabled skills as KindSkill tools named skill:<id>.

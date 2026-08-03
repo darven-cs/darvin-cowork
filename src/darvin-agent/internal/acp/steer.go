@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"darvin-cowork/backend/internal/agent"
+	"darvin-cowork/backend/internal/agents"
 )
 
 // ErrSteerNotImplemented is returned by SteerControl.Redirect. Redirect

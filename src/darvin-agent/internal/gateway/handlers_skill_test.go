@@ -9,9 +9,9 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/acp"
-	"darvin-cowork/backend/internal/agent"
-	"darvin-cowork/backend/internal/agent/session"
-	"darvin-cowork/backend/internal/agent/store"
+	"darvin-cowork/backend/internal/agents"
+	"darvin-cowork/backend/internal/agents/session"
+	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/skills"
 )
 

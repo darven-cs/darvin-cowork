@@ -21,7 +21,7 @@ type Config struct {
 
 // Init opens the SQLite database at SessionsDSN and stores the handle
 // in the package-level singleton. All SessionStore implementations must
-// share this handle (see internal/agent/store.NewSQLiteStore) — opening
+// share this handle (see internal/agents/store.NewSQLiteStore) — opening
 // the same DSN twice would race on SQLite's write lock.
 //
 // GORM's query log goes to stderr: stdout carries the Gateway port line
