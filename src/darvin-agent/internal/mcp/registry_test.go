@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -183,9 +184,9 @@ func TestRegistry_LoadStaleResolutionsRetries(t *testing.T) {
 		UpdatedAt: oldTime,
 	})
 
-	var ran int
+	var ran atomic.Int32
 	rm := NewResolverManager(t.TempDir()).withExecutor(func(_ context.Context, _ string, _ ...string) ([]byte, []byte, error) {
-		ran++
+		ran.Add(1)
 		return nil, nil, errors.New("network down")
 	})
 	reg := NewRegistry(rm, persistence)
@@ -198,10 +199,10 @@ func TestRegistry_LoadStaleResolutionsRetries(t *testing.T) {
 	}
 	// Resolve is async; wait until the executor runs.
 	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) && ran == 0 {
+	for time.Now().Before(deadline) && ran.Load() == 0 {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if ran == 0 {
+	if ran.Load() == 0 {
 		t.Fatal("stale installing was not retried")
 	}
 }

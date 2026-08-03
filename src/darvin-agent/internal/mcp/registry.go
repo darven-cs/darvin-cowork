@@ -17,10 +17,10 @@ import (
 // the map.
 //
 // v0 lifecycle:
-//   1. Register(spec)  — install + connect + ListTools
-//   2. SetEnabled(false) — close transport; keep spec for re-enable
-//   3. SetEnabled(true)  — re-run resolver if fingerprint changed, else connect
-//   4. Unregister(serverID) — close + remove from map
+//  1. Register(spec)  — install + connect + ListTools
+//  2. SetEnabled(false) — close transport; keep spec for re-enable
+//  3. SetEnabled(true)  — re-run resolver if fingerprint changed, else connect
+//  4. Unregister(serverID) — close + remove from map
 //
 // The registry never rebuilds a Client's transport on its own; transport
 // reconnection is owned by Client.WithReconnectFactory, set up in
@@ -34,10 +34,10 @@ type Registry struct {
 }
 
 type serverEntry struct {
-	spec         ServerSpec
-	status       ServerStatus
-	client       *Client
-	fingerprint  string
+	spec        ServerSpec
+	status      ServerStatus
+	client      *Client
+	fingerprint string
 }
 
 // NewRegistry returns an empty registry. Persistence is required — use
@@ -158,6 +158,7 @@ func (r *Registry) Update(ctx context.Context, serverID string, patch ServerSpec
 	}
 	return nil
 }
+
 // Unregister closes the client (if any), removes the entry, and drops
 // any persisted LaunchResolution. The next Register starts clean.
 func (r *Registry) Unregister(_ context.Context, serverID string) error {
@@ -284,14 +285,20 @@ func (r *Registry) GetToolsByName(name string) (string, *ToolDescriptor, bool) {
 func (r *Registry) CallTool(ctx context.Context, serverID, toolName string, args map[string]any) (*CallToolResult, error) {
 	r.mu.RLock()
 	entry, ok := r.servers[serverID]
+	var client *Client
+	var connected bool
+	if ok {
+		client = entry.client
+		connected = entry.status.Connected
+	}
 	r.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("mcp: server %s not registered", serverID)
 	}
-	if entry.client == nil || !entry.status.Connected {
+	if client == nil || !connected {
 		return nil, fmt.Errorf("mcp: server %s not connected", serverID)
 	}
-	return entry.client.CallTool(ctx, toolName, args)
+	return client.CallTool(ctx, toolName, args)
 }
 
 // Test returns the current connection state for serverID without dialing.
@@ -301,22 +308,24 @@ func (r *Registry) CallTool(ctx context.Context, serverID, toolName string, args
 func (r *Registry) Test(serverID string) (ok bool, errMsg string, tools []ToolDescriptor) {
 	r.mu.RLock()
 	entry, exists := r.servers[serverID]
-	r.mu.RUnlock()
 	if !exists {
+		r.mu.RUnlock()
 		return false, "server not found", nil
 	}
-	if !entry.status.Enabled {
+	st := entry.status
+	r.mu.RUnlock()
+	if !st.Enabled {
 		return false, "server disabled", nil
 	}
-	if !entry.status.Connected {
-		msg := entry.status.ConnectionError
+	if !st.Connected {
+		msg := st.ConnectionError
 		if msg == "" {
 			msg = "not connected"
 		}
 		return false, msg, nil
 	}
-	out := make([]ToolDescriptor, len(entry.status.Tools))
-	copy(out, entry.status.Tools)
+	out := make([]ToolDescriptor, len(st.Tools))
+	copy(out, st.Tools)
 	return true, "", out
 }
 
@@ -329,11 +338,15 @@ func (r *Registry) Test(serverID string) (ok bool, errMsg string, tools []ToolDe
 func (r *Registry) RetryResolution(serverID string) error {
 	r.mu.RLock()
 	entry, ok := r.servers[serverID]
+	var enabled bool
+	if ok {
+		enabled = entry.spec.Enabled
+	}
 	r.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("mcp registry: %s not registered", serverID)
 	}
-	if !entry.spec.Enabled {
+	if !enabled {
 		return fmt.Errorf("mcp registry: %s is disabled", serverID)
 	}
 	go r.connectServer(serverID)

@@ -157,8 +157,10 @@ func TestStdio_Stderr_DrainedToLogger(t *testing.T) {
 func TestStdio_RecvMissingContentLength_Errors(t *testing.T) {
 	tp := &StdioTransport{
 		Command: "sh",
-		Args:    []string{"-c", `printf 'no-headers-here\n\n'`},
-		Logger:  zap.NewNop(),
+		// cat keeps the child alive so its exit cannot race the alive flag
+		// against Recv reading the malformed frame.
+		Args:   []string{"-c", `printf 'no-headers-here\n\n'; cat`},
+		Logger: zap.NewNop(),
 	}
 	if err := tp.Connect(context.Background()); err != nil {
 		t.Fatal(err)

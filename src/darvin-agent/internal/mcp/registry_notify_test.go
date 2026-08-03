@@ -8,14 +8,14 @@ import (
 )
 
 func nowMs() int64 { return time.Now().UnixMilli() }
-func sleep(ms int)  { time.Sleep(time.Duration(ms) * time.Millisecond) }
+func sleep(ms int) { time.Sleep(time.Duration(ms) * time.Millisecond) }
 
 // recordingNotifier collects callback invocations so tests can assert
 // on the order / payload without spinning a full ledger.
 type recordingNotifier struct {
-	mu       sync.Mutex
-	conns    []connEvent
-	res      []LaunchResolution
+	mu    sync.Mutex
+	conns []connEvent
+	res   []LaunchResolution
 }
 
 type connEvent struct {
@@ -166,7 +166,9 @@ func TestRegistry_UnregisterFiresDisconnected(t *testing.T) {
 		OnConnectionChanged: notif.OnConnectionChanged,
 		OnResolutionChanged: notif.OnResolutionChanged,
 	})
-	_ = reg.Register(context.Background(), ServerSpec{ID: "fs", Enabled: true, Transport: TransportStdio, Command: "node"})
+	// Enabled:false keeps the async connectServer goroutine from firing a
+	// Connecting event that would race this exact-count assertion.
+	_ = reg.Register(context.Background(), ServerSpec{ID: "fs", Enabled: false, Transport: TransportStdio, Command: "node"})
 	if err := reg.Unregister(context.Background(), "fs"); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +185,9 @@ func TestRegistry_SetEnabledFiresDisconnected(t *testing.T) {
 		OnConnectionChanged: notif.OnConnectionChanged,
 		OnResolutionChanged: notif.OnResolutionChanged,
 	})
-	_ = reg.Register(context.Background(), ServerSpec{ID: "fs", Enabled: true, Transport: TransportStdio, Command: "node"})
+	// Enabled:false keeps the async connectServer goroutine from firing a
+	// Connecting event that would race this exact-count assertion.
+	_ = reg.Register(context.Background(), ServerSpec{ID: "fs", Enabled: false, Transport: TransportStdio, Command: "node"})
 	if err := reg.SetEnabled(context.Background(), "fs", false); err != nil {
 		t.Fatal(err)
 	}

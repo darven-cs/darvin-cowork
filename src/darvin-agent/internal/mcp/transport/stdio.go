@@ -33,6 +33,11 @@ type StdioTransport struct {
 	stdout io.ReadCloser
 	stderr io.ReadCloser
 	alive  atomic.Bool
+	// waitCh is closed once the child has been reaped by cmd.Wait. Only the
+	// Connect watcher goroutine calls Wait; Close waits on this channel
+	// instead of calling Wait a second time (os/exec.Cmd.Wait is not
+	// safe to invoke concurrently).
+	waitCh chan struct{}
 	mu     sync.Mutex // guards Connect/Close; Send/Recv are serialized by the Client.
 }
 
@@ -102,9 +107,11 @@ func (s *StdioTransport) Connect(ctx context.Context) error {
 
 	// Watch for the child exiting on its own: once Wait returns, the
 	// pipes are dead and any in-flight Send/Recv will fail.
+	s.waitCh = make(chan struct{})
 	go func() {
 		_ = cmd.Wait()
 		s.alive.Store(false)
+		close(s.waitCh)
 		<-exitCh
 	}()
 
@@ -197,19 +204,16 @@ func (s *StdioTransport) Close() error {
 		return nil
 	}
 
-	// Try SIGTERM first; fall back to SIGKILL after stdioCloseGrace.
+	// Try SIGTERM first; fall back to SIGKILL after stdioCloseGrace. The
+	// Connect watcher goroutine owns cmd.Wait; waiting on waitCh reaps the
+	// child without a second Wait call.
 	_ = cmd.Process.Signal(syscall.SIGTERM)
-	done := make(chan struct{})
-	go func() {
-		_ = cmd.Wait()
-		close(done)
-	}()
 	select {
-	case <-done:
+	case <-s.waitCh:
 		return nil
 	case <-time.After(stdioCloseGrace):
 		_ = cmd.Process.Kill()
-		<-done
+		<-s.waitCh
 		return nil
 	}
 }

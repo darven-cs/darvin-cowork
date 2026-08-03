@@ -101,17 +101,14 @@ func (r *ResolverManager) Resolve(ctx context.Context, spec ServerSpec, fingerpr
 	sub := make(chan LaunchResolution, 1)
 
 	if existing, ok := r.inFlight.Load(spec.ID); ok {
-		task := existing.(*resolveTask)
-		task.subscribers = append(task.subscribers, sub)
-		return sub
+		return attachSubscriber(existing.(*resolveTask), sub)
 	}
 
 	task := &resolveTask{subscribers: []chan LaunchResolution{sub}}
 	if _, loaded := r.inFlight.LoadOrStore(spec.ID, task); loaded {
 		// Lost the race; append to the winner's broadcast list.
 		existing, _ := r.inFlight.Load(spec.ID)
-		existing.(*resolveTask).subscribers = append(existing.(*resolveTask).subscribers, sub)
-		return sub
+		return attachSubscriber(existing.(*resolveTask), sub)
 	}
 
 	resolver := r.pickResolver(spec)
@@ -119,7 +116,9 @@ func (r *ResolverManager) Resolve(ctx context.Context, spec ServerSpec, fingerpr
 		defer r.inFlight.Delete(spec.ID)
 		tctx, cancel := context.WithTimeout(ctx, r.timeout)
 		defer cancel()
+		task.mu.Lock()
 		task.cancel = cancel
+		task.mu.Unlock()
 		res, _ := resolver.Resolve(tctx, spec)
 		if res.ServerID == "" {
 			res.ServerID = spec.ID
@@ -136,13 +135,34 @@ func (r *ResolverManager) Resolve(ctx context.Context, spec ServerSpec, fingerpr
 		if res.Status == "" {
 			res.Status = StatusFailed
 		}
-		for _, ch := range task.subscribers {
+		task.mu.Lock()
+		task.done = true
+		task.result = res
+		subscribers := task.subscribers
+		task.subscribers = nil
+		task.mu.Unlock()
+		for _, ch := range subscribers {
 			ch <- res
 			close(ch)
 		}
 	}()
 
 	return sub
+}
+
+// attachSubscriber registers ch on task's broadcast list. If the task has
+// already resolved, the stored result is delivered immediately so a late
+// subscriber never hangs.
+func attachSubscriber(task *resolveTask, ch chan LaunchResolution) <-chan LaunchResolution {
+	task.mu.Lock()
+	defer task.mu.Unlock()
+	if task.done {
+		ch <- task.result
+		close(ch)
+		return ch
+	}
+	task.subscribers = append(task.subscribers, ch)
+	return ch
 }
 
 // IsInFlight reports whether a resolve is currently running for
@@ -163,6 +183,8 @@ func (r *ResolverManager) Cancel(serverID string) bool {
 		return false
 	}
 	task := v.(*resolveTask)
+	task.mu.Lock()
+	defer task.mu.Unlock()
 	if task.cancel != nil {
 		task.cancel()
 	}
@@ -195,7 +217,10 @@ func (r *ResolverManager) pickResolver(spec ServerSpec) Resolver {
 }
 
 type resolveTask struct {
-	cancel  context.CancelFunc
+	mu          sync.Mutex
+	cancel      context.CancelFunc
+	done        bool
+	result      LaunchResolution
 	subscribers []chan LaunchResolution
 }
 
@@ -301,7 +326,9 @@ func parseNpxArgs(args []string) (npxPackage, []string, error) {
 // package is on disk.
 //
 // The install layout is:
-//   <rootDir>/<serverID>/node_modules/<name>/package.json
+//
+//	<rootDir>/<serverID>/node_modules/<name>/package.json
+//
 // so multiple servers can each have their own scoped copy.
 type npxResolver struct {
 	rootDir string
