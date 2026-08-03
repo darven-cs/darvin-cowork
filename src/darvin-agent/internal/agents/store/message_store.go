@@ -20,8 +20,8 @@ type MessageRecord struct {
 	SessionID  string  `json:"sessionId"`
 	Role       string  `json:"role"`
 	Content    string  `json:"content"`
-	ToolCalls  string  `json:"toolCalls,omitempty"`  // JSON string; empty for non-tool messages
-	Timestamp  int64   `json:"createdAt"`            // unix milliseconds
+	ToolCalls  string  `json:"toolCalls,omitempty"` // JSON string; empty for non-tool messages
+	Timestamp  int64   `json:"createdAt"`           // unix milliseconds
 	StopReason string  `json:"stopReason,omitempty"`
 	ParentID   string  `json:"parentId,omitempty"`
 	Done       bool    `json:"done"`

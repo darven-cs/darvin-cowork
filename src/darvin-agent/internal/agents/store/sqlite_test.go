@@ -10,8 +10,8 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
-	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/session"
+	"darvin-cowork/backend/internal/llm"
 )
 
 // newTestSQLiteStore returns a SQLiteStore backed by a fresh sqlite file

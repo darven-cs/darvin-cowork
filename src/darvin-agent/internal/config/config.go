@@ -107,7 +107,9 @@ var globalConfig *Config
 // install without an `api_key` written by the Settings UI still works.
 //
 // Linux:   $XDG_CONFIG_HOME/darvin-cowork/darvin-agent/config.yaml
-//          or ~/.config/darvin-cowork/darvin-agent/config.yaml
+//
+//	or ~/.config/darvin-cowork/darvin-agent/config.yaml
+//
 // macOS:   ~/Library/Application Support/darvin-cowork/darvin-agent/config.yaml
 // Windows: %APPDATA%\darvin-cowork\darvin-agent\config.yaml
 func UserConfigPath() (string, error) {

@@ -18,9 +18,9 @@ import (
 const ProtocolVersion = "2024-11-05"
 
 var (
-	ErrTransportClosed  = errors.New("mcp: transport closed")
-	ErrMethodNotFound   = errors.New("mcp: method not found")
-	ErrRPCMaxRetries    = errors.New("mcp: max retries exceeded")
+	ErrTransportClosed    = errors.New("mcp: transport closed")
+	ErrMethodNotFound     = errors.New("mcp: method not found")
+	ErrRPCMaxRetries      = errors.New("mcp: max retries exceeded")
 	ErrNoReconnectFactory = errors.New("mcp: no reconnect factory configured")
 )
 

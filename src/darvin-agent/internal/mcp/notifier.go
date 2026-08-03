@@ -18,9 +18,9 @@ type ConnectionStatus string
 
 const (
 	ConnectionDisconnected ConnectionStatus = "disconnected"
-	ConnectionConnecting  ConnectionStatus = "connecting"
-	ConnectionConnected   ConnectionStatus = "connected"
-	ConnectionError       ConnectionStatus = "error"
+	ConnectionConnecting   ConnectionStatus = "connecting"
+	ConnectionConnected    ConnectionStatus = "connected"
+	ConnectionError        ConnectionStatus = "error"
 )
 
 // noopNotifier silences both callbacks. Used as the zero-value default

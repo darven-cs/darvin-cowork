@@ -20,11 +20,11 @@ import (
 // fail with a clear "script exhausted" error so tests fail loudly
 // instead of hanging.
 type fakeTransport struct {
-	mu      sync.Mutex
-	script  []fakeStep
-	sent    [][]byte
-	closed  atomic.Bool
-	alive   atomic.Bool
+	mu     sync.Mutex
+	script []fakeStep
+	sent   [][]byte
+	closed atomic.Bool
+	alive  atomic.Bool
 	// recvErr, when non-nil, is returned by every Recv after the script
 	// is exhausted. Lets a test model a "stays broken forever" transport
 	// without sizing the script precisely.

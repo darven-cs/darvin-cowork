@@ -30,7 +30,7 @@ type HTTPTransport struct {
 }
 
 const (
-	httpHeaderSession = "Mcp-Session-Id"
+	httpHeaderSession  = "Mcp-Session-Id"
 	defaultHTTPTimeout = 30 * time.Second
 )
 

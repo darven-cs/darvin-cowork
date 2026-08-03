@@ -17,9 +17,9 @@ import (
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/executor"
-	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/agents/queue"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/mcp"
 	"darvin-cowork/backend/internal/skills"
 )
@@ -1468,25 +1468,25 @@ type ListMcpServersResult struct {
 // nilable so the renderer can distinguish "not yet reported" from
 // "reported as disconnected".
 type McpServerWire struct {
-	ID               string                    `json:"id"`
-	Name             string                    `json:"name"`
-	Description      string                    `json:"description"`
-	Enabled          bool                      `json:"enabled"`
-	TransportType    string                    `json:"transportType"`
-	Command          string                    `json:"command,omitempty"`
-	Args             []string                  `json:"args,omitempty"`
-	Env              map[string]string         `json:"env,omitempty"`
-	URL              string                    `json:"url,omitempty"`
-	Headers          map[string]string         `json:"headers,omitempty"`
-	IsBuiltIn        bool                      `json:"isBuiltIn"`
-	GithubURL        string                    `json:"githubUrl,omitempty"`
-	RegistryID       string                    `json:"registryId,omitempty"`
-	CreatedAt        int64                     `json:"createdAt"`
-	UpdatedAt        int64                     `json:"updatedAt"`
-	LaunchStatus     string                    `json:"launchStatus,omitempty"`
-	LaunchError      string                    `json:"launchError,omitempty"`
-	ConnectionStatus string                    `json:"connectionStatus,omitempty"`
-	ConnectionError  string                    `json:"connectionError,omitempty"`
+	ID               string                     `json:"id"`
+	Name             string                     `json:"name"`
+	Description      string                     `json:"description"`
+	Enabled          bool                       `json:"enabled"`
+	TransportType    string                     `json:"transportType"`
+	Command          string                     `json:"command,omitempty"`
+	Args             []string                   `json:"args,omitempty"`
+	Env              map[string]string          `json:"env,omitempty"`
+	URL              string                     `json:"url,omitempty"`
+	Headers          map[string]string          `json:"headers,omitempty"`
+	IsBuiltIn        bool                       `json:"isBuiltIn"`
+	GithubURL        string                     `json:"githubUrl,omitempty"`
+	RegistryID       string                     `json:"registryId,omitempty"`
+	CreatedAt        int64                      `json:"createdAt"`
+	UpdatedAt        int64                      `json:"updatedAt"`
+	LaunchStatus     string                     `json:"launchStatus,omitempty"`
+	LaunchError      string                     `json:"launchError,omitempty"`
+	ConnectionStatus string                     `json:"connectionStatus,omitempty"`
+	ConnectionError  string                     `json:"connectionError,omitempty"`
 	ExposedTools     []McpServerExposedToolWire `json:"exposedTools,omitempty"`
 }
 
@@ -1629,8 +1629,8 @@ func handleMcpRegister(id json.RawMessage, params json.RawMessage, h *Handler) *
 }
 
 type McpUpdateParams struct {
-	ID    string             `json:"id"`
-	Patch mcp.ServerSpec     `json:"patch"`
+	ID    string         `json:"id"`
+	Patch mcp.ServerSpec `json:"patch"`
 }
 
 func handleMcpUpdate(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
