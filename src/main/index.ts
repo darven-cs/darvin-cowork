@@ -25,6 +25,7 @@ import { ensureWorkspaceRoot, resolveWorkspaceRoot, userDataDir, type WorkspaceL
 import { readWorkspaceMap, writeWorkspaceMap } from './libs/workspace-map';
 import { readWorkspaceTextFile, resolveWorkspacePath, walkWorkspace } from './libs/workspaceFiles';
 import { artifactPreviewServer } from './services/artifact-preview-server';
+import { SkillManager } from './libs/skillManager';
 import type {
   DarvinActiveSessionResponse,
   DarvinAppInfo,
@@ -40,6 +41,7 @@ import type {
   DarvinImportFilesResponse,
   DarvinListImportedFilesResponse,
   DarvinListSessionsResponse,
+  DarvinListSkillsResponse,
   DarvinListWorkspaceFilesResponse,
   DarvinOpenWorkspaceFileResponse,
   DarvinLLMConfig,
@@ -59,6 +61,8 @@ import type {
   DarvinSearchSessionsResponse,
   DarvinSession,
   DarvinSetLLMConfigResponse,
+  DarvinSetSkillEnabledRequest,
+  DarvinSetSkillEnabledResponse,
   DarvinSetWorkspaceResult,
   DarvinSwitchSessionResponse,
   DarvinWorkspaceInfoResponse,
@@ -83,6 +87,9 @@ if (!app.isPackaged) {
 
 const mgr = new RuntimeMgr();
 const client = new AgentClient({ logger: console });
+// spec 32 — main 端 skills 状态管理器。启动期调 bootstrap()，restart 路径
+// 通过 restartGoSubprocess 重置后再 bootstrap。
+const skillManager = new SkillManager({ client, logger: console });
 
 // 每个 session 当前在跑的 runId；abort 时按 (sessionId, runId) 精确停。
 // prompt 时写入；session 删时清掉。
@@ -594,6 +601,23 @@ ipcMain.handle('darvin:get_workspace_root', async (): Promise<DarvinWorkspaceRoo
   return { rootPath: workspaceLoc.rootPath, label: path.basename(workspaceLoc.rootPath) };
 });
 
+// spec 32 — skills 命名空间。list 走本地缓存（SkillManager 已经是
+// source of truth 的视图），set_enabled 写 SQLite + 调 Go 端
+// set_enabled。失败时不回退本地缓存——main 端是 source of truth。
+ipcMain.handle('darvin:list_skills', async (): Promise<DarvinListSkillsResponse> => {
+  return skillManager.list();
+});
+
+ipcMain.handle(
+  'darvin:set_skill_enabled',
+  async (_e, req: DarvinSetSkillEnabledRequest): Promise<DarvinSetSkillEnabledResponse> => {
+    if (!req || typeof req.skillId !== 'string' || typeof req.enabled !== 'boolean') {
+      return { ok: false };
+    }
+    return skillManager.setEnabled(req);
+  },
+);
+
 // spec 13 — 图片附件 base64 读取上限（对齐 LobsterAI 的 10MB 阈值）。
 const MAX_READ_AS_DATA_URL_BYTES = 10 * 1024 * 1024;
 
@@ -877,6 +901,10 @@ async function restartGoSubprocess(workspaceRoot?: string): Promise<boolean> {
     await client.connect(resolved.port);
     await subscribeAllSessions();
     eventRouter.start();
+    // restart 后 Go 端 registry 仍保留 enabled 标志(内存)，重新 bootstrap
+    // 把 main 端 SQLite 状态再覆盖一次,避免跨会话切换 workspace 时
+    // 残留旧 enabled 值。
+    void skillManager.bootstrap();
     return true;
   } catch (e) {
     console.error(`[runtime] restart failed: ${(e as Error).message}`);
@@ -926,6 +954,10 @@ app.whenReady().then(async () => {
     } else {
       eventRouter.start();
     }
+    // spec 32 — 启动期推 skills bootstrap。restartGoSubprocess 已幂等,
+    // 此处调用是首次启动路径(空 skillManager)，与 restart 路径不重复
+    // 执行(SkillManager.bootstrap 内置幂等守卫)。
+    void skillManager.bootstrap();
   } catch (e) {
     console.error(`[runtime] ${(e as Error).message}`);
   }
@@ -949,6 +981,7 @@ app.on('before-quit', (e) => {
     } catch {
       /* 已退出 */
     }
+    skillManager.shutdown();
     app.quit();
   })();
 });

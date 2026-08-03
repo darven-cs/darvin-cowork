@@ -92,6 +92,8 @@ func (c *client) run(ctx context.Context) {
 	defer close(pingDone)
 	go c.pingLoop(ctx, pingDone)
 
+	c.ledger.RegisterConnection(c)
+
 	defer func() {
 		c.ledger.UnsubscribeAll(c)
 		// Clear the conn pointer before Close so any goroutine still

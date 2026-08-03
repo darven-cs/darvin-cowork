@@ -23,7 +23,12 @@ import (
 type EventLedger struct {
 	mu        sync.RWMutex
 	bySession map[string]map[*client]struct{}
-	log       *zap.Logger
+	// allConns 维护当前所有 active WS 连接的 *client 句柄。Subscribe 入口
+	// 不在此处增加（由 client.run 注册），Broadcast 走它做全局 fanout，
+	// 不需要订阅状态——例如 agent.skills.changed 通知 main 端（始终只有
+	// 1 条连接），把它扩成 session-scoped 反而带来无意义的 routing 负担。
+	allConns map[*client]struct{}
+	log      *zap.Logger
 
 	// fakeDelay is the inter-event sleep used by EmitStub. Public so
 	// tests can collapse it to zero.
@@ -36,8 +41,35 @@ type EventLedger struct {
 func NewEventLedger(log *zap.Logger) *EventLedger {
 	return &EventLedger{
 		bySession: make(map[string]map[*client]struct{}),
+		allConns:  make(map[*client]struct{}),
 		log:       log,
 		fakeDelay: 50 * time.Millisecond,
+	}
+}
+
+// RegisterConnection adds c to the global connection set so Broadcast can
+// reach it without a session subscription. The read loop calls this once
+// when the connection is established; UnsubscribeAll is the symmetric
+// remove.
+func (l *EventLedger) RegisterConnection(c *client) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.allConns[c] = struct{}{}
+}
+
+// Broadcast fans a notification out to every active connection. Used for
+// events that have no per-session routing key (skills changes, runtime
+// health pings, etc.). Drops on a wedged client are tolerated — the next
+// read error from the peer will tear the connection down.
+func (l *EventLedger) Broadcast(method string, params any) {
+	l.mu.RLock()
+	clients := make([]*client, 0, len(l.allConns))
+	for c := range l.allConns {
+		clients = append(clients, c)
+	}
+	l.mu.RUnlock()
+	for _, c := range clients {
+		c.SendNotification(method, params)
 	}
 }
 
@@ -67,6 +99,7 @@ func (l *EventLedger) UnsubscribeAll(c *client) {
 			delete(l.bySession, sid)
 		}
 	}
+	delete(l.allConns, c)
 }
 
 // AttachSubscription wires a real agent event bus into the ledger. Each

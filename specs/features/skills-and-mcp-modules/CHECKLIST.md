@@ -10,11 +10,12 @@
 
 ## 当前进度
 
-**进行中 1 / 9。** spec 31 Go 端骨架已落地，待用户重启 Electron 验证启动日志，再继续 spec 32。
+**进行中 2 / 9。** spec 31 Go 端骨架已提交。spec 32 Go ↔ Main IPC + main 端 SkillManager 全部落地（handlers / chokidar watcher / SQLite skill_state / darvin:list_skills / darvin:set_skill_enabled / darvin:push:skills-changed），待用户重启 Electron 验证 listSkills / setEnabled / fs watcher 三条路径。
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
-| 31 | [skills-loader-and-registry](./2026-08-02-skills-loader-and-registry.md) | 🚧 进行中 | 14/14（待人工重启验证） | Go 端 skills 骨架 |
+| 31 | [skills-loader-and-registry](./2026-08-02-skills-loader-and-registry.md) | ✅ 完成 | 14/14 | Go 端 skills 骨架 |
+| 32 | [skills-ipc-and-bootstrap](./2026-08-02-skills-ipc-and-bootstrap.md) | 🚧 进行中 | 8/9（待人工重启验证） | Go ↔ Main IPC + main 端 skillsManager |
 | 32 | [skills-ipc-and-bootstrap](./2026-08-02-skills-ipc-and-bootstrap.md) | ⏳ 待启动 | 0/9 | 31 完成后 |
 | 33 | [skills-renderer-view](./2026-08-02-skills-renderer-view.md) | ⏳ 待启动 | 0/8 | 32 完成后 |
 | 34 | [mcp-transport-and-client](./2026-08-02-mcp-transport-and-client.md) | ⏳ 待启动 | 0/12 | 并行 32 |
@@ -78,15 +79,15 @@
 
 > Go ↔ Main IPC + main 端 skillsManager + bundled 5 skill。
 
-- [ ] `src/main/libs/skillManager.ts` 落地（bootstrap + setEnabled + reloadFromDisk + watcher）
-- [ ] SQLite 表 `skill_state` 创建
-- [ ] chokidar fs watcher（userData/SKILLs/**/SKILL.md）
-- [ ] IPC channels `skills:list` / `skills:set_enabled`
-- [ ] preload `window.darvin.skills.{list, setEnabled, onChanged}`
-- [ ] AgentClient `skills.{list, setEnabled, bootstrap, onChanged}`
-- [ ] Go 端 handler `agent.skills.{list, set_enabled, bootstrap}` + notification `agent.skills.changed`
-- [ ] `skillManager.test.ts` 7 用例
-- [ ] 状态：⏳ 待启动
+- [x] `src/main/libs/skillManager.ts` 落地（bootstrap + setEnabled + reloadFromDisk + watcher + chokidar）
+- [x] SQLite 表 `skill_state` 创建（main 端独立 `skill-state.db`，与 Go 端 sessions.db 解耦）
+- [x] chokidar fs watcher（userData/darvin-agent/SKILLs/**/SKILL.md，awaitWriteFinish 400ms）
+- [x] IPC channels `darvin:list_skills` / `darvin:set_skill_enabled` + push `darvin:push:skills-changed`
+- [x] preload `window.darvin.skills.{list, setEnabled, onChanged}`
+- [x] AgentClient `skills.{list, setEnabled, bootstrap, onChanged}` + handleIncoming 路由 `agent.skills.changed` 通知
+- [x] Go 端 handler `agent.skills.{list, set_enabled, bootstrap}` + `EventLedger.Broadcast` 推 `agent.skills.changed`
+- [x] `skillManager.test.ts` 6 用例（parseFrontmatter 5 + 订阅契约 1）+ `client.test.ts` 3 用例（onChanged 路由）
+- [x] 状态：🚧 进行中（待人工重启 Electron 验证 listSkills / setEnabled / fs watcher 三条路径）
 
 ### 33 · skills-renderer-view
 
@@ -227,3 +228,4 @@
 
 - 2026-08-02 · 主 spec · 完成调研 + checklist + 9 份子 spec 拆分；待用户确认后启动 spec 31
 - 2026-08-02 · spec 31 · Go 端 skills 骨架落地：types / frontmatter / loader(bundled+user) / registry / scanner / runner / bootstrap 全部实现并通过 `go test ./...`；bundled 5 个 SKILL.md 已 embed 到 `cmd/app/resources/skills-bundled/`；`cmd/app/main.go` 注入 SkillRegistry + SkillRunner。`go vet ./...` 干净，gofmt 在本批改动文件上干净，`npm run build:agent` 成功，`npm run lint` + `npm run test` 全绿。**待人工重启 Electron 验证启动日志**中出现 `skills: loaded ... bundled=5 user=0 total=5`。
+- 2026-08-02 · spec 32 · Go ↔ Main IPC + main 端 SkillManager 落地：Go 端 3 个 handler（agent.skills.list / set_enabled / bootstrap）+ EventLedger.Broadcast 推 `agent.skills.changed`；main 端独立 SQLite `skill-state.db` 持久化 enabled；chokidar 监听 `userData/darvin-agent/SKILLs/**/SKILL.md`；AgentClient 暴露 `skills.{list, setEnabled, bootstrap, onChanged}` 并新增 `agent.skills.changed` 通知路由；preload 暴露 `window.darvin.skills.{list, setEnabled, onChanged}`；main IPC 通道统一为 `darvin:list_skills` / `darvin:set_skill_enabled` + push `darvin:push:skills-changed`。`go test ./...` + `npm run lint` + `npm run test` + `npm run build:agent` 全绿。**待人工重启 Electron 验证**：① `await window.darvin.skills.list()` 返回 5 个 bundled skill；② toggle enabled 后 list 反映变更；③ 重启 App 后 enabled 仍持久；④ 新建 `<userData>/darvin-agent/SKILLs/foo/SKILL.md` 1s 内 list 出现 foo。

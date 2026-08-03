@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/acp"
 	"darvin-cowork/backend/internal/agent"
@@ -18,6 +19,7 @@ import (
 	"darvin-cowork/backend/internal/agent/executor"
 	"darvin-cowork/backend/internal/agent/queue"
 	"darvin-cowork/backend/internal/agent/store"
+	"darvin-cowork/backend/internal/skills"
 )
 
 // PromptParams is the JSON-RPC params for agent.prompt. sessionId is
@@ -210,6 +212,10 @@ type SearchSessionsResult struct {
 type HandlerOptions struct {
 	ImportedFiles *store.ImportedFileStore
 	WorkspaceRoot string
+	// Skills 是 skills registry。spec 32 落地后由 main.go 注入。
+	Skills *skills.SkillRegistry
+	// Log 是 skills handler 的日志出口;nil 时 handler 不打 warn。
+	Log *zap.Logger
 }
 
 type Handler struct {
@@ -229,11 +235,16 @@ type Handler struct {
 	// WorkspaceRoot 是 agent 的沙箱根(env DARVIN_AGENT_WORKSPACE),
 	// import_files 用它做 sourcePaths 的 containment check。
 	WorkspaceRoot string
+	// Skills 支撑 agent.skills.list / set_enabled / bootstrap。spec 32 落地；
+	// nil 时这些 handler 返回空结果,handler 测试 stub 不需要构造 registry。
+	Skills *skills.SkillRegistry
+	// Log 用来记录 skills handler 异常;nil 时走 zap.NewNop()。
+	Log *zap.Logger
 }
 
 // NewHandler wires the dependencies. main.go 注入 SessionManager /
 // EventLedger / SteerControl 与两个 store 及 AppStateStore;Loop 不再
-// 入参。opts 可选携带 ImportedFiles / WorkspaceRoot。
+// 入参。opts 可选携带 ImportedFiles / WorkspaceRoot / Skills。
 func NewHandler(
 	s *SessionManager,
 	l *EventLedger,
@@ -256,6 +267,8 @@ func NewHandler(
 		AppState:      appState,
 		ImportedFiles: o.ImportedFiles,
 		WorkspaceRoot: o.WorkspaceRoot,
+		Skills:        o.Skills,
+		Log:           o.Log,
 	}
 }
 
@@ -301,6 +314,12 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleGetWorkspaceInfo(ctx, req.ID, req.Params, h)
 	case "agent.permission_response":
 		return handlePermissionResponse(ctx, req.ID, req.Params, c, h)
+	case "agent.skills.list":
+		return handleListSkills(req.ID, h)
+	case "agent.skills.set_enabled":
+		return handleSetSkillEnabled(req.ID, req.Params, h)
+	case "agent.skills.bootstrap":
+		return handleBootstrapSkills(req.ID, req.Params, h)
 	default:
 		return errorResp(req.ID, CodeMethodNotFound,
 			"Method not found: "+req.Method, nil)
@@ -1126,4 +1145,105 @@ func intAt(xs []int64, i int) int64 {
 		return xs[i]
 	}
 	return 0
+}
+
+// ListSkillsResult is the JSON-RPC result for agent.skills.list. Mirrors
+// DarvinListSkillsResponse in src/shared/darvin-api.ts.
+type ListSkillsResult struct {
+	Skills []skills.SkillSummaryWire `json:"skills"`
+}
+
+// SetSkillEnabledParams is the JSON-RPC params for
+// agent.skills.set_enabled. Caller is main: it persists to its own SQLite
+// first, then asks Go to flip the in-memory flag.
+type SetSkillEnabledParams struct {
+	SkillID string `json:"skillId"`
+	Enabled bool   `json:"enabled"`
+}
+
+// SetSkillEnabledResult is the JSON-RPC result for agent.skills.set_enabled.
+type SetSkillEnabledResult struct {
+	OK bool `json:"ok"`
+}
+
+// BootstrapSkillsParams is the JSON-RPC params for agent.skills.bootstrap.
+// main 端是 enabled 状态的 source of truth:它启动时把自己 SQLite 里的
+// 全部 skill 一并发过来,Go 用 main 的 enabled 值覆盖本地 default。
+type BootstrapSkillsParams struct {
+	Skills []skills.SkillSummaryWire `json:"skills"`
+}
+
+// BootstrapSkillsResult is the JSON-RPC result for agent.skills.bootstrap.
+type BootstrapSkillsResult struct {
+	OK bool `json:"ok"`
+}
+
+// handleListSkills 返回 Go 端 registry 的当前快照。Go 端既会从 embed
+// 的 bundled 5 skill 加载,也会从 user 目录加载;list 是 source of truth
+// 之一(enabled 状态由 main 端 bootstrap 覆盖)。
+func handleListSkills(id json.RawMessage, h *Handler) *Response {
+	if h.Skills == nil {
+		return successResp(id, ListSkillsResult{Skills: []skills.SkillSummaryWire{}})
+	}
+	entries := h.Skills.Snapshot()
+	return successResp(id, ListSkillsResult{Skills: skills.ToSummaries(entries)})
+}
+
+// handleSetSkillEnabled 翻转一个 skill 的内存 enabled 标志,然后向所有
+// 活跃 WS 广播 agent.skills.changed 让 main 端刷新自己的缓存。错误通过
+// JSON-RPC error 返回,不动 Go 端状态。
+func handleSetSkillEnabled(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if h.Skills == nil {
+		return errorResp(id, CodeMethodNotFound, "skills not configured", nil)
+	}
+	if len(params) == 0 {
+		return errorResp(id, CodeInvalidParams, "params required", nil)
+	}
+	var p SetSkillEnabledParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if strings.TrimSpace(p.SkillID) == "" {
+		return errorResp(id, CodeInvalidParams, "skillId is required", nil)
+	}
+	if err := h.Skills.SetEnabled(p.SkillID, p.Enabled); err != nil {
+		return errorResp(id, CodeInvalidParams, err.Error(), err)
+	}
+	h.broadcastSkillsChanged()
+	return successResp(id, SetSkillEnabledResult{OK: true})
+}
+
+// handleBootstrapSkills 接受 main 端推过来的初始 enabled 状态,逐条覆盖
+// Go 端 registry 的 enabled 标志;不存在的 id 走 noop(让 main 端重新
+// 触 reload,而不是在这里报错),保证协议上的幂等。
+func handleBootstrapSkills(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if h.Skills == nil {
+		return errorResp(id, CodeMethodNotFound, "skills not configured", nil)
+	}
+	if len(params) == 0 {
+		return errorResp(id, CodeInvalidParams, "params required", nil)
+	}
+	var p BootstrapSkillsParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	for _, s := range p.Skills {
+		_ = h.Skills.SetEnabled(s.ID, s.Enabled)
+	}
+	h.broadcastSkillsChanged()
+	return successResp(id, BootstrapSkillsResult{OK: true})
+}
+
+// broadcastSkillsChanged 向所有 active WS 推 agent.skills.changed 通知。
+// 走 EventLedger.Broadcast 而非 per-session 路由——skill 是全局状态,
+// main 是唯一订阅者。
+func (h *Handler) broadcastSkillsChanged() {
+	if h.Skills == nil || h.Ledger == nil {
+		return
+	}
+	entries := h.Skills.Snapshot()
+	params := map[string]any{
+		"skills": skills.ToSummaries(entries),
+	}
+	h.Ledger.Broadcast("agent.skills.changed", params)
 }

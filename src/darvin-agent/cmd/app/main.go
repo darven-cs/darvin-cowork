@@ -200,7 +200,6 @@ func main() {
 		UserDataDir: effectiveWorkdir,
 		ToolReg:     toolsReg,
 	})
-	_ = skillsResult
 
 	ledger := gateway.NewEventLedger(log.Logger)
 	sessions := gateway.NewSessionManager(
@@ -225,6 +224,8 @@ func main() {
 		gateway.HandlerOptions{
 			ImportedFiles: importedFiles,
 			WorkspaceRoot: effectiveWorkdir,
+			Skills:        skillsResult.Registry,
+			Log:           log.Logger,
 		})
 	gs := gateway.NewServer(handler, log.Logger)
 	if err := gs.Start(rootCtx); err != nil {

@@ -40,6 +40,21 @@ export function agentSessionsDsnPath(): string {
   return path.join(agentDataDir(), 'sessions.db');
 }
 
+/**
+ * spec 32 — main 端独立 SQLite 文件，存 skills 的 enabled 状态。独立于
+ * Go 端的 sessions.db，避免 Go 重启时丢 cache，也避免让 main 端再次持有
+ * 业务会话数据（merge-databases refactor 之后 main 不直接写业务数据）。
+ * 文件不存在时由 better-sqlite3 触发惰性 open + schema init。
+ */
+export function skillStateDbPath(): string {
+  return path.join(agentDataDir(), 'skill-state.db');
+}
+
+/** spec 32 — user 装 skill 的根目录；chokidar 监听它。 */
+export function getSkillsRoot(): string {
+  return path.join(agentDataDir(), 'SKILLs');
+}
+
 /** 单 workspace 总容量上限（软上限，触发后 import 拒；不主动 GC）。 */
 export const MAX_WORKSPACE_BYTES = 500 * 1024 * 1024; // 500 MiB
 

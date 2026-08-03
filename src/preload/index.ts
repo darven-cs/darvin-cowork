@@ -25,6 +25,7 @@ import type {
   DarvinImportFilesResponse,
   DarvinListImportedFilesResponse,
   DarvinListSessionsResponse,
+  DarvinListSkillsResponse,
   DarvinListWorkspaceFilesResponse,
   DarvinOpenWorkspaceFileResponse,
   DarvinLLMConfig,
@@ -40,8 +41,11 @@ import type {
   DarvinRuntimeStatus,
   DarvinSearchSessionsResponse,
   DarvinSetLLMConfigResponse,
+  DarvinSetSkillEnabledRequest,
+  DarvinSetSkillEnabledResponse,
   DarvinSetWorkspaceResult,
   DarvinSession,
+  DarvinSkillSummary,
   DarvinWorkspaceInfoResponse,
   DarvinWorkspaceRootResult,
 } from '../shared/darvin-api';
@@ -193,6 +197,20 @@ const api: DarvinApi = {
   },
   async getWorkspaceRoot(): Promise<DarvinWorkspaceRootResult> {
     return ipcRenderer.invoke('darvin:get_workspace_root');
+  },
+
+  async listSkills(): Promise<DarvinListSkillsResponse> {
+    return ipcRenderer.invoke('darvin:list_skills');
+  },
+  async setSkillEnabled(req: DarvinSetSkillEnabledRequest): Promise<DarvinSetSkillEnabledResponse> {
+    return ipcRenderer.invoke('darvin:set_skill_enabled', req);
+  },
+  onSkillsChanged(handler: (skills: DarvinSkillSummary[]) => void): () => void {
+    const wrap = (_e: unknown, skills: DarvinSkillSummary[]) => handler(skills);
+    ipcRenderer.on(DarvinPushEvent.SkillsChanged, wrap);
+    return () => {
+      ipcRenderer.off(DarvinPushEvent.SkillsChanged, wrap);
+    };
   },
 };
 

@@ -20,8 +20,12 @@ import type {
   DarvinEvent,
   DarvinGetMessagesResponse,
   DarvinListSessionsResponse,
+  DarvinListSkillsResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
+  DarvinSetSkillEnabledRequest,
+  DarvinSetSkillEnabledResponse,
+  DarvinSkillSummary,
 } from '../../shared/darvin-api';
 
 /**
@@ -43,6 +47,7 @@ export class AgentClient extends EventEmitter {
   private nextId = 1;
   private pending = new Map<string, Pending>();
   private eventListeners = new Set<(e: DarvinEvent) => void>();
+  private skillsListeners = new Set<(skills: DarvinSkillSummary[]) => void>();
   private logger: Logger;
 
   constructor(opts: { logger?: Logger } = {}) {
@@ -127,6 +132,22 @@ export class AgentClient extends EventEmitter {
       return;
     }
 
+    if (frame.method === 'agent.skills.changed') {
+      if (typeof frame.params !== 'object' || frame.params === null) {
+        this.logger.warn('[agentclient] agent.skills.changed 缺少 params');
+        return;
+      }
+      const skills = (frame.params as { skills?: DarvinSkillSummary[] }).skills ?? [];
+      for (const cb of this.skillsListeners) {
+        try {
+          cb(skills);
+        } catch (e) {
+          this.logger.warn(`[agentclient] skills listener 抛错: ${(e as Error).message}`);
+        }
+      }
+      return;
+    }
+
     if (frame.method !== 'agent.event') return;
     if (typeof frame.params !== 'object' || frame.params === null) {
       this.logger.warn('[agentclient] agent.event 缺少 params');
@@ -199,6 +220,27 @@ export class AgentClient extends EventEmitter {
       offset,
     });
   }
+
+  /**
+   * spec 32 — Go 端 skills 命名空间。bootstrap 由 main 端在启动期调用一
+   * 次推初始 enabled 状态；list / setEnabled 既可被 main 端主动调
+   * （renderer 通过 IPC 触发），也可在 setEnabled 之后由 main 写
+   * SQLite → Go SetEnabled → broadcast notification 回到 main。
+   */
+  skills = {
+    list: (): Promise<DarvinListSkillsResponse> =>
+      this.request<DarvinListSkillsResponse>('agent.skills.list', {}),
+    setEnabled: (req: DarvinSetSkillEnabledRequest): Promise<DarvinSetSkillEnabledResponse> =>
+      this.request<DarvinSetSkillEnabledResponse>('agent.skills.set_enabled', req),
+    bootstrap: (req: { skills: DarvinSkillSummary[] }): Promise<{ ok: boolean }> =>
+      this.request<{ ok: boolean }>('agent.skills.bootstrap', req),
+    onChanged: (cb: (skills: DarvinSkillSummary[]) => void): (() => void) => {
+      this.skillsListeners.add(cb);
+      return () => {
+        this.skillsListeners.delete(cb);
+      };
+    },
+  };
 
   onEvent(cb: (e: DarvinEvent) => void): () => void {
     this.eventListeners.add(cb);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseDarvinEvent } from './client';
+import { AgentClient, parseDarvinEvent } from './client';
 
 describe('parseDarvinEvent', () => {
   it('promotes toolUseId from Go message.id for tool_start', () => {
@@ -81,5 +81,63 @@ describe('parseDarvinEvent', () => {
       expect(ev.beforeTokens).toBe(80000);
       expect(ev.afterTokens).toBe(30000);
     }
+  });
+});
+
+// spec 32 — agent.skills.changed 通知路由到 skills.onChanged 监听器,
+// 不再走 agent.event 路径(避免和 session event 混淆)。
+function makeClient(): AgentClient {
+  return new AgentClient({ logger: { warn: () => {} } });
+}
+
+describe('AgentClient skills notifications', () => {
+  it('onChanged receives skills payload from agent.skills.changed frames', () => {
+    const client = makeClient();
+    const received: { count: number; ids: string[] } = { count: 0, ids: [] };
+    const off = client.skills.onChanged((skills) => {
+      received.count += 1;
+      received.ids = skills.map((s) => s.id);
+    });
+    (client as unknown as { handleIncoming: (msg: unknown) => void }).handleIncoming({
+      jsonrpc: '2.0',
+      method: 'agent.skills.changed',
+      params: {
+        skills: [
+          { id: 'code-review', enabled: true },
+          { id: 'web-search', enabled: false },
+        ],
+      },
+    });
+    expect(received.count).toBe(1);
+    expect(received.ids).toEqual(['code-review', 'web-search']);
+    off();
+  });
+
+  it('unsubscribe stops further notifications', () => {
+    const client = makeClient();
+    let count = 0;
+    const off = client.skills.onChanged(() => {
+      count += 1;
+    });
+    off();
+    (client as unknown as { handleIncoming: (msg: unknown) => void }).handleIncoming({
+      jsonrpc: '2.0',
+      method: 'agent.skills.changed',
+      params: { skills: [{ id: 'foo' }] },
+    });
+    expect(count).toBe(0);
+  });
+
+  it('skips on missing params', () => {
+    const client = makeClient();
+    let count = 0;
+    client.skills.onChanged(() => {
+      count += 1;
+    });
+    (client as unknown as { handleIncoming: (msg: unknown) => void }).handleIncoming({
+      jsonrpc: '2.0',
+      method: 'agent.skills.changed',
+    });
+    expect(count).toBe(0);
   });
 });

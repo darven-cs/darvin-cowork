@@ -472,6 +472,41 @@ export interface DarvinWorkspaceRootResult {
   label: string | null;
 }
 
+/** spec 32 — 单 skill 的 renderer 视图。`path` 仅 main 用，renderer 不展示。 */
+export interface DarvinSkillSummary {
+  id: string;
+  name: string;
+  description: string;
+  version?: string;
+  enabled: boolean;
+  isOfficial: boolean;
+  isBuiltIn: boolean;
+  path: string;
+  source: 'bundled' | 'user' | 'github' | 'npm';
+  updatedAt: number;
+  riskLevel?: 'safe' | 'low' | 'medium' | 'high' | 'critical';
+  riskFindings?: Array<{
+    dimension: string;
+    severity: 'info' | 'warning' | 'danger' | 'critical';
+    message: string;
+    file: string;
+    line: number;
+  }>;
+}
+
+export interface DarvinListSkillsResponse {
+  skills: DarvinSkillSummary[];
+}
+
+export interface DarvinSetSkillEnabledRequest {
+  skillId: string;
+  enabled: boolean;
+}
+
+export interface DarvinSetSkillEnabledResponse {
+  ok: boolean;
+}
+
 /** spec 12 — 选取待附加文件（只记路径，不复制）。 */
 export interface DarvinPickAttachmentsResponse {
   attachments: DarvinAttachmentRef[];
@@ -508,6 +543,7 @@ export const DarvinPushEvent = {
   ActiveSessionChanged: 'darvin:push:active-session-changed',
   SessionEvent: 'darvin:push:session-event',
   WorkspaceChanged: 'darvin:push:workspace-changed',
+  SkillsChanged: 'darvin:push:skills-changed',
 } as const;
 export type DarvinPushEvent = typeof DarvinPushEvent[keyof typeof DarvinPushEvent];
 
@@ -591,4 +627,11 @@ export interface DarvinApi {
   setWorkspaceRootTo(path: string): Promise<DarvinSetWorkspaceResult>;
   /** spec 12 — 读取当前会话工作目录（绝对路径 + basename）。 */
   getWorkspaceRoot(): Promise<DarvinWorkspaceRootResult>;
+
+  /** spec 32 — 列出当前已知 skill（bundled + user，enabled 状态来自 main 端 SQLite）。 */
+  listSkills(): Promise<DarvinListSkillsResponse>;
+  /** spec 32 — 切换 skill 启用状态。main 写 SQLite 后通过 agent.skills.set_enabled 同步到 Go。 */
+  setSkillEnabled(req: DarvinSetSkillEnabledRequest): Promise<DarvinSetSkillEnabledResponse>;
+  /** spec 32 — 订阅 skills 列表变更（bootstrap 完成、fs watcher 触发、Go 端 emit changed）。 */
+  onSkillsChanged(handler: (skills: DarvinSkillSummary[]) => void): () => void;
 }

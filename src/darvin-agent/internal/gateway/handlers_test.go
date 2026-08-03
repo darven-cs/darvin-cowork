@@ -22,6 +22,7 @@ import (
 	"darvin-cowork/backend/internal/agent/llm"
 	"darvin-cowork/backend/internal/agent/session"
 	"darvin-cowork/backend/internal/agent/store"
+	"darvin-cowork/backend/internal/skills"
 )
 
 // newTestHandler wires factory + SessionManager + SteerControl so handlers
@@ -1104,4 +1105,111 @@ func TestHandleRemoveImportedFile(t *testing.T) {
 	if len(rows) != 0 {
 		t.Errorf("rows after remove = %d, want 0", len(rows))
 	}
+}
+
+func TestHandleListSkillsEmptyWhenNotConfigured(t *testing.T) {
+	h, c := newTestHandler(t)
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.skills.list",
+	}, c, h)
+	if resp.Error != nil {
+		t.Fatalf("list: %+v", resp.Error)
+	}
+	r := resp.Result.(ListSkillsResult)
+	if len(r.Skills) != 0 {
+		t.Errorf("len(skills) = %d, want 0 when registry missing", len(r.Skills))
+	}
+}
+
+func TestHandleSkillsListSetEnabledAndBootstrap(t *testing.T) {
+	h, c := newTestHandler(t)
+	reg := skillsForTest(t)
+	h.Skills = reg
+	h.Ledger = c.ledger
+	h.Log = zap.NewNop()
+
+	listResp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.skills.list",
+	}, c, h)
+	if listResp.Error != nil {
+		t.Fatalf("list: %+v", listResp.Error)
+	}
+	initial := listResp.Result.(ListSkillsResult)
+	if len(initial.Skills) != 1 {
+		t.Fatalf("len(skills) = %d, want 1", len(initial.Skills))
+	}
+	if !initial.Skills[0].Enabled {
+		t.Error("seeded skill should be enabled by default")
+	}
+
+	setResp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.skills.set_enabled",
+		Params: json.RawMessage(`{"skillId":"code-review","enabled":false}`),
+	}, c, h)
+	if setResp.Error != nil {
+		t.Fatalf("set_enabled: %+v", setResp.Error)
+	}
+	if !setResp.Result.(SetSkillEnabledResult).OK {
+		t.Error("set_enabled ok=false")
+	}
+	entry, _ := reg.Get("code-review")
+	if entry.Enabled {
+		t.Error("registry entry still enabled")
+	}
+
+	bootResp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"3"`), Method: "agent.skills.bootstrap",
+		Params: json.RawMessage(`{"skills":[{"id":"code-review","name":"Code Review","description":"review src","enabled":true,"isOfficial":true,"isBuiltIn":true,"path":"embedded","source":"bundled","updatedAt":1}]}`),
+	}, c, h)
+	if bootResp.Error != nil {
+		t.Fatalf("bootstrap: %+v", bootResp.Error)
+	}
+	if !bootResp.Result.(BootstrapSkillsResult).OK {
+		t.Error("bootstrap ok=false")
+	}
+	entry, _ = reg.Get("code-review")
+	if !entry.Enabled {
+		t.Error("bootstrap should have re-enabled the skill")
+	}
+}
+
+func TestHandleSetSkillEnabledMissing(t *testing.T) {
+	h, c := newTestHandler(t)
+	h.Skills = skillsForTest(t)
+	h.Ledger = c.ledger
+	h.Log = zap.NewNop()
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.skills.set_enabled",
+		Params: json.RawMessage(`{"skillId":"nope","enabled":true}`),
+	}, c, h)
+	if resp.Error == nil {
+		t.Fatal("expected error for unknown skillId")
+	}
+}
+
+// skillsForTest returns a registry seeded with one bundled skill entry so
+// the agent.skills.* handlers can be exercised without touching the disk
+// or the //go:embed bundled FS.
+func skillsForTest(t *testing.T) *skills.SkillRegistry {
+	t.Helper()
+	reg := skills.NewSkillRegistry()
+	src := &skillsForTestSource{}
+	if err := reg.Load(context.Background(), []skills.SkillSourceLoader{src}); err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}
+
+type skillsForTestSource struct{}
+
+func (s *skillsForTestSource) LoadAll(_ context.Context) ([]*skills.SkillEntry, error) {
+	return []*skills.SkillEntry{{
+		ID:          "code-review",
+		Name:        "code-review",
+		Description: "review code",
+		Source:      skills.SkillSourceBundled,
+		Enabled:     true,
+		IsBuiltIn:   true,
+		IsOfficial:  true,
+	}}, nil
 }
