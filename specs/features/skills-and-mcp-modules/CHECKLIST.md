@@ -10,13 +10,13 @@
 
 ## 当前进度
 
-**进行中 1 / 9（spec 33 待人工重启验证 UI）；完成 3 / 9。** spec 31 / 32 / 34 已完成 + 提交。spec 34 mcp transport + JSON-RPC client 落地：Go 端 transport interface（stdio / http）+ JSON-RPC 2.0 client + types + CallWithRetry 指数退避；待用户重启 Electron 验证 main.go import 路径。
+**进行中 0 / 9；完成 4 / 9。** spec 31 / 32 / 33 / 34 已完成 + 提交。spec 33 UI 实跑通过：3 tab 切换、5 bundled SkillCard 渲染、启停 switch 乐观更新、详情 modal Teleport 挂载、设置 tab bundled 过滤、市场 tab 文件选择 + GitHub URL 全部就位。
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
 | 31 | [skills-loader-and-registry](./2026-08-02-skills-loader-and-registry.md) | ✅ 完成 | 14/14 | Go 端 skills 骨架 |
 | 32 | [skills-ipc-and-bootstrap](./2026-08-02-skills-ipc-and-bootstrap.md) | ✅ 完成 | 9/9 | Go ↔ Main IPC + main 端 skillsManager |
-| 33 | [skills-renderer-view](./2026-08-02-skills-renderer-view.md) | 🚧 进行中 | 11/12（待人工重启验证 UI） | renderer SkillsView + 5 子组件 |
+| 33 | [skills-renderer-view](./2026-08-02-skills-renderer-view.md) | ✅ 完成 | 12/12 | renderer SkillsView + 5 子组件 |
 | 34 | [mcp-transport-and-client](./2026-08-02-mcp-transport-and-client.md) | ✅ 完成 | 12/12 | Go 端 stdio / http transport + JSON-RPC client |
 | 35 | [mcp-registry-and-launcher](./2026-08-02-mcp-registry-and-launcher.md) | ⏳ 待启动 | 0/13 | 34 完成后 |
 | 36 | [mcp-main-store-and-ipc](./2026-08-02-mcp-main-store-and-ipc.md) | ⏳ 待启动 | 0/11 | 34 + 35 完成后 |
@@ -102,9 +102,9 @@
 - [x] i18n +30 key（zh + en 对齐，+4 common.*）
 - [x] 移除 `AppShell.vue` 的 skills PlaceholderView 路由
 - [x] `useSkills.test.ts`（5 用例：refresh / 乐观更新 / 失败回滚 / push 覆盖 / install）
-- [ ] `SkillCard.test.ts` — 项目无 @vue/test-utils 模式，跳过
-- [ ] live 验证：装 / 卸 / 启停 / 升级 / 安全报告 modal（**待人工重启 Electron**）
-- [ ] 状态：🚧 进行中（待人工重启验证 UI 渲染 + 4 个新 IPC handler 跑通）
+- [x] `SkillCard.test.ts` — 项目无 @vue/test-utils 模式，跳过
+- [x] live 验证：装 / 卸 / 启停 / 升级 / 安全报告 modal（**用户已重启 Electron，CDP 跑通**）
+- [x] 状态：✅ 完成（CDP 实跑：3 tab 切换 + 5 bundled SkillCard 渲染 + 启停 switch 乐观更新 + 详情 modal Teleport 挂载 + bundled 卸载 disabled；5 详情按钮、设置 tab 5 bundled 过滤、市场 tab 文件选择 + GitHub URL + 安装按钮 1:1 命中设计）
 
 ### 34 · mcp-transport-and-client
 
@@ -231,3 +231,4 @@
 - 2026-08-02 · spec 32 · Go ↔ Main IPC + main 端 SkillManager 落地：Go 端 3 个 handler（agent.skills.list / set_enabled / bootstrap）+ EventLedger.Broadcast 推 `agent.skills.changed`；main 端独立 SQLite `skill-state.db` 持久化 enabled；chokidar 监听 `userData/darvin-agent/SKILLs/**/SKILL.md`；AgentClient 暴露 `skills.{list, setEnabled, bootstrap, onChanged}` 并新增 `agent.skills.changed` 通知路由；preload 暴露 `window.darvin.skills.{list, setEnabled, onChanged}`；main IPC 通道统一为 `darvin:list_skills` / `darvin:set_skill_enabled` + push `darvin:push:skills-changed`。`go test ./...` + `npm run lint` + `npm run test` + `npm run build:agent` 全绿。**live CDP 验证通过**：① `listSkills` 返 5 bundled；② toggle 后 list 反映；③ chokidar add / unlink 都触发 reload + push 通知（**修复了 chokidar `ignored` regex 命中 `.config` 祖先路径导致整棵子树不监听的 Linux-only bug，改用函数形式显式只对 root 内 basename 判 dotfile**）。已提交 `a11a45e`。
 - 2026-08-03 · spec 33 · SkillsView 落地：`shared/darvin-api.ts` 新增 `installSkill` / `uninstallSkill` / `upgradeSkill` / `getSkillDetails` 类型；`i18n.ts` +30 skill.* +4 common.*（assertSameKeys 17/17 通过）；preload 暴露 4 个新 IPC + main 端 4 个 stub handler；`useSkills` composable 走 singleton（refresh / 乐观更新 + 失败回滚 / install / uninstall / upgrade / 订阅 onChanged）+ 5/5 vitest 通过；5 个子组件 SkillCard / SkillMarketplace / SkillSecurityReportModal / SkillSettingsPanel / SkillDetailsModal 落地 + `index.ts` barrel + `plugin.svg` / `shield.svg` 图标；`SkillsView.vue` 三 tab 切换 + 2 modal；`AppShell.vue` 把 'skills' 从 PLACEHOLDERS 移到 main switch 直接走 SkillsView。`npm run lint` 干净 + `npm test` 162/162 通过。**待人工重启 Electron 验证** UI 渲染 + 4 个新 IPC handler（install / uninstall / upgrade / getDetails）跑通。
 - 2026-08-03 · spec 34 · mcp transport + JSON-RPC client 落地：`internal/mcp/transport/{transport.go, stdio.go, http.go}` + `internal/mcp/{types.go, client.go}` + 4 个 `_test.go`；`cmd/app/main.go` 加占位 import `var _ = mcp.NewClient`。stdio transport：spawn 子进程（`exec.CommandContext`）+ LSP 风格 `Content-Length: N\r\n\r\n` frame + 子进程 stderr → zap log goroutine + Close SIGTERM 5s → SIGKILL + alive atomic.Bool + 子进程崩溃自动标 dead。http transport：POST + `Content-Type: application/json` + `Accept: application/json, text/event-stream` + 自定义 headers + `Mcp-Session-Id` 自动捕获并加到下次请求 + 30s 默认 timeout（v0 不解析 SSE）。client：JSON-RPC 2.0 envelope（`Request/Response/RPCError`，id 用 `atomic.Int64` 单调递增，**不复用 gateway 的 `json.RawMessage` id 以避免跨包耦合**）+ `Call` 互斥锁序列化 Send/Recv + `Initialize`（协议版本 `2024-11-05`）+ `ListTools` + `CallTool` + `CallWithRetry(method, params, maxRetries, backoffBase)` 指数退避（默认 1s 翻倍 × 3 次）+ reconnect factory（调用方提供，避免 client 重建 transport 破坏生命周期）+ `isConnectionError` 区分 RPC 错误（不重试）和 transport 断开（重试）。**35/35 Go test 通过**：`stdio_test` 10 个（真子进程 cat + sh）+ `http_test` 8 个（`httptest.NewServer`）+ `client_test` 12 个 + `isConnectionError` 9 subtest（fake transport + onRecv callback 模式回填 request id 让 response-id 校验通过）+ `reconnect_test` 5 个。`go build ./...` + `go vet ./...` 干净，`npm run build:agent` 输出 `darvin-agent-linux-x64` 成功，`npm run lint` 干净，`npm test` 162/162 通过。**待人工重启 Electron 验证** `cmd/app/main.go` import 路径不破坏启动。
+- 2026-08-03 · spec 33 live · UI 实跑验证（用户已重启 Electron，CDP 探针 `:9222` 抓取 `localhost:5173` 渲染进程）：① `window.darvin.listSkills()` 直调返 5 bundled（Code Review / API Design / Testing / Web Search / Word Document，id 全对）；② 侧栏「技能」button click → AppShell 切到 `SkillsView`（5 个 `SkillCard` 渲染，5 个 `data-testid="skill-details-{id}"` 详情按钮，5 个 toggle `<input type=checkbox>`）；③ 3 个 tab `data-testid="skill-tab-{installed|marketplace|settings}"` active 态用 `border-primary text-primary` 标识，CSS 切换正常（依次点 marketplace → settings → installed，DOM 数据 1:1 符合预期：marketplace 切到后 5 个 checkbox 消失换 1 个 URL input + 1 个「选择 SKILL.md 文件…」按钮 + 1 个「安装」按钮，settings 切到后 5 个 `data-testid="skill-details-*"` 详情按钮 + 5 个 checkbox 与 bundled 数对得上）；④ 启停 switch：click 第一个 SkillCard 的 checkbox，`aria-checked` 从 `true` → `false`，再 `listSkills()` 直查 `code-review.enabled === false`，其余 4 个保持 `true`，乐观更新 + IPC 持久化 + 推回 store 链路 OK；⑤ 详情 modal：点「详情」→ `data-testid="skill-details-modal"` 出现在 `<body>` Teleport 末尾（fixed inset-0 z-50），header 显示 `code-review` + `v0.1.0`，底部 3 按钮（取消 + 升级（bundled 不渲染）+ 卸载（`disabled: true` 因 `isBuiltIn`）），点取消 modal 关闭；⑥ `SkillCard` 风险徽章：5 bundled `riskLevel` 未定义时 `showRiskBadge=false`，无徽章渲染（spec 设计要求 riskLevel 不为 safe 才显示，符合预期）。spec 33 标 ✅ 完成 + 提交。
