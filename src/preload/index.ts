@@ -23,6 +23,8 @@ import type {
   DarvinGetMessagesResponse,
   DarvinImportedFile,
   DarvinImportFilesResponse,
+  DarvinInvokeSkillRequest,
+  DarvinInvokeSkillResponse,
   DarvinListImportedFilesResponse,
   DarvinListSessionsResponse,
   DarvinListSkillsResponse,
@@ -101,6 +103,9 @@ const api: DarvinApi = {
 
   async prompt(req: DarvinPromptRequest): Promise<DarvinPromptResponse> {
     return ipcRenderer.invoke('darvin:prompt', req);
+  },
+  async invokeSkill(req: DarvinInvokeSkillRequest): Promise<DarvinInvokeSkillResponse> {
+    return ipcRenderer.invoke('darvin:invoke_skill', req);
   },
   async abort(): Promise<DarvinAbortResponse> {
     return ipcRenderer.invoke('darvin:abort');

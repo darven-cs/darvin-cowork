@@ -43,6 +43,8 @@ import type {
   DarvinGetSkillDetailsResponse,
   DarvinImportFilesResponse,
   DarvinInstallSkillResponse,
+  DarvinInvokeSkillRequest,
+  DarvinInvokeSkillResponse,
   DarvinListImportedFilesResponse,
   DarvinListSessionsResponse,
   DarvinListSkillsResponse,
@@ -657,6 +659,7 @@ ipcMain.handle(
         name: source.split('/').pop() || 'pending',
         description: `未实现：从 ${source} 装`,
         enabled: true,
+        userInvocable: true,
         isOfficial: false,
         isBuiltIn: false,
         path: source,
@@ -874,6 +877,39 @@ ipcMain.handle(
         images: req.images,
       });
       return { sessionId, messageId: r.messageId, runId: r.runId ?? runId };
+    } catch (e) {
+      currentRunIdBySessionId.delete(sessionId);
+      throw e;
+    }
+  },
+);
+
+ipcMain.handle(
+  'darvin:invoke_skill',
+  async (_e, req: DarvinInvokeSkillRequest): Promise<DarvinInvokeSkillResponse> => {
+    let sessionId = req.sessionId;
+    if (!sessionId) {
+      try {
+        const a = await client.request<DarvinActiveSessionResponse>('agent.get_active_session', {});
+        if (a.sessionId === null) throw new Error('no active session');
+        sessionId = a.sessionId;
+      } catch (e) {
+        if (!client.isConnected()) throw new Error('agent offline');
+        throw e;
+      }
+    }
+    const runId = randomUUID();
+    currentRunIdBySessionId.set(sessionId, runId);
+    try {
+      const r = await client.invokeSkill({
+        sessionId,
+        skillId: req.skillId,
+        args: req.args,
+        content: req.content,
+      });
+      const resolvedRunId = r.runId ?? runId;
+      currentRunIdBySessionId.set(sessionId, resolvedRunId);
+      return { ok: r.ok, sessionId, messageId: r.messageId, runId: resolvedRunId };
     } catch (e) {
       currentRunIdBySessionId.delete(sessionId);
       throw e;

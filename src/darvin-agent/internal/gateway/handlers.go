@@ -216,6 +216,9 @@ type HandlerOptions struct {
 	WorkspaceRoot string
 	// Skills 是 skills registry。spec 32 落地后由 main.go 注入。
 	Skills *skills.SkillRegistry
+	// SkillRunner 支撑 agent.skill.invoke_user。spec 39 由 main.go 注入;
+	// nil 时该 handler 返回空结果(handler 测试 stub 不需要构造 runner)。
+	SkillRunner *skills.SkillRunner
 	// Mcp 是 MCP server registry。spec 35 + 36 落地后由 main.go 注入。
 	Mcp *mcp.Registry
 	// Log 是 skills handler 的日志出口;nil 时 handler 不打 warn。
@@ -242,6 +245,9 @@ type Handler struct {
 	// Skills 支撑 agent.skills.list / set_enabled / bootstrap。spec 32 落地；
 	// nil 时这些 handler 返回空结果,handler 测试 stub 不需要构造 registry。
 	Skills *skills.SkillRegistry
+	// SkillRunner 支撑 agent.skill.invoke_user。spec 39 落地；nil 时该
+	// handler 返回空结果,handler 测试 stub 不需要构造 runner。
+	SkillRunner *skills.SkillRunner
 	// Mcp 支撑 agent.mcp.list / register / update / unregister /
 	// set_enabled / test / retry_resolution / bootstrap。spec 35 + 36 落地。
 	Mcp *mcp.Registry
@@ -275,6 +281,7 @@ func NewHandler(
 		ImportedFiles: o.ImportedFiles,
 		WorkspaceRoot: o.WorkspaceRoot,
 		Skills:        o.Skills,
+		SkillRunner:   o.SkillRunner,
 		Mcp:           o.Mcp,
 		Log:           o.Log,
 	}
@@ -346,6 +353,8 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleMcpBootstrap(req.ID, req.Params, h)
 	case "agent.tools.list":
 		return handleListTools(req.ID, req.Params, h)
+	case "agent.skill.invoke_user":
+		return handleInvokeSkillUser(req.ID, req.Params, h)
 	default:
 		return errorResp(req.ID, CodeMethodNotFound,
 			"Method not found: "+req.Method, nil)
@@ -1317,6 +1326,98 @@ func (h *Handler) refreshToolsIfNeeded() {
 	if h.Sessions != nil {
 		h.Sessions.RefreshAllTools()
 	}
+}
+
+// InvokeSkillUserParams is the JSON-RPC params for agent.skill.invoke_user.
+// Content is the raw `/skill-name args` command the user sent; when empty
+// the handler reconstructs it from SkillID + Args so the persisted user
+// message matches the renderer bubble.
+type InvokeSkillUserParams struct {
+	SessionID string `json:"sessionId,omitempty"`
+	SkillID   string `json:"skillId"`
+	Args      string `json:"args,omitempty"`
+	Content   string `json:"content,omitempty"`
+}
+
+// InvokeSkillUserResult is the JSON-RPC result for agent.skill.invoke_user.
+// Mirrors PromptResult so the renderer can start an assistant bubble keyed
+// by messageId and correlate the run's events.
+type InvokeSkillUserResult struct {
+	SessionID string `json:"sessionId"`
+	RunID     string `json:"runId"`
+	MessageID string `json:"messageId"`
+	OK        bool   `json:"ok"`
+}
+
+// handleInvokeSkillUser 实现 `/skill-name args` 用户显式触发。校验
+// (存在 + enabled + userInvocable)同步做——失败以 JSON-RPC error 返回,
+// main 端据此 toast;通过后把 skill 上下文交给 session 的 Loop 异步跑
+// mini agent loop,事件流与普通 prompt 一致。
+func handleInvokeSkillUser(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if h.Skills == nil || h.SkillRunner == nil {
+		return errorResp(id, CodeMethodNotFound, "skills not configured", nil)
+	}
+	if len(params) == 0 {
+		return errorResp(id, CodeInvalidParams, "params required", nil)
+	}
+	var p InvokeSkillUserParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if strings.TrimSpace(p.SkillID) == "" {
+		return errorResp(id, CodeInvalidParams, "skillId is required", nil)
+	}
+	sessionID := p.SessionID
+	if sessionID == "" {
+		sessionID = DefaultSessionID
+	}
+
+	sec, err := h.SkillRunner.ExecuteByUserInvocation(context.Background(), p.SkillID, p.Args)
+	if err != nil {
+		switch {
+		case errors.Is(err, skills.ErrSkillNotFound):
+			return errorResp(id, CodeSkillNotFound, err.Error(), err)
+		case errors.Is(err, skills.ErrSkillDisabled):
+			return errorResp(id, CodeSkillDisabled, err.Error(), err)
+		case errors.Is(err, skills.ErrSkillNotUserInvocable):
+			return errorResp(id, CodeSkillNotUserInvocable, err.Error(), err)
+		default:
+			return errorResp(id, CodeInternalError, "skill invoke", err)
+		}
+	}
+
+	entry, err := h.Sessions.GetOrCreateEntry(sessionID)
+	if err != nil {
+		if errors.Is(err, ErrSessionStalled) {
+			return errorResp(id, CodeSessionStalled, "session stalled", err)
+		}
+		return errorResp(id, CodeAgentInitFailed, "get session", err)
+	}
+	if entry.Acp == nil {
+		return errorResp(id, CodeNoAcpSession, "no AcpSession bound", nil)
+	}
+
+	content := p.Content
+	if strings.TrimSpace(content) == "" {
+		content = "/" + p.SkillID
+		if p.Args != "" {
+			content += " " + p.Args
+		}
+	}
+	ticket, err := entry.Acp.Loop.SubmitSkill(acp.SkillInvocation{
+		SystemPrompt: sec.SystemPrompt,
+		Content:      content,
+		Tools:        sec.Tools,
+	})
+	if err != nil {
+		return errorResp(id, CodeInternalError, "loop submit", err)
+	}
+	return successResp(id, InvokeSkillUserResult{
+		SessionID: entry.Session.ID,
+		RunID:     ticket.RunID,
+		MessageID: ticket.MessageID,
+		OK:        true,
+	})
 }
 
 // handleBootstrapSkills 接受 main 端推过来的初始 enabled 状态,逐条覆盖

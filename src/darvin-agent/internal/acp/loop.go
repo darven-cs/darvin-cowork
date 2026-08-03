@@ -15,6 +15,7 @@ import (
 	"darvin-cowork/backend/internal/agent"
 	"darvin-cowork/backend/internal/agent/event"
 	"darvin-cowork/backend/internal/agent/queue"
+	"darvin-cowork/backend/internal/agent/tool"
 )
 
 const (
@@ -53,15 +54,26 @@ type RunTicket struct {
 	Queued    bool
 }
 
+// SkillInvocation is a user-invoked skill turn: the skill's SKILL.md body
+// becomes the system prompt, content is the raw `/skill-name args` command
+// the user sent, and Tools is the skill's allowed tool set.
+type SkillInvocation struct {
+	SystemPrompt string
+	Content      string
+	Tools        []tool.Tool
+}
+
 // promptReq is a submitted turn plus the messageIDs Loop minted for it.
 // msgID keys the assistant message (events carry it for streaming append);
 // userMsgID keys the user message so persistUserMessage's row is not
 // overwritten by the assistant row that shares msgID (see dispatcher.go).
+// skill is non-nil when the turn is a skill invocation (RunSkillSession).
 type promptReq struct {
 	runID       string
 	content     string
 	attachments []string
 	images      []queue.ImageRef
+	skill       *SkillInvocation
 	msgID       string
 	userMsgID   string
 }
@@ -126,25 +138,33 @@ func NewLoop(a *agent.Agent) *Loop {
 // Submit queues content as a new turn. It starts as soon as the session
 // goes idle; anything already queued runs first.
 func (l *Loop) Submit(req PromptRequest) (RunTicket, error) {
-	return l.admit(req, false)
+	return l.admit(req, nil, false)
 }
 
 // Steer queues content ahead of the parked follow-ups and cancels the
 // in-flight turn so the new content is what runs next. On an idle
 // session Steer behaves like Submit.
 func (l *Loop) Steer(req PromptRequest) (RunTicket, error) {
-	return l.admit(req, true)
+	return l.admit(req, nil, true)
 }
 
-// admit is the shared entry for Submit / Steer. jumpQueue selects
-// steerQueue over followUpQueue and additionally cancels the in-flight
-// turn so the run goroutine reaches the new request immediately.
-func (l *Loop) admit(req PromptRequest, jumpQueue bool) (RunTicket, error) {
+// SubmitSkill queues a user-invoked skill turn. It runs through the same
+// single-turn machinery (one goroutine, messageIDs minted up front) but the
+// executor drives a mini loop with the skill's system prompt and tools.
+func (l *Loop) SubmitSkill(sec SkillInvocation) (RunTicket, error) {
+	return l.admit(PromptRequest{}, &sec, false)
+}
+
+// admit is the shared entry for Submit / SubmitSkill / Steer. jumpQueue
+// selects steerQueue over followUpQueue and additionally cancels the
+// in-flight turn so the run goroutine reaches the new request immediately.
+func (l *Loop) admit(req PromptRequest, skill *SkillInvocation, jumpQueue bool) (RunTicket, error) {
 	p := promptReq{
 		runID:       req.RunID,
 		content:     req.Content,
 		attachments: req.Attachments,
 		images:      req.Images,
+		skill:       skill,
 		msgID:       l.idGen(),
 		userMsgID:   l.idGen(),
 	}
@@ -324,6 +344,22 @@ func (l *Loop) executeTurn(req promptReq) {
 		l.mu.Unlock()
 		cancelRun()
 	}()
+
+	if req.skill != nil {
+		if err := l.agent.RunSkillSession(runCtx, req.skill.SystemPrompt, req.skill.Content, req.skill.Tools); err != nil {
+			// The enqueue was rejected before any run started, so no run
+			// will emit an error for this messageID. Surface it here or the
+			// renderer's bubble stays stuck in a streaming state.
+			l.agent.Emit(event.AgentErrorEvent{
+				EventBase: event.EventBase{EventCommon: event.EventCommon{
+					SessionID: l.agent.Session().ID,
+					MessageID: req.msgID,
+				}},
+				Err: err,
+			})
+		}
+		return
+	}
 
 	if err := l.agent.Prompt(runCtx, req.content, req.images, req.attachments); err != nil {
 		// The Agent rejected the enqueue, so no run will emit an error

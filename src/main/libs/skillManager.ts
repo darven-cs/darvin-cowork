@@ -44,12 +44,13 @@ const BUNDLED_SKILLS: ReadonlyArray<{
   name: string;
   description: string;
   version: string;
+  userInvocable: boolean;
 }> = [
-  { id: 'code-review', name: 'Code Review', description: '对代码做静态审查并给出修改建议', version: '0.1.0' },
-  { id: 'api-design', name: 'API Design', description: '检查 REST API 设计规范（命名 / 状态码 / 错误处理）', version: '0.1.0' },
-  { id: 'testing', name: 'Testing', description: '给出单元测试覆盖建议', version: '0.1.0' },
-  { id: 'web-search', name: 'Web Search', description: '联网搜索最新信息', version: '0.1.0' },
-  { id: 'docx', name: 'Word Document', description: '创建 / 修改 Word 文档', version: '0.1.0' },
+  { id: 'code-review', name: 'Code Review', description: '对代码做静态审查并给出修改建议', version: '0.1.0', userInvocable: true },
+  { id: 'api-design', name: 'API Design', description: '检查 REST API 设计规范（命名 / 状态码 / 错误处理）', version: '0.1.0', userInvocable: true },
+  { id: 'testing', name: 'Testing', description: '给出单元测试覆盖建议', version: '0.1.0', userInvocable: true },
+  { id: 'web-search', name: 'Web Search', description: '联网搜索最新信息', version: '0.1.0', userInvocable: true },
+  { id: 'docx', name: 'Word Document', description: '创建 / 修改 Word 文档', version: '0.1.0', userInvocable: true },
 ];
 
 /**
@@ -99,7 +100,7 @@ export function parseSkillFrontmatter(raw: string): {
       inInvocation = key === 'invocation';
       if (inInvocation) continue;
       out[key] = val.replace(/^"(.*)"$/, '$1');
-    } else if (inInvocation) {
+    } else if (inInvocation && (key === 'userInvocable' || key === 'disableModelInvocation')) {
       if (val === 'true') inv[key] = true;
       else if (val === 'false') inv[key] = false;
     }
@@ -145,6 +146,8 @@ async function readUserSkills(root: string): Promise<DarvinSkillSummary[]> {
         description: fm.description,
         version: fm.version,
         enabled: true,
+        // 与 Go loader 的默认一致：frontmatter 未声明 invocation.userInvocable 时不可手动触发。
+        userInvocable: fm.invocation?.userInvocable ?? false,
         isOfficial: false,
         isBuiltIn: false,
         path: skillMd,
@@ -165,6 +168,7 @@ function bundledSummaries(): DarvinSkillSummary[] {
     description: b.description,
     version: b.version,
     enabled: true,
+    userInvocable: b.userInvocable,
     isOfficial: true,
     isBuiltIn: true,
     path: `bundled://${b.id}`,

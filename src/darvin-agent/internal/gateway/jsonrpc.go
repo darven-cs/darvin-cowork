@@ -32,6 +32,16 @@ const (
 	// CodeAgentInitFailed: factory.NewAcpSession 构造失败,SessionManager
 	// 已回滚 entry;renderer 可重试。
 	CodeAgentInitFailed = -32003
+
+	// CodeSkillNotFound: agent.skill.invoke_user 命中不存在的 skill。
+	CodeSkillNotFound = -32010
+
+	// CodeSkillDisabled: agent.skill.invoke_user 命中已禁用的 skill。
+	CodeSkillDisabled = -32011
+
+	// CodeSkillNotUserInvocable: agent.skill.invoke_user 命中
+	// userInvocable=false 的 skill。
+	CodeSkillNotUserInvocable = -32012
 )
 
 // Request is an inbound JSON-RPC call. ID is kept as raw JSON because the

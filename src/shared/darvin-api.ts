@@ -321,6 +321,24 @@ export interface DarvinPromptResponse {
   queued?: boolean;
 }
 
+/** spec 39 — `/skill-name args` 用户显式触发 skill。 */
+export interface DarvinInvokeSkillRequest {
+  sessionId: string;
+  skillId: string;
+  /** 命令中 skill 名之后的部分（可为空串）。 */
+  args?: string;
+  /** 用户原始输入 `/skill-name args`（可选；缺失时 Go 端按 skillId+args 重建）。 */
+  content?: string;
+}
+
+/** spec 39 — agent.skill.invoke_user 的返回；shape 对齐 DarvinPromptResponse 以便 renderer 起 assistant bubble。 */
+export interface DarvinInvokeSkillResponse {
+  ok: boolean;
+  sessionId: string;
+  messageId: string;
+  runId?: string;
+}
+
 export interface DarvinAbortResponse {
   aborted: boolean;
   sessionId: string;
@@ -504,6 +522,8 @@ export interface DarvinSkillSummary {
   description: string;
   version?: string;
   enabled: boolean;
+  /** spec 39 — 是否可被 `/skill-name` 显式触发（SKILL.md invocation.userInvocable）。 */
+  userInvocable: boolean;
   isOfficial: boolean;
   isBuiltIn: boolean;
   path: string;
@@ -794,6 +814,8 @@ export interface DarvinApi {
   getMessages(sessionId: string): Promise<DarvinGetMessagesResponse>;
 
   prompt(req: DarvinPromptRequest): Promise<DarvinPromptResponse>;
+  /** spec 39 — `/skill-name args` 显式触发 skill；校验失败以 RPC error 返回。 */
+  invokeSkill(req: DarvinInvokeSkillRequest): Promise<DarvinInvokeSkillResponse>;
   abort(): Promise<DarvinAbortResponse>;
 
   /** 手动触发当前 session 上下文压缩。 */

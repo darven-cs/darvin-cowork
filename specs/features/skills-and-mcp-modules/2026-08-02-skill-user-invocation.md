@@ -5,7 +5,7 @@
 > **本 spec 范围**：用户在 chat 框输入 `/skill-name args` 显式触发 skill 的能力。**不包含** skills / mcp 本身（spec 31-38）。
 >
 > 创建日期：2026-08-02
-> 状态：⏳ 待启动
+> 状态：✅ 已完成
 > 前置：[spec 38 tool-registry-merge-and-routing](./2026-08-02-tool-registry-merge-and-routing.md) + [spec 32 skills-ipc-and-bootstrap](./2026-08-02-skills-ipc-and-bootstrap.md)
 
 ---
@@ -412,48 +412,50 @@ src/darvin-agent/
 ## 7. 验收标准
 
 **通用**：
-- [ ] `npm run lint` + `npm run test` 通过
-- [ ] `cd src/darvin-agent && go build ./...` 编译通过
-- [ ] `go vet ./...` 无警告
+- [x] `npm run lint` 通过；`npm run test` 通过（25 个 mcpManager/mcpStore 失败为 better-sqlite3 ABI 预存环境问题，与本次改动无关；其余 194 通过）
+- [x] `cd src/darvin-agent && go build ./...` 编译通过
+- [x] `go vet ./...` 无警告
 
 **FR-1 Composer 自动补全**：
-- [ ] `/` 触发浮层
-- [ ] 键入 `/co` 过滤到 code-review
-- [ ] ArrowDown/Up 切换选择
-- [ ] Enter / Tab 选中
-- [ ] Escape 关闭
+- [x] `/` 触发浮层（实现 + 单测；live 待验证）
+- [x] 键入 `/co` 过滤到 code-review（实现；live 待验证）
+- [x] ArrowDown/Up 切换选择（实现；live 待验证）
+- [x] Enter / Tab 选中（实现；live 待验证）
+- [x] Escape 关闭（实现；live 待验证）
 
 **FR-2 userInvocable 字段**：
-- [ ] `DarvinSkillSummary.userInvocable` 暴露
+- [x] `DarvinSkillSummary.userInvocable` 暴露（Go wire + TS 类型 + main skillManager）
 
 **FR-3 main `/` 截获**：
-- [ ] `/skill-name args` 走 invokeSkill
-- [ ] `//xxx` 走普通 prompt
-- [ ] `/xxx` 不是合法 skill 名走普通 prompt
+- [x] `/skill-name args` 走 invokeSkill（适配：路由在 renderer `useChatActions.send`，main 暴露 `darvin:invoke_skill` IPC）
+- [x] `//xxx` 走普通 prompt（escape 去首字符）
+- [x] `/xxx` 不是合法 skill 名走普通 prompt（parseSlashCommand 返 null）
 
 **FR-4 agentClient.invokeSkill**：
-- [ ] 调 `agent.skill.invoke_user`
+- [x] 调 `agent.skill.invoke_user`
 
 **FR-5 Go handler**：
-- [ ] `agent.skill.invoke_user` 校验 skillId + args + 异步跑 mini loop
+- [x] `agent.skill.invoke_user` 校验 skillId + args + 异步跑 mini loop
 
 **FR-6 Agent.RunSkillSession**：
-- [ ] 跑 mini loop + emit 事件
+- [x] 跑 mini loop + emit 事件（复用 RunConversation；skill prompt + scoped tool registry）
 
 **FR-7 SkillRunner**：
-- [ ] ExecuteByUserInvocation 校验 3 个条件
+- [x] ExecuteByUserInvocation 校验 3 个条件（spec 31 已落地 + 测试）
 
 **FR-8 i18n**：
-- [ ] 10+ key 齐全
+- [x] 10+ key 齐全（zh/en 各 +10，assertSameKeys 通过）
 
-**live 验证**：
-- 输入 `/` → 浮层显示 5 个 skill
-- 输入 `/co` → 浮层过滤到 code-review
-- Enter → 输入框变为 `/code-review `
-- 输入 args → Enter 发送
-- 观察事件流：tool_start + tool_end + done + agent_end
-- 输入 `/unknown` → toast「Skill 不存在」
-- 输入 `//skill-name` → 普通 prompt（不触发）
+**live 验证**（CDP 实跑通过）：
+- [x] 输入 `/` → 浮层显示 5 个 skill（code-review / api-design / testing / web-search / docx）
+- [x] 输入 `/co` → 浮层过滤到 code-review
+- [x] Enter → 输入框变为 `/code-review `
+- [x] 输入 args → Enter 发送（`/code-review src/api/handler.go` 触发 mini loop，assistant 流式 + Bash/read_file 工具组 + token 统计，跟普通 prompt 一致）
+- [x] 观察事件流：tool_start + tool_end + done + agent_end（turn 正常收尾）
+- [x] 输入 `/unknown-skill xxx` → toast「Skill 不存在：unknown-skill」（Go 端 ErrSkillNotFound → RPC error → i18n toast）
+- [x] 输入 `//skill-name is a library` → 普通 prompt（不触发，气泡保留原始 `//` 文本，无 toast）
+
+**live 中发现并修复的 bug**：选中 skill 后继续输入 args（`/code-review src/api`）时，浮层仍因 `/` 前缀保持打开，Enter 会重复选中而非发送——`onInput` 加 `!text.includes(' ')` 条件（出现空格即收浮层）后修复。
 
 ---
 
@@ -472,3 +474,4 @@ src/darvin-agent/
 ## 9. 状态变更日志
 
 - 2026-08-02 · 完成 spec 设计；待用户确认后启动实现
+- 2026-08-03 · spec 39 落地：**Go**——`SkillSummaryWire` +`userInvocable`（ToSummary 填充）+ `Agent.RunSkillSession`（新文件 `agent_mini_loop.go`：临时覆盖 `runSkillPrompt`/`runSkillTools`，Instructions()/Tools() 按 transient 返回 skill 上下文；`buildSkillTools` 从 full registry 投影 skill 允许工具集并保留 Kind/Metadata，空集给空 registry）+ acp.Loop `SubmitSkill`（promptReq 带 skill 字段，executeTurn 分支跑 RunSkillSession）+ gateway `agent.skill.invoke_user`（同步校验存在/enabled/userInvocable → 三个新错误码 -32010/-32011/-32012；通过后提交 Loop 异步跑）+ Handler 注入 `SkillRunner` + 3 个错误码 + main.go 接线。**TS**——`DarvinSkillSummary.userInvocable` + `DarvinInvokeSkillRequest/Response` + `client.invokeSkill` + preload `invokeSkill` + main `darvin:invoke_skill` IPC（mint runId → 注册 currentRunIdBySessionId → 返回 prompt 同形结果）。**Renderer**——Composer `/` 自动补全浮层（过滤 enabled+userInvocable / 键盘导航 / Enter·Tab 选中 / Escape 关闭）+ `useChatActions.send/regenerate` `/` 路由（`//` 转义去首字符走普通 prompt；`/skill args` → invokeSkill；失败 toast 不画错误气泡）+ `slash.ts` 纯函数 helpers（parseSlashCommand / translateSkillError）+ i18n +10 key。**bundled `testing` SKILL.md 补 `invocation.userInvocable: true`**（否则 5 个 bundled 只有 4 个可手动触发，与场景 1 冲突）；main BUNDLED_SKILLS + user 目录默认（未声明即 false，与 Go loader 一致）。**测试**：+3 Go（RunSkillSession 作用域断言 / buildSkillTools 保 kind / 空工具集）+ 7 Go handler（未配置 / 不存在 / 禁用 / 不可触发 / 成功 ticket / 缺 skillId / err 透传）+ 2 wire（userInvocable 序列化 / 默认 false）+ 10 TS slash helpers。**验证**：`go build`/`go vet`/`go test ./...` 17 包全绿，`npm run lint` 干净，`npm run build:agent` 成功，vitest 194 通过（25 失败为 better-sqlite3 ABI 预存问题）。**适配说明**：spec FR-3 假设的 `chat:send` IPC 不存在——实际 prompt 走 renderer `useChatActions.send` → `darvin:prompt`；截获逻辑落在 renderer send 层（应用真正的发送入口），main 只暴露 invoke_skill 通道。**待 live**：Electron 重启后验证浮层 / 触发 / 事件流 / toast / 转义。

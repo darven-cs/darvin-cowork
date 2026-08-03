@@ -33,6 +33,7 @@ const SKILL: DarvinSkillSummary = {
   description: '联网搜索',
   version: '0.1.0',
   enabled: true,
+  userInvocable: true,
   isOfficial: true,
   isBuiltIn: true,
   path: 'bundled://web-search',

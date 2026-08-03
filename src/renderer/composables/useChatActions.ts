@@ -11,7 +11,9 @@
 import { useMessages } from './useMessages';
 import { useSession } from './useSession';
 import { useImportedFiles } from './useImportedFiles';
+import { parseSlashCommand, translateSkillError } from './slash';
 import { t } from '../services/i18n';
+import { showToast } from '../services/toast';
 import type { DarvinAttachmentRef, DarvinImageRef } from '../../shared/darvin-api';
 
 /**
@@ -38,18 +40,45 @@ export function useChatActions() {
 
   async function send(content: string, busyRef: { value: boolean }): Promise<void> {
     if (!content.trim()) return;
+    // spec 39 — `/` 前缀路由。`//` 转义：去掉首字符 `/` 走普通 prompt（不触发 skill）。
+    const escaped = content.startsWith('//');
+    const routeContent = escaped ? content.slice(1) : content;
+    const slash = escaped ? null : parseSlashCommand(content);
+
     // compose 态（点过「新建任务」）或没有 active session：先建会话再发。
     // 用首条消息当标题，避免出现一堆「新建会话」空壳。
     let sessId = session.activeSessionId.value;
     if (session.draftMode.value || sessId === null) {
-      const created = await session.createSession(content.trim().slice(0, 30));
+      const created = await session.createSession(routeContent.trim().slice(0, 30));
       sessId = created.id;
       session.draftMode.value = false;
     }
     busyRef.value = true;
     const { files, images } = imported.splitForSend();
-    const finalContent = buildAttachmentContent(content, files, images);
-    messages.appendUserMessage(sessId, finalContent, undefined, undefined, files, images);
+    // 气泡展示原始输入（含 `//` 转义，regenerate 时才能区分）；Go 端拿 routeContent。
+    const displayContent = buildAttachmentContent(content, files, images);
+    const finalContent = buildAttachmentContent(routeContent, files, images);
+    messages.appendUserMessage(sessId, displayContent, undefined, undefined, files, images);
+
+    if (slash) {
+      try {
+        const r = await window.darvin.invokeSkill({
+          sessionId: sessId,
+          skillId: slash.skillId,
+          args: slash.args,
+          content: finalContent,
+        });
+        if (files.length > 0 || images.length > 0) imported.clear();
+        messages.startAssistantMessage(r.sessionId, r.messageId);
+      } catch (err) {
+        // 校验失败（skill 不存在 / 禁用 / 不可手动触发）→ toast，不画错误气泡。
+        showToast(translateSkillError(err as Error, slash.skillId), 'error');
+      } finally {
+        busyRef.value = false;
+      }
+      return;
+    }
+
     try {
       const r = await window.darvin.prompt({
         content: finalContent,
@@ -94,8 +123,26 @@ export function useChatActions() {
   async function regenerate(messageId: string): Promise<void> {
     const target = findTurnUserMessage(messageId);
     if (!target) return;
+    // spec 39 — 重新生成 `/skill args` 的 turn 时再次触发 skill；`//` 转义保留原样走普通 prompt。
+    const escaped = target.content.startsWith('//');
+    const routeContent = escaped ? target.content.slice(1) : target.content;
+    const slash = escaped ? null : parseSlashCommand(target.content);
+    if (slash) {
+      try {
+        const r = await window.darvin.invokeSkill({
+          sessionId: target.sessionId,
+          skillId: slash.skillId,
+          args: slash.args,
+          content: routeContent,
+        });
+        messages.startAssistantMessage(target.sessionId, r.messageId);
+      } catch (err) {
+        showToast(translateSkillError(err as Error, slash.skillId), 'error');
+      }
+      return;
+    }
     try {
-      const r = await window.darvin.prompt({ content: target.content });
+      const r = await window.darvin.prompt({ content: routeContent });
       messages.startAssistantMessage(target.sessionId, r.messageId);
     } catch (err) {
       const mid = `m-err-${Date.now().toString(36)}`;

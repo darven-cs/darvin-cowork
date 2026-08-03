@@ -3,18 +3,19 @@ package skills
 // SkillSummaryWire is the JSON shape main / renderer consume. Field tags
 // match DarvinSkillSummary in src/shared/darvin-api.ts.
 type SkillSummaryWire struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
-	Version      string            `json:"version,omitempty"`
-	Enabled      bool              `json:"enabled"`
-	IsOfficial   bool              `json:"isOfficial"`
-	IsBuiltIn    bool              `json:"isBuiltIn"`
-	Path         string            `json:"path"`
-	Source       string            `json:"source"`
-	UpdatedAt    int64             `json:"updatedAt"`
-	RiskLevel    string            `json:"riskLevel,omitempty"`
-	RiskFindings []RiskFindingWire `json:"riskFindings,omitempty"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	Version       string            `json:"version,omitempty"`
+	Enabled       bool              `json:"enabled"`
+	UserInvocable bool              `json:"userInvocable"`
+	IsOfficial    bool              `json:"isOfficial"`
+	IsBuiltIn     bool              `json:"isBuiltIn"`
+	Path          string            `json:"path"`
+	Source        string            `json:"source"`
+	UpdatedAt     int64             `json:"updatedAt"`
+	RiskLevel     string            `json:"riskLevel,omitempty"`
+	RiskFindings  []RiskFindingWire `json:"riskFindings,omitempty"`
 }
 
 // ToSummary projects a registry entry to its renderer-facing wire shape.
@@ -29,17 +30,18 @@ func ToSummary(e *SkillEntry) SkillSummaryWire {
 		risk = string(RiskSafe)
 	}
 	ws := SkillSummaryWire{
-		ID:          e.ID,
-		Name:        e.Name,
-		Description: e.Description,
-		Version:     e.Version,
-		Enabled:     e.Enabled,
-		IsOfficial:  e.IsOfficial,
-		IsBuiltIn:   e.IsBuiltIn,
-		Path:        e.Path,
-		Source:      string(e.Source),
-		UpdatedAt:   e.LoadedAt.UnixMilli(),
-		RiskLevel:   risk,
+		ID:            e.ID,
+		Name:          e.Name,
+		Description:   e.Description,
+		Version:       e.Version,
+		Enabled:       e.Enabled,
+		UserInvocable: e.UserInvocable,
+		IsOfficial:    e.IsOfficial,
+		IsBuiltIn:     e.IsBuiltIn,
+		Path:          e.Path,
+		Source:        string(e.Source),
+		UpdatedAt:     e.LoadedAt.UnixMilli(),
+		RiskLevel:     risk,
 	}
 	if len(e.Findings) > 0 {
 		ws.RiskFindings = make([]RiskFindingWire, 0, len(e.Findings))

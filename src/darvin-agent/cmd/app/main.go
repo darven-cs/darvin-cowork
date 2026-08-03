@@ -265,6 +265,7 @@ func main() {
 			ImportedFiles: importedFiles,
 			WorkspaceRoot: effectiveWorkdir,
 			Skills:        skillsResult.Registry,
+			SkillRunner:   skillsResult.Runner,
 			Mcp:           mcpRegistry,
 			Log:           log.Logger,
 		})

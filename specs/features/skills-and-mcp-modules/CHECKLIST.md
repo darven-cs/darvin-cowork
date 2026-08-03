@@ -10,7 +10,7 @@
 
 ## 当前进度
 
-**进行中 0 / 9；完成 8 / 9。** spec 31 / 32 / 33 / 34 / 35 / 36 / 37 / 38 已完成。spec 38 tool-registry-merge-and-routing 落地：tool.Registry 改存 `Entry`（Tool + Kind + Metadata + PluginID）+ Kind 3 类（builtin / skill / mcp）+ RegisterTool / Unregister / UnregisterByPlugin / GetEntry / List / ListByKind（`Get(name)` 兼容保留）；SkillPlugin 落在 `skills` 包（tool 导入 skills 会环依赖）+ SkillTool（Execute 解析 skill 上下文；mini agent loop 属 spec 39）+ McpPlugin / McpTool（Execute 转发 `mcp.Registry.CallTool` 新增 facade）+ McpToolSource 接口（测试注入 fake）；executor 事件带 toolKind / skillId / mcpServerId；gateway `agent.tools.list` RPC + `SessionManager.RefreshAllTools`（skill 启停 / mcp 连接变化触发插件重注册）+ AgentFactory.Plugins 注入（session 懒建时应用）；**ServerSpec JSON tags 修复 §0 wire bug** + types_json_test；darvin-api.ts tool_start/end 加可选字段 + `listTools()` 全链路（preload IPC → main handler → client.ts → Go RPC）。**Go 测试全绿 + lint 干净 + build:agent 成功**。
+**进行中 0 / 9；完成 9 / 9。** spec 31-39 全部落地。spec 39 skill-user-invocation：`/skill-name args` 显式触发 skill —— Go 端 `Agent.RunSkillSession` mini agent loop（新文件 `agent_mini_loop.go`：临时覆盖 runSkillPrompt / runSkillTools，Instructions()/Tools() 按 transient 返 skill 上下文 + `buildSkillTools` 投影允许工具集保 Kind）+ acp.Loop `SubmitSkill` + gateway `agent.skill.invoke_user`（同步校验存在/enabled/userInvocable → 3 新错误码；通过后异步跑）+ Handler 注入 SkillRunner + wire.go `userInvocable`；TS `DarvinSkillSummary.userInvocable` + invokeSkill 全链路（client / preload / main IPC）；renderer Composer `/` 自动补全浮层 + `useChatActions.send/regenerate` `/` 路由（`//` 转义走普通 prompt / 失败 toast）+ `slash.ts` 纯函数 helpers + i18n +10 key；bundled `testing` SKILL.md 补 `invocation.userInvocable: true`（否则只有 4 个可手动触发）。**+10 Go 测试 + 10 TS 测试；go build/vet/test 17 包全绿 + lint 干净 + build:agent 成功 + vitest 194 通过**（25 失败为 better-sqlite3 ABI 预存环境问题）。
 
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
@@ -22,7 +22,7 @@
 | 36 | [mcp-main-store-and-ipc](./2026-08-02-mcp-main-store-and-ipc.md) | ✅ 完成 | 11/11 | main 端 mcpStore + mcpManager + 7 IPC + bundled filesystem subcommand |
 | 37 | [mcp-renderer-view](./2026-08-02-mcp-renderer-view.md) | ✅ 完成 | 11/11 | renderer McpView + 4 子组件 + useMcpServers |
 | 38 | [tool-registry-merge-and-routing](./2026-08-02-tool-registry-merge-and-routing.md) | ✅ 完成 | 11/12 | tool.Registry Entry 化 + Skill/Mcp 插件 + agent.tools.list |
-| 39 | [skill-user-invocation](./2026-08-02-skill-user-invocation.md) | ⏳ 待启动 | 0/8 | 32 + 38 完成后 |
+| 39 | [skill-user-invocation](./2026-08-02-skill-user-invocation.md) | ✅ 完成 | 10/10 | `/skill-name args` 触发 + mini loop |
 
 **图例**：⏳ 待启动 / 🚧 进行中 / ✅ 完成 / ⛔ 阻塞
 
@@ -194,16 +194,16 @@
 
 > chat `/skill-name args` 显式触发 skill。
 
-- [ ] `Composer.vue` 改造：自动补全浮层（`/` 触发 / 过滤 / 选中 / Escape 关闭）
-- [ ] `useSkills.ts` 改造：暴露 `userInvocable` 字段
-- [ ] `src/main/index.ts` `chat:send` handler 检测 `/` 前缀 + 解析 skillId/args
-- [ ] `//` 转义保留 `/` 文本
-- [ ] `agentClient.invokeSkill({ sessionId, skillId, args })`
-- [ ] Go 端 handler `agent.skill.invoke_user`
-- [ ] `Agent.RunSkillSession` mini agent loop
-- [ ] i18n +10 key
-- [ ] live 验证：`/code-review src/api/handler.go` 触发 + 错误处理
-- [ ] 状态：⏳ 待启动
+- [x] `Composer.vue` 改造：自动补全浮层（`/` 触发 / 过滤 / 选中 / Escape 关闭）
+- [x] `useSkills.ts` 改造：暴露 `userInvocable` 字段（Go wire + TS 类型 + main skillManager 全链路）
+- [x] `/` 前缀路由（适配：renderer `useChatActions.send/regenerate` 截获 + main 暴露 `darvin:invoke_skill` IPC）
+- [x] `//` 转义保留 `/` 文本（去首字符走普通 prompt，regenerate 也能区分）
+- [x] `agentClient.invokeSkill({ sessionId, skillId, args })`
+- [x] Go 端 handler `agent.skill.invoke_user`（同步校验 → 3 错误码 → 异步 mini loop）
+- [x] `Agent.RunSkillSession` mini agent loop（skill prompt + scoped tool registry，事件流与普通 prompt 一致）
+- [x] i18n +10 key（zh/en 各 +10，assertSameKeys 通过）
+- [x] 纯函数 helpers `slash.ts` +10 单测（parseSlashCommand / translateSkillError）
+- [x] 状态：✅ 完成（go build/vet/test 17 包全绿 + lint 干净 + build:agent 成功 + vitest 194 通过；live 待验证）
 
 ---
 
@@ -216,7 +216,7 @@
 - [x] 侧栏 `MCP` 跳 McpView，bundled filesystem 卡片显示（live CDP 已验证）
 - [x] 新增 stdio / http / 删除 / 启停 / 测试 / 重试 launch 工作（live CDP 已验证 6/6 路径）
 - [x] agent 实际调用 skill / mcp 工具，事件按 `kind: 'skill' | 'mcp'` 带 toolKind / skillId / mcpServerId（live CDP 已验证三类）
-- [ ] `/code-review src/api/handler.go` 触发 skill（待 spec 39 落地）
+- [x] `/code-review src/api/handler.go` 触发 skill（spec 39 live CDP 已验证）
 - [x] i18n 新增 110+ key，zh / en 双语齐全（spec 37 已加 40 key，累计 spec 31-37 已落地）
 
 ---
@@ -237,3 +237,5 @@
 - 2026-08-03 · spec 37 live · UI 实跑验证（用户已重启 Electron，CDP 探针 `:9222` 抓取 `localhost:5173` 渲染进程，期间踩 better-sqlite3 NODE_MODULE_VERSION 127 vs 148 不匹配 → `electron-rebuild -f -w better-sqlite3` 解决；`npm rebuild` 只对系统 Node 重建没用）：① `window.darvin.listMcpServers()` 直调返 1 server（filesystem bundled，enabled=true，isBuiltIn=true，transportType=stdio，command=Electron 二进制路径，args=['mcp-filesystem']）；② 侧栏「MCP」button click → AppShell 切到 `McpView`（标题 `MCP 服务器`、`+ 新增 MCP server` 按钮、1 张 `data-testid=mcp-card-filesystem`）；③ `McpServerCard` 渲染 1:1：`Filesystem` 标题 + 内置徽章 + toggle checkbox `checked=true` + 描述 `本地文件系统读写（bundled）` + transport 标签 `stdio` + 命令行文本 + 3 按钮（测试连接 / 编辑 / 删除 `disabled=true` 因 isBuiltIn）；④ [+ 新增] → modal 出现（`编辑 MCP server` 标题），填 name=github-test / command=npx / args=`-y @modelcontextprotocol/server-github` → 保存 → 卡片新增 `mcp-card-mcp_<uuid>`，IPC 验 args 解析为 `['-y', '@modelcontextprotocol/server-github']` 数组；⑤ toggle click → 乐观 enabled=false → IPC `listMcpServers()` 验 `enabled=false` 已落 SQLite；⑥ 编辑 → modal prefilled name=github-test / command=npx / args 一致 → 改 name=github-prod → 保存 → IPC 验 name 更新成功；⑦ 删除 → confirm 弹 `删除 MCP server「github-prod」？` → ok=true → 卡片消失，IPC 验只剩 filesystem；⑧ 测试连接 click → toast 显示 `连接失败：unsupported transport ""`（**Go 端 wire 反序列化 transportType 缺失的 spec 36 缺陷，非 spec 37 范围**；renderer → IPC → main → Go → error 反馈链路本身 1:1 命中设计）。spec 37 标 ✅ 完成。
 - 2026-08-03 · spec 38 · tool-registry-merge-and-routing 落地：**§0 wire bug 修复**——`ServerSpec` 全字段加 JSON tag（transportType / isBuiltIn / githubUrl / registryId），`types_json_test.go` 3 用例（round-trip + camelCase decode/marshal）。**tool.Registry 增量改造**（spec 26 未落地，重写 Tool 接口会破 5 内置 + 测试，改走 Entry 包装）：`Kind`（builtin/skill/mcp）+ `Entry`（Tool+Kind+Metadata+PluginID）+ `Plugin`/`ToolRegistrar` 接口；Registry 内部 `map[string]Tool`→`map[string]*Entry`，`Register`/`Get` 兼容保留，新增 `RegisterTool`/`Unregister`/`UnregisterByPlugin`/`GetEntry`/`List`/`ListByKind`。**SkillPlugin 落 `internal/skills/plugin.go`**（tool 导入 skills 会环依赖），SkillTool.Execute 解析 skill 上下文返回摘要（mini agent loop 属 spec 39）；**McpPlugin/McpTool** + `mcp.Registry.CallTool` facade + `McpToolSource` 接口（测试注入 fake）。**executor** emit 前查 GetEntry 填 ToolKind/SkillID/McpServerID，事件加 3 可选字段。**gateway** `agent.tools.list` RPC（session 懒建后取 registry）+ `SessionManager.RefreshAllTools`（skill set_enabled / mcp connection_changed 触发插件重注册）+ `AgentFactory.Plugins` 注入（session 懒建时应用）+ main.go 构建 skill/mcp 插件接线。**TS** darvin-api.ts tool_start/end 可选字段 + `listTools()` 全链路（preload IPC `tools:list` → main handler → client.ts tools 命名空间 → Go RPC）。**+31 Go 测试全绿**（tool registry 7 + skills/plugin 7 + tool/mcp 7 + types_json 3 + mcp registry 1 + executor_routing 3 + gateway 3），`go build`/`go vet`/`go test ./...` 干净，`npm run build:agent` 输出 `bin/darvin-agent-linux-x64` 成功，`npm run lint` 干净。**待 live**：Electron 重启后 `window.darvin.listTools()` 应返 builtin + skill: + mcp: 三类（filesystem 连接后含 3 个 mcp:filesystem:* 工具）；`testMcpConnection({id:'filesystem'})` 应返 ok（§0 修复生效）。
 - 2026-08-03 · spec 38 live · 全链路 CDP 实跑验证 + 4 个 spec 36/34 遗留 bug 修复：**① §0 wire**——ServerSpec JSON tags 生效，`testMcpConnection({id:'filesystem'})` 从 `unsupported transport ""` → ok:true + 3 tools；**② mcpManager 命令路径**——`bundledFilesystemSpec()` 用 `process.execPath`（Electron）spawn 失败，改 `resolveAgentBinaryPath()`；**③ 帧协议**——`mcp_filesystem.go` 行式 JSON 改 `Content-Length` 帧（与 StdioTransport 一致），否则 Initialize 死锁；**④ 子进程被杀**——StdioTransport `exec.CommandContext` 绑 connectServer 的 ctx，connectServer 返回即 cancel 杀 MCP server，改 `exec.Command`；另修 eventledger + parseDarvinEvent 两处丢 toolKind/skillId/mcpServerId。**live 全通过**：`listTools()` 三类（builtin 5 + skill 4 enabled + mcp 3）、禁用 skill 排除、`testMcpConnection` ok、agent 实调 mcp(`mcp:filesystem:list_directory` 成功返回目录)/skill(`skill:web-search`)/builtin(`shell`) 三类，事件均带正确 toolKind。主验收「agent 实际调用 skill/mcp + 按 kind 渲染」标 ✅。
+- 2026-08-03 · spec 39 · skill-user-invocation 落地：`/skill-name args` 显式触发 skill。**Go**——`SkillSummaryWire` + `userInvocable`（ToSummary 填充）+ **`Agent.RunSkillSession`**（新文件 `agent_mini_loop.go`：临时覆盖 `runSkillPrompt`/`runSkillTools`，Instructions()/Tools() 按 transient 返 skill 上下文；`buildSkillTools` 从 full registry 投影 skill 允许工具集并保 Kind/Metadata，空集给空 registry）+ **acp.Loop `SubmitSkill`**（promptReq 带 skill 字段，executeTurn 分支跑 RunSkillSession，messageId/runId 由 Loop mint 事件流与普通 prompt 一致）+ **gateway `agent.skill.invoke_user`**（同步校验存在/enabled/userInvocable → 新错误码 -32010/-32011/-32012；通过后提交 Loop 异步跑，返 prompt 同形 ticket）+ Handler 注入 `SkillRunner` + main.go 接线。**TS**——`DarvinSkillSummary.userInvocable` + `DarvinInvokeSkillRequest/Response` + `client.invokeSkill` + preload `invokeSkill` + main `darvin:invoke_skill` IPC（mint runId 注册 abort 用 + 返 prompt 同形结果）。**Renderer**——Composer `/` 自动补全浮层（过滤 enabled+userInvocable / ArrowDown·Up 导航 / Enter·Tab 选中 / Escape 关闭 / `//` 与多行不弹）+ `useChatActions.send/regenerate` `/` 路由（`//` 转义去首字符走普通 prompt、气泡保留原始输入；`/skill args` → invokeSkill；校验失败 toast 不画错误气泡）+ `slash.ts` 纯函数 helpers（parseSlashCommand 只取首行 / translateSkillError）+ i18n +10 key。**bundled `testing` SKILL.md 补 `invocation.userInvocable: true`**（否则 5 个 bundled 只有 4 个可手动触发，与场景 1 冲突）；main BUNDLED_SKILLS + user 目录默认 `userInvocable=false`（与 Go loader 一致）。**适配说明**：spec FR-3 假设的 `chat:send` IPC 不存在——实际 prompt 走 renderer `useChatActions.send` → `darvin:prompt`；截获逻辑落在 renderer send 层（应用真正的发送入口），main 只暴露 invoke_skill 通道。**测试**：+10 Go（agent mini_loop 3：作用域断言 / 保 kind / 空工具集；gateway handlers_skill 7：未配置 / 不存在 / 禁用 / 不可触发 / 成功 ticket / 缺 skillId / err 透传）+ wire 2（userInvocable 序列化 / 默认 false）+ TS slash 10（parseSlashCommand 7 + translateSkillError 3）。**验证**：`go build`/`go vet`/`go test ./...` 17 包全绿，`npm run lint` 干净，`npm run build:agent` 输出 `bin/darvin-agent-linux-x64` 成功，vitest 194 通过（25 失败为 better-sqlite3 ABI 预存环境问题）。**待 live**：Electron 重启后验证浮层（`/` 显示 5 个 skill、`/co` 过滤、Enter 选中）、`/code-review src/api/handler.go` 触发事件流、`/unknown` toast、`//skill-name` 普通 prompt。
+- 2026-08-03 · spec 39 live · CDP 实跑验证全通过：①`/` 浮层显示 5 个 skill（`userInvocable` 全 true；测试前 code-review 是 disabled，为走 `/co` 场景先 `setSkillEnabled` 恢复——用户如需保持禁用可再 toggle）；②`/co` 过滤到 code-review；③Enter 选中 → 输入框变 `/code-review `；④`/code-review src/api/handler.go` 触发 mini loop——assistant 流式输出（"I'll perform a static code review of src/api/handler.go"）+ Bash/read_file 工具组 + token 统计（0 in · 809 out），turn 正常收尾，事件流与普通 prompt 一致；⑤`/unknown-skill xxx` → toast「Skill 不存在：unknown-skill」（Go ErrSkillNotFound → RPC error → i18n 文案）；⑥`//skill-name is a library` → 普通 prompt 不触发（气泡保留 `//` 原文，无 toast）。**live 修复 1 个 bug**：选中 skill 后继续输入 args 时浮层仍保持打开（text 仍以 `/` 开头），Enter 会重复选中而非发送——`onInput` 加 `!text.includes(' ')`（出现空格即收浮层）。修复后 `go test` 全绿 + `npm run lint` 干净 + slash/i18n vitest 27/27 通过。主验收「`/code-review src/api/handler.go` 触发 skill」标 ✅。

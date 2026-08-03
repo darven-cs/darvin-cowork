@@ -140,6 +140,14 @@ type Agent struct {
 	// them. Cleared after the run (transient, not persisted).
 	runImportedNote string
 
+	// runSkillPrompt / runSkillTools are set by RunSkillSession for the
+	// duration of a user-invoked skill's mini loop. Instructions() returns
+	// the skill's SKILL.md body and Tools() returns the scoped registry so
+	// the executor drives the loop against the skill's surface instead of
+	// the generic agent instructions. Cleared after the run.
+	runSkillPrompt string
+	runSkillTools  *tool.Registry
+
 	// msgIDSrc is wired by the ACP loop via AttachMessageIDSrc. The
 	// executor reads it through Deps.CurrentMessageID to populate the
 	// EventCommon.MessageID on every emitted event so subscribers can
@@ -268,10 +276,26 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 }
 
 func (a *Agent) Session() *session.Session   { return a.session }
-func (a *Agent) Tools() *tool.Registry       { return a.tools }
 func (a *Agent) Provider() llm.ModelProvider { return a.provider }
 func (a *Agent) ModelName() string           { return a.model.Model }
+
+// Tools returns the active tool registry. During a skill mini loop it is
+// the skill's scoped registry so the executor only sees the skill's allowed
+// surface; otherwise it is the agent's full registry.
+func (a *Agent) Tools() *tool.Registry {
+	if a.runSkillTools != nil {
+		return a.runSkillTools
+	}
+	return a.tools
+}
+
+// Instructions returns the system prompt. During a skill mini loop it is the
+// skill's SKILL.md body (self-contained); otherwise the agent instructions,
+// plus the transient imported-files note for the current prompt.
 func (a *Agent) Instructions() string {
+	if a.runSkillPrompt != "" {
+		return a.runSkillPrompt
+	}
 	if a.runImportedNote != "" {
 		return a.instructions + "\n\n" + a.runImportedNote
 	}

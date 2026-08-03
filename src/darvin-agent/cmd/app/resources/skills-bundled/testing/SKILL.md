@@ -2,6 +2,8 @@
 name: testing
 description: 给出单元测试覆盖建议
 version: 0.1.0
+invocation:
+  userInvocable: true
 ---
 
 # Testing Skill

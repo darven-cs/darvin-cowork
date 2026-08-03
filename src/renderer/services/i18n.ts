@@ -385,6 +385,16 @@ export const dictZh: Record<string, string> = {
   'mcp.update.success': '已更新 {name}',
   'mcp.update.failed': '更新失败：{error}',
   'mcp.delete.success': '已删除 {name}',
+  'slash.menu.empty': '没有可用的 skill',
+  'slash.menu.title': '技能（按 Enter 触发）',
+  'slash.error.not_found': 'Skill 不存在：{id}',
+  'slash.error.disabled': 'Skill 已禁用：{id}',
+  'slash.error.not_user_invocable': 'Skill 不可手动触发：{id}',
+  'slash.error.unknown': '触发失败：{error}',
+  'slash.invoked.title': '触发 skill：{name}',
+  'slash.invoked.args': '参数：{args}',
+  'skill.user_invocation.disabled_hint': '该 skill 不可手动触发',
+  'composer.placeholder.slash_hint': '输入 / 查看可用 skill',
 };
 
 export const dictEn: Record<string, string> = {
@@ -766,6 +776,16 @@ export const dictEn: Record<string, string> = {
   'mcp.update.success': 'Updated {name}',
   'mcp.update.failed': 'Update failed: {error}',
   'mcp.delete.success': 'Deleted {name}',
+  'slash.menu.empty': 'No skills available',
+  'slash.menu.title': 'Skills (press Enter to trigger)',
+  'slash.error.not_found': 'Skill not found: {id}',
+  'slash.error.disabled': 'Skill disabled: {id}',
+  'slash.error.not_user_invocable': 'Skill not user-invocable: {id}',
+  'slash.error.unknown': 'Failed to invoke: {error}',
+  'slash.invoked.title': 'Invoked skill: {name}',
+  'slash.invoked.args': 'Args: {args}',
+  'skill.user_invocation.disabled_hint': 'This skill cannot be manually invoked',
+  'composer.placeholder.slash_hint': 'Type / to see available skills',
 };
 
 // dev-only: zh/en 字典 key 集合必须严格一致

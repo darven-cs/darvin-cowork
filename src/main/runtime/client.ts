@@ -19,6 +19,8 @@ import type {
   DarvinAbortResponse,
   DarvinEvent,
   DarvinGetMessagesResponse,
+  DarvinInvokeSkillRequest,
+  DarvinInvokeSkillResponse,
   DarvinListSessionsResponse,
   DarvinListSkillsResponse,
   DarvinListToolsResponse,
@@ -257,6 +259,15 @@ export class AgentClient extends EventEmitter {
 
   abort(req: { sessionId: string; runId: string }): Promise<DarvinAbortResponse> {
     return this.request<DarvinAbortResponse>('agent.abort', req);
+  }
+
+  /**
+   * spec 39 — `/skill-name args` 用户显式触发。Go 端同步校验（存在 +
+   * enabled + userInvocable）失败时以 RPC error 返回，main 据此 toast；
+   * 通过后异步跑 mini agent loop，事件流跟普通 prompt 一致。
+   */
+  invokeSkill(req: DarvinInvokeSkillRequest): Promise<DarvinInvokeSkillResponse> {
+    return this.request<DarvinInvokeSkillResponse>('agent.skill.invoke_user', req);
   }
 
   /**
