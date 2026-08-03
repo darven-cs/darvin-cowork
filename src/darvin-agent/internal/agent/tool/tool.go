@@ -27,3 +27,41 @@ type Tool interface {
 	Parameters() llm.ParameterSchema
 	Execute(ctx context.Context, args map[string]any) Result
 }
+
+// Kind classifies where a tool comes from. The registry tags every entry
+// with one of these so the executor can attribute tool_start / tool_end
+// events and the renderer can route ToolCallGroup rendering.
+type Kind string
+
+const (
+	KindBuiltIn Kind = "builtin"
+	KindSkill   Kind = "skill"
+	KindMcp     Kind = "mcp"
+)
+
+// Entry is a registered tool plus its classification. Metadata carries
+// kind-specific identifiers: skillID for KindSkill, mcpServerID +
+// mcpToolName for KindMcp. PluginID names the owning plugin when the entry
+// was registered by a plugin (nil for built-ins).
+type Entry struct {
+	Tool     Tool
+	Kind     Kind
+	Metadata map[string]any
+	PluginID string
+}
+
+// Plugin contributes tools to a Registry. Register must pair with
+// Unregister so a changed source can be re-applied with a full sweep.
+type Plugin interface {
+	PluginID() string
+	Register(reg ToolRegistrar) error
+	Unregister(reg ToolRegistrar) error
+}
+
+// ToolRegistrar is the subset of Registry a plugin uses to add and remove
+// its tools. Kept separate so plugins depend on a minimal surface.
+type ToolRegistrar interface {
+	RegisterTool(t Tool, kind Kind, meta map[string]any) error
+	UnregisterTool(name string) error
+	UnregisterByPlugin(pluginID string) error
+}

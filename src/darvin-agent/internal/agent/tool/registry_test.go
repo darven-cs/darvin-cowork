@@ -62,3 +62,117 @@ func TestRegistryNilTool(t *testing.T) {
 		t.Error("Register(nil) should return error")
 	}
 }
+
+func TestRegistryRegisterToolWithKind(t *testing.T) {
+	r := NewRegistry()
+	if err := r.RegisterTool(&stubTool{name: "s:skill-a"}, KindSkill, map[string]any{"skillID": "skill-a"}); err != nil {
+		t.Fatal(err)
+	}
+	e, ok := r.GetEntry("s:skill-a")
+	if !ok {
+		t.Fatal("GetEntry(s:skill-a) missing")
+	}
+	if e.Kind != KindSkill {
+		t.Errorf("Kind = %q, want %q", e.Kind, KindSkill)
+	}
+	if e.Metadata["skillID"] != "skill-a" {
+		t.Errorf("Metadata[skillID] = %v, want skill-a", e.Metadata["skillID"])
+	}
+	if e.PluginID != "" {
+		t.Errorf("PluginID = %q, want empty", e.PluginID)
+	}
+	// Get still returns the underlying tool.
+	if r.Get("s:skill-a") == nil {
+		t.Error("Get(s:skill-a) = nil, want tool")
+	}
+}
+
+func TestRegistryRegisterToolMissingEntry(t *testing.T) {
+	r := NewRegistry()
+	if _, ok := r.GetEntry("nope"); ok {
+		t.Error("GetEntry(nope) ok, want false")
+	}
+}
+
+func TestRegistryRegisterToolDuplicate(t *testing.T) {
+	r := NewRegistry()
+	_ = r.RegisterTool(&stubTool{name: "dup"}, KindSkill, nil)
+	if err := r.RegisterTool(&stubTool{name: "dup"}, KindMcp, nil); !errors.Is(err, ErrAlreadyRegistered) {
+		t.Errorf("err = %v, want ErrAlreadyRegistered", err)
+	}
+}
+
+func TestRegistryUnregister(t *testing.T) {
+	r := NewRegistry()
+	_ = r.Register(&stubTool{name: "alpha"})
+	if err := r.Unregister("alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if r.Get("alpha") != nil {
+		t.Error("Get(alpha) after unregister != nil")
+	}
+	// Unregister is idempotent for missing names.
+	if err := r.Unregister("alpha"); err != nil {
+		t.Errorf("second unregister err = %v, want nil", err)
+	}
+}
+
+func TestRegistryUnregisterByPlugin(t *testing.T) {
+	r := NewRegistry()
+	_ = r.Register(&stubTool{name: "builtin"})
+	_ = r.RegisterTool(&stubTool{name: "skill:a"}, KindSkill, map[string]any{"pluginID": "skill"})
+	_ = r.RegisterTool(&stubTool{name: "skill:b"}, KindSkill, map[string]any{"pluginID": "skill"})
+	_ = r.RegisterTool(&stubTool{name: "mcp:c"}, KindMcp, map[string]any{"pluginID": "mcp"})
+
+	if err := r.UnregisterByPlugin("skill"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"skill:a", "skill:b"} {
+		if r.Get(name) != nil {
+			t.Errorf("Get(%s) after UnregisterByPlugin(skill) != nil", name)
+		}
+	}
+	if r.Get("mcp:c") == nil {
+		t.Error("Get(mcp:c) = nil, want surviving tool")
+	}
+	if r.Get("builtin") == nil {
+		t.Error("Get(builtin) = nil, want surviving tool")
+	}
+}
+
+func TestRegistryListByKind(t *testing.T) {
+	r := NewRegistry()
+	_ = r.Register(&stubTool{name: "shell"})
+	_ = r.RegisterTool(&stubTool{name: "skill:z"}, KindSkill, nil)
+	_ = r.RegisterTool(&stubTool{name: "skill:a"}, KindSkill, nil)
+	_ = r.RegisterTool(&stubTool{name: "mcp:x"}, KindMcp, nil)
+
+	skills := r.ListByKind(KindSkill)
+	if len(skills) != 2 {
+		t.Fatalf("len(ListByKind(skill)) = %d, want 2", len(skills))
+	}
+	if skills[0].Tool.Name() != "skill:a" || skills[1].Tool.Name() != "skill:z" {
+		t.Errorf("skill order = %q, %q, want skill:a, skill:z", skills[0].Tool.Name(), skills[1].Tool.Name())
+	}
+	if len(r.ListByKind(KindBuiltIn)) != 1 {
+		t.Errorf("len(ListByKind(builtin)) = %d, want 1", len(r.ListByKind(KindBuiltIn)))
+	}
+	if len(r.ListByKind(KindMcp)) != 1 {
+		t.Errorf("len(ListByKind(mcp)) = %d, want 1", len(r.ListByKind(KindMcp)))
+	}
+}
+
+func TestRegistryRegisterTagsBuiltInKind(t *testing.T) {
+	reg, err := NewBuiltins(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := reg.ListByKind(KindBuiltIn)
+	if len(entries) != 5 {
+		t.Fatalf("len(ListByKind(builtin)) = %d, want 5", len(entries))
+	}
+	// Every entry from NewBuiltins must be classified as a built-in.
+	if n := len(reg.List()); n != 5 {
+		t.Errorf("len(List()) = %d, want 5", n)
+	}
+}
