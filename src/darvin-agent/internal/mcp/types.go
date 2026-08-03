@@ -134,20 +134,24 @@ const (
 // ServerSpec is the user-facing description of one MCP server. The Go
 // side never mutates this — the registry copies it into a serverEntry
 // and uses the copy for everything.
+//
+// JSON tags mirror the main-side wire contract (camelCase). Without them,
+// encoding/json's case-insensitive lookup can only match fields whose Go
+// name differs by case (Transport <-> transportType are different names).
 type ServerSpec struct {
-	ID          string
-	Name        string
-	Description string
-	Enabled     bool
-	Transport   TransportType
-	Command     string
-	Args        []string
-	Env         map[string]string
-	URL         string
-	Headers     map[string]string
-	IsBuiltIn   bool
-	GitHubURL   string
-	RegistryID  string
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Enabled     bool              `json:"enabled"`
+	Transport   TransportType     `json:"transportType"`
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	IsBuiltIn   bool              `json:"isBuiltIn"`
+	GitHubURL   string            `json:"githubUrl,omitempty"`
+	RegistryID  string            `json:"registryId,omitempty"`
 }
 
 // LaunchResolution is the result of running a resolver. When Status is

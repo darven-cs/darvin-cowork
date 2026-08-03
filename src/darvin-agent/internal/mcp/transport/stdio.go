@@ -46,7 +46,10 @@ func (s *StdioTransport) Connect(ctx context.Context) error {
 		return nil
 	}
 
-	cmd := exec.CommandContext(ctx, s.Command, s.Args...) //nolint:gosec // spawn point: config-driven MCP server command from user.
+	// 子进程生命周期由 transport 自己通过 Close 管理(SIGTERM→SIGKILL),
+	// 不绑定 caller 的 ctx —— connectServer 的 ctx 在连接建好后就会被 cancel,
+	// 绑上会导致刚连上的 MCP server 立刻被杀。
+	cmd := exec.Command(s.Command, s.Args...) //nolint:gosec // spawn point: config-driven MCP server command from user.
 	cmd.Env = append([]string{}, os.Environ()...)
 	for k, v := range s.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)

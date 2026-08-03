@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,17 +12,24 @@ import (
 
 func sendAndRecv(t *testing.T, in string, root string) []rpcResponse {
 	t.Helper()
-	var out strings.Builder
-	runFilesystemMCPWithIO(strings.NewReader(in), &out, root)
-	scanner := bufio.NewScanner(strings.NewReader(out.String()))
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	var framed bytes.Buffer
+	if err := writeFrame(&framed, []byte(in)); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	runFilesystemMCPWithIO(&framed, &out, root)
 	var got []rpcResponse
-	for scanner.Scan() {
-		var r rpcResponse
-		if err := json.Unmarshal(scanner.Bytes(), &r); err != nil {
-			t.Fatalf("unmarshal response: %v (line=%q)", err, scanner.Text())
+	r := bufio.NewReader(&out)
+	for {
+		body, err := readFrame(r)
+		if err != nil {
+			break
 		}
-		got = append(got, r)
+		var resp rpcResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("unmarshal response: %v (body=%q)", err, body)
+		}
+		got = append(got, resp)
 	}
 	return got
 }

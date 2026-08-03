@@ -5,25 +5,27 @@
 // write_file)。Root 目录由 `DARVIN_MCP_FS_ROOT` env 决定,缺省 cwd。
 //
 // 协议:严格遵循 spec 36 与 MCP 2024-11-05 Initialize 协议;request 与
-// response 都按行用 json.Marshal 写出;tool result 走 MCP `content`
-// 数组(text 单元素)。所有路径在执行前 realpath 校验,必须在 root
-// 内,避免 path traversal。
+// response 都走 LSP 风格 `Content-Length: N\r\n\r\n` 帧(与 registry 的
+// StdioTransport 一致)。tool result 走 MCP `content` 数组(text 单元素)。
+// 所有路径在执行前 realpath 校验,必须在 root 内,避免 path traversal。
 
 package main
 
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
+	JSONRPC string           `json:"jsonrpc"`
 	ID      *json.RawMessage `json:"id,omitempty"`
 	Method  string           `json:"method"`
 	Params  json.RawMessage  `json:"params,omitempty"`
@@ -55,8 +57,8 @@ func runFilesystemMCP() {
 }
 
 // runFilesystemMCPWithIO 把 IO 抽成参数便于测试。root 为空时用 cwd。
-// 协议:每行一个 JSON-RPC request,响应同样按行写出;notifications
-// (id 缺失) 不写响应。
+// 协议:LSP 风格 Content-Length 帧——每个 request 一帧,响应一帧;
+// notifications(id 缺失) 不写响应。
 func runFilesystemMCPWithIO(in io.Reader, out io.Writer, root string) {
 	if strings.TrimSpace(root) == "" {
 		var err error
@@ -71,15 +73,17 @@ func runFilesystemMCPWithIO(in io.Reader, out io.Writer, root string) {
 		writeErrorTo(out, nil, rpcErrInternal, "cannot resolve root: "+err.Error())
 		return
 	}
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
+	for {
+		body, err := readFrame(in)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			writeErrorTo(out, nil, rpcErrParse, "frame error: "+err.Error())
+			return
 		}
 		var req rpcRequest
-		if err := json.Unmarshal(line, &req); err != nil {
+		if err := json.Unmarshal(body, &req); err != nil {
 			writeErrorTo(out, nil, rpcErrParse, "parse error: "+err.Error())
 			continue
 		}
@@ -125,6 +129,48 @@ func runFilesystemMCPWithIO(in io.Reader, out io.Writer, root string) {
 	}
 }
 
+// readFrame reads one LSP-style frame: `Content-Length: N\r\n\r\n` headers
+// followed by exactly N bytes of body. EOF before a frame returns io.EOF.
+func readFrame(r io.Reader) ([]byte, error) {
+	br := bufio.NewReader(r)
+	contentLength := 0
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			break
+		}
+		const prefix = "Content-Length: "
+		if strings.HasPrefix(line, prefix) {
+			n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, prefix)))
+			if err != nil {
+				return nil, fmt.Errorf("bad Content-Length %q: %w", line, err)
+			}
+			contentLength = n
+		}
+	}
+	if contentLength <= 0 {
+		return nil, errors.New("missing Content-Length header")
+	}
+	body := make([]byte, contentLength)
+	if _, err := io.ReadFull(br, body); err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+// writeFrame writes one LSP-style frame around body.
+func writeFrame(w io.Writer, body []byte) error {
+	if _, err := fmt.Fprintf(w, "Content-Length: %d\r\n\r\n", len(body)); err != nil {
+		return err
+	}
+	_, err := w.Write(body)
+	return err
+}
+
 func writeResponse(resp rpcResponse) {
 	writeResponseTo(os.Stdout, resp)
 }
@@ -135,8 +181,7 @@ func writeResponseTo(out io.Writer, resp rpcResponse) {
 		writeErrorTo(out, nil, rpcErrInternal, "marshal: "+err.Error())
 		return
 	}
-	out.Write(b)
-	out.Write([]byte{'\n'})
+	_ = writeFrame(out, b)
 }
 
 func writeError(id *json.RawMessage, code int, msg string) {
@@ -213,8 +258,8 @@ func handleToolsList() map[string]any {
 }
 
 type toolCallParams struct {
-	Name    string          `json:"name"`
-	Args    json.RawMessage `json:"arguments"`
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"arguments"`
 }
 
 func handleToolsCall(params json.RawMessage, root string) (map[string]any, *rpcError) {
