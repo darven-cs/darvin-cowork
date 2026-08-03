@@ -212,6 +212,22 @@ const api: DarvinApi = {
       ipcRenderer.off(DarvinPushEvent.SkillsChanged, wrap);
     };
   },
+
+  // spec 33 — install / uninstall / upgrade / getDetails 的 main 端目前是占位
+  // （另一个 spec 才真接 scanner + 物理 install），renderer 走 IPC 路径已经
+  // 跑通，落地后只需把 main 端 handler 实现替换为真接 scanner 即可。
+  async installSkill(req): Promise<{ skill: DarvinSkillSummary; riskLevel: 'safe' | 'low' | 'medium' | 'high' | 'critical' }> {
+    return ipcRenderer.invoke('darvin:install_skill', req);
+  },
+  async uninstallSkill(req: { skillId: string }): Promise<{ ok: boolean }> {
+    return ipcRenderer.invoke('darvin:uninstall_skill', req);
+  },
+  async upgradeSkill(req: { skillId: string }): Promise<{ skill: DarvinSkillSummary }> {
+    return ipcRenderer.invoke('darvin:upgrade_skill', req);
+  },
+  async getSkillDetails(req: { skillId: string }): Promise<{ skill: DarvinSkillSummary; body: string; scripts?: Array<{ path: string; content: string }> }> {
+    return ipcRenderer.invoke('darvin:get_skill_details', req);
+  },
 };
 
 contextBridge.exposeInMainWorld('darvin', api);

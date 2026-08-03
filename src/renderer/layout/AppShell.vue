@@ -38,6 +38,7 @@ import ChatView from '../views/ChatView.vue';
 import ExpertSuiteView from '../views/ExpertSuiteView.vue';
 import SettingsView from '../views/SettingsView.vue';
 import SearchView from '../views/SearchView.vue';
+import SkillsView from '../views/SkillsView.vue';
 import PlaceholderView from '../views/PlaceholderView.vue';
 import { useSidebar, COMPACT_SIDEBAR_WIDTH } from '../composables/useSidebar';
 import { useSidePanel } from '../composables/useSidePanel';
@@ -74,6 +75,7 @@ const currentView = computed(() => {
     case 'suite':    return ExpertSuiteView;
     case 'settings': return SettingsView;
     case 'search':   return SearchView;
+    case 'skills':   return SkillsView;
     case 'home':
     default:         return HomeView;
   }
@@ -81,7 +83,6 @@ const currentView = computed(() => {
 
 const PLACEHOLDERS: Record<string, { titleKey: string; descKey: string; icon: string }> = {
   scheduled: { titleKey: 'sidebar.nav.scheduled', descKey: 'sidebar.placeholder.scheduled.desc', icon: 'clock' },
-  skills:    { titleKey: 'sidebar.nav.skill',     descKey: 'sidebar.placeholder.skills.desc',    icon: 'star' },
   mcp:       { titleKey: 'sidebar.nav.mcp',       descKey: 'sidebar.placeholder.mcp.desc',       icon: 'link' },
 };
 
@@ -89,7 +90,7 @@ const isPlaceholderView = computed(() => viewMode.mode.value in PLACEHOLDERS);
 const placeholder = computed(() => PLACEHOLDERS[viewMode.mode.value]);
 
 function navigateTo(target: string) {
-  if (target === 'home' || target === 'chat' || target === 'suite' || target === 'settings' || target === 'search') {
+  if (target === 'home' || target === 'chat' || target === 'suite' || target === 'settings' || target === 'search' || target === 'skills') {
     viewMode.navigate(target as ViewMode);
   } else if (target in PLACEHOLDERS) {
     viewMode.navigate(target as ViewMode);

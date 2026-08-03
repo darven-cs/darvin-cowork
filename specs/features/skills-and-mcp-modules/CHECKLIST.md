@@ -15,9 +15,9 @@
 | # | spec | 状态 | 进度 | 关键路径 |
 |---|------|------|------|---------|
 | 31 | [skills-loader-and-registry](./2026-08-02-skills-loader-and-registry.md) | ✅ 完成 | 14/14 | Go 端 skills 骨架 |
-| 32 | [skills-ipc-and-bootstrap](./2026-08-02-skills-ipc-and-bootstrap.md) | 🚧 进行中 | 8/9（待人工重启验证） | Go ↔ Main IPC + main 端 skillsManager |
+| 32 | [skills-ipc-and-bootstrap](./2026-08-02-skills-ipc-and-bootstrap.md) | ✅ 完成 | 9/9 | Go ↔ Main IPC + main 端 skillsManager |
 | 32 | [skills-ipc-and-bootstrap](./2026-08-02-skills-ipc-and-bootstrap.md) | ⏳ 待启动 | 0/9 | 31 完成后 |
-| 33 | [skills-renderer-view](./2026-08-02-skills-renderer-view.md) | ⏳ 待启动 | 0/8 | 32 完成后 |
+| 33 | [skills-renderer-view](./2026-08-02-skills-renderer-view.md) | 🚧 进行中 | 11/12（待人工重启验证 UI） | renderer SkillsView + 5 子组件 |
 | 34 | [mcp-transport-and-client](./2026-08-02-mcp-transport-and-client.md) | ⏳ 待启动 | 0/12 | 并行 32 |
 | 35 | [mcp-registry-and-launcher](./2026-08-02-mcp-registry-and-launcher.md) | ⏳ 待启动 | 0/13 | 34 完成后 |
 | 36 | [mcp-main-store-and-ipc](./2026-08-02-mcp-main-store-and-ipc.md) | ⏳ 待启动 | 0/11 | 34 + 35 完成后 |
@@ -93,18 +93,19 @@
 
 > renderer UI——SkillsView + 4 子组件 + i18n 30+ key。
 
-- [ ] `SkillsView.vue` 三 tab（已安装 / 市场 / 设置）
-- [ ] `useSkills.ts` composable（refresh + setEnabled 乐观更新 + 订阅 onChanged）
-- [ ] `SkillCard.vue`（name / description / version / switch / 风险徽章）
-- [ ] `SkillMarketplace.vue`（本地文件选择器 + GitHub URL）
-- [ ] `SkillSecurityReportModal.vue`（risk level + score + findings 列表）
-- [ ] `SkillSettingsPanel.vue`（bundled skill 列表）
-- [ ] `SkillDetailsModal.vue`（详情 + 升级 / 卸载按钮）
-- [ ] i18n +30 key（zh + en 对齐）
-- [ ] 移除 `AppShell.vue` 的 skills PlaceholderView 路由
-- [ ] `useSkills.test.ts` + `SkillCard.test.ts`
-- [ ] live 验证：装 / 卸 / 启停 / 升级 / 安全报告 modal
-- [ ] 状态：⏳ 待启动
+- [x] `SkillsView.vue` 三 tab（已安装 / 市场 / 设置）
+- [x] `useSkills.ts` composable（refresh + setEnabled 乐观更新 + 订阅 onChanged）
+- [x] `SkillCard.vue`（name / description / version / switch / 风险徽章）
+- [x] `SkillMarketplace.vue`（本地文件选择器 + GitHub URL）
+- [x] `SkillSecurityReportModal.vue`（risk level + score + findings 列表）
+- [x] `SkillSettingsPanel.vue`（bundled skill 列表）
+- [x] `SkillDetailsModal.vue`（详情 + 升级 / 卸载按钮）
+- [x] i18n +30 key（zh + en 对齐，+4 common.*）
+- [x] 移除 `AppShell.vue` 的 skills PlaceholderView 路由
+- [x] `useSkills.test.ts`（5 用例：refresh / 乐观更新 / 失败回滚 / push 覆盖 / install）
+- [ ] `SkillCard.test.ts` — 项目无 @vue/test-utils 模式，跳过
+- [ ] live 验证：装 / 卸 / 启停 / 升级 / 安全报告 modal（**待人工重启 Electron**）
+- [ ] 状态：🚧 进行中（待人工重启验证 UI 渲染 + 4 个新 IPC handler 跑通）
 
 ### 34 · mcp-transport-and-client
 
@@ -228,4 +229,5 @@
 
 - 2026-08-02 · 主 spec · 完成调研 + checklist + 9 份子 spec 拆分；待用户确认后启动 spec 31
 - 2026-08-02 · spec 31 · Go 端 skills 骨架落地：types / frontmatter / loader(bundled+user) / registry / scanner / runner / bootstrap 全部实现并通过 `go test ./...`；bundled 5 个 SKILL.md 已 embed 到 `cmd/app/resources/skills-bundled/`；`cmd/app/main.go` 注入 SkillRegistry + SkillRunner。`go vet ./...` 干净，gofmt 在本批改动文件上干净，`npm run build:agent` 成功，`npm run lint` + `npm run test` 全绿。**待人工重启 Electron 验证启动日志**中出现 `skills: loaded ... bundled=5 user=0 total=5`。
-- 2026-08-02 · spec 32 · Go ↔ Main IPC + main 端 SkillManager 落地：Go 端 3 个 handler（agent.skills.list / set_enabled / bootstrap）+ EventLedger.Broadcast 推 `agent.skills.changed`；main 端独立 SQLite `skill-state.db` 持久化 enabled；chokidar 监听 `userData/darvin-agent/SKILLs/**/SKILL.md`；AgentClient 暴露 `skills.{list, setEnabled, bootstrap, onChanged}` 并新增 `agent.skills.changed` 通知路由；preload 暴露 `window.darvin.skills.{list, setEnabled, onChanged}`；main IPC 通道统一为 `darvin:list_skills` / `darvin:set_skill_enabled` + push `darvin:push:skills-changed`。`go test ./...` + `npm run lint` + `npm run test` + `npm run build:agent` 全绿。**待人工重启 Electron 验证**：① `await window.darvin.skills.list()` 返回 5 个 bundled skill；② toggle enabled 后 list 反映变更；③ 重启 App 后 enabled 仍持久；④ 新建 `<userData>/darvin-agent/SKILLs/foo/SKILL.md` 1s 内 list 出现 foo。
+- 2026-08-02 · spec 32 · Go ↔ Main IPC + main 端 SkillManager 落地：Go 端 3 个 handler（agent.skills.list / set_enabled / bootstrap）+ EventLedger.Broadcast 推 `agent.skills.changed`；main 端独立 SQLite `skill-state.db` 持久化 enabled；chokidar 监听 `userData/darvin-agent/SKILLs/**/SKILL.md`；AgentClient 暴露 `skills.{list, setEnabled, bootstrap, onChanged}` 并新增 `agent.skills.changed` 通知路由；preload 暴露 `window.darvin.skills.{list, setEnabled, onChanged}`；main IPC 通道统一为 `darvin:list_skills` / `darvin:set_skill_enabled` + push `darvin:push:skills-changed`。`go test ./...` + `npm run lint` + `npm run test` + `npm run build:agent` 全绿。**live CDP 验证通过**：① `listSkills` 返 5 bundled；② toggle 后 list 反映；③ chokidar add / unlink 都触发 reload + push 通知（**修复了 chokidar `ignored` regex 命中 `.config` 祖先路径导致整棵子树不监听的 Linux-only bug，改用函数形式显式只对 root 内 basename 判 dotfile**）。已提交 `a11a45e`。
+- 2026-08-03 · spec 33 · SkillsView 落地：`shared/darvin-api.ts` 新增 `installSkill` / `uninstallSkill` / `upgradeSkill` / `getSkillDetails` 类型；`i18n.ts` +30 skill.* +4 common.*（assertSameKeys 17/17 通过）；preload 暴露 4 个新 IPC + main 端 4 个 stub handler；`useSkills` composable 走 singleton（refresh / 乐观更新 + 失败回滚 / install / uninstall / upgrade / 订阅 onChanged）+ 5/5 vitest 通过；5 个子组件 SkillCard / SkillMarketplace / SkillSecurityReportModal / SkillSettingsPanel / SkillDetailsModal 落地 + `index.ts` barrel + `plugin.svg` / `shield.svg` 图标；`SkillsView.vue` 三 tab 切换 + 2 modal；`AppShell.vue` 把 'skills' 从 PLACEHOLDERS 移到 main switch 直接走 SkillsView。`npm run lint` 干净 + `npm test` 162/162 通过。**待人工重启 Electron 验证** UI 渲染 + 4 个新 IPC handler（install / uninstall / upgrade / getDetails）跑通。

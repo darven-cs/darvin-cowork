@@ -507,6 +507,56 @@ export interface DarvinSetSkillEnabledResponse {
   ok: boolean;
 }
 
+export type DarvinSkillRiskLevel = 'safe' | 'low' | 'medium' | 'high' | 'critical';
+
+export type DarvinSkillFindingSeverity = 'info' | 'warning' | 'danger' | 'critical';
+
+export interface DarvinSkillFinding {
+  dimension: string;
+  severity: DarvinSkillFindingSeverity;
+  message: string;
+  file: string;
+  line: number;
+}
+
+export interface DarvinInstallSkillRequest {
+  /** 本地 SKILL.md 绝对路径 或 GitHub owner/repo 或 https URL。 */
+  source: string;
+}
+
+export interface DarvinInstallSkillResponse {
+  skill: DarvinSkillSummary;
+  riskLevel: DarvinSkillRiskLevel;
+  riskScore?: number;
+  riskFindings?: DarvinSkillFinding[];
+}
+
+export interface DarvinUninstallSkillRequest {
+  skillId: string;
+}
+
+export interface DarvinUninstallSkillResponse {
+  ok: boolean;
+}
+
+export interface DarvinUpgradeSkillRequest {
+  skillId: string;
+}
+
+export interface DarvinUpgradeSkillResponse {
+  skill: DarvinSkillSummary;
+}
+
+export interface DarvinGetSkillDetailsRequest {
+  skillId: string;
+}
+
+export interface DarvinGetSkillDetailsResponse {
+  skill: DarvinSkillSummary;
+  body: string;
+  scripts?: Array<{ path: string; content: string }>;
+}
+
 /** spec 12 — 选取待附加文件（只记路径，不复制）。 */
 export interface DarvinPickAttachmentsResponse {
   attachments: DarvinAttachmentRef[];
@@ -634,4 +684,16 @@ export interface DarvinApi {
   setSkillEnabled(req: DarvinSetSkillEnabledRequest): Promise<DarvinSetSkillEnabledResponse>;
   /** spec 32 — 订阅 skills 列表变更（bootstrap 完成、fs watcher 触发、Go 端 emit changed）。 */
   onSkillsChanged(handler: (skills: DarvinSkillSummary[]) => void): () => void;
+
+  /** spec 33 — 装一个 skill（本地 SKILL.md 或 GitHub URL）。main 端做安全扫描后
+   *  返回 riskLevel；medium 时 renderer 弹安全报告 modal 让用户确认。v0 main 端
+   *  该方法为占位（另一个 spec 才真接 scanner），本方法目前由 main stub 返回
+   *  「规划中」语义——renderer 按 riskLevel='safe' 直接装即可。 */
+  installSkill(req: DarvinInstallSkillRequest): Promise<DarvinInstallSkillResponse>;
+  /** spec 33 — 卸载一个 user skill。bundled skill 由 main 端拒绝。 */
+  uninstallSkill(req: DarvinUninstallSkillRequest): Promise<DarvinUninstallSkillResponse>;
+  /** spec 33 — 升级一个 user skill 到新版本（GitHub 源；v0 stub）。 */
+  upgradeSkill(req: DarvinUpgradeSkillRequest): Promise<DarvinUpgradeSkillResponse>;
+  /** spec 33 — 拉取 skill 详情（SKILL.md body + 同目录脚本），用于详情 modal。 */
+  getSkillDetails(req: DarvinGetSkillDetailsRequest): Promise<DarvinGetSkillDetailsResponse>;
 }

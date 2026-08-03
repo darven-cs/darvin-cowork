@@ -38,7 +38,9 @@ import type {
   DarvinDeleteSessionResponse,
   DarvinDestroyArtifactPreviewSessionResponse,
   DarvinGetMessagesResponse,
+  DarvinGetSkillDetailsResponse,
   DarvinImportFilesResponse,
+  DarvinInstallSkillResponse,
   DarvinListImportedFilesResponse,
   DarvinListSessionsResponse,
   DarvinListSkillsResponse,
@@ -65,6 +67,8 @@ import type {
   DarvinSetSkillEnabledResponse,
   DarvinSetWorkspaceResult,
   DarvinSwitchSessionResponse,
+  DarvinUninstallSkillResponse,
+  DarvinUpgradeSkillResponse,
   DarvinWorkspaceInfoResponse,
   DarvinWorkspaceRootResult,
 } from '../shared/darvin-api';
@@ -615,6 +619,63 @@ ipcMain.handle(
       return { ok: false };
     }
     return skillManager.setEnabled(req);
+  },
+);
+
+// spec 33 — install / uninstall / upgrade / getDetails 全部是 v0 stub。
+// 真正的「扫描 SKILL.md + 复制进 userData/darvin-agent/SKILLs + 走 fs
+// watcher reload」是另一个 spec 的范围；这里只暴露 IPC 通道让 renderer
+// 流程跑通，UI 上提示「未实现」。这样 SkillsView 的 install / upgrade /
+// 详情 modal 可以完整联调，等 main 端真接 scanner 时只换 handler 体。
+ipcMain.handle(
+  'darvin:install_skill',
+  async (_e, req: { source: string }): Promise<DarvinInstallSkillResponse> => {
+    const source = req?.source ?? '';
+    // stub:返回一个空 skill 记录让 renderer 走完「成功」分支
+    return {
+      skill: {
+        id: `pending-${Date.now()}`,
+        name: source.split('/').pop() || 'pending',
+        description: `未实现：从 ${source} 装`,
+        enabled: true,
+        isOfficial: false,
+        isBuiltIn: false,
+        path: source,
+        source: 'user',
+        updatedAt: Date.now(),
+      },
+      riskLevel: 'safe',
+    };
+  },
+);
+
+ipcMain.handle(
+  'darvin:uninstall_skill',
+  async (_e, req: { skillId: string }): Promise<DarvinUninstallSkillResponse> => {
+    if (!req?.skillId) return { ok: false };
+    return { ok: true };
+  },
+);
+
+ipcMain.handle(
+  'darvin:upgrade_skill',
+  async (_e, req: { skillId: string }): Promise<DarvinUpgradeSkillResponse> => {
+    if (!req?.skillId) throw new Error('skillId required');
+    const cur = await skillManager.list();
+    const found = cur.skills.find((s) => s.id === req.skillId);
+    if (!found) throw new Error(`skill not found: ${req.skillId}`);
+    return { skill: { ...found, version: '0.0.0+stub' } };
+  },
+);
+
+ipcMain.handle(
+  'darvin:get_skill_details',
+  async (_e, req: { skillId: string }): Promise<DarvinGetSkillDetailsResponse> => {
+    if (!req?.skillId) throw new Error('skillId required');
+    const cur = await skillManager.list();
+    const found = cur.skills.find((s) => s.id === req.skillId);
+    if (!found) throw new Error(`skill not found: ${req.skillId}`);
+    return { skill: found, body: `# ${found.name}\n\n${found.description}\n` };
   },
 );
 
