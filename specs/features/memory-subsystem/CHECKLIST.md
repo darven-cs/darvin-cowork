@@ -165,11 +165,11 @@ Reference: LobsterAI `openclawMemoryFile.ts` + `openclawConfigSync.ts` + `cowork
 
 变更较大，建议按以下 4 个 spec 拆分：
 
-1. **`2026-MM-DD-memory-core-design.md`**：A1-A11, B1-B7, C1-C4, D1-D5, F1-F4 — 核心存储 + 文件 + 工具 + 配置
-2. **`2026-MM-DD-memory-extract-cleanup-design.md`**：E1-E10 — 提取 / 过滤 / 近重复合并 / 启动清扫
-3. **`2026-MM-DD-memory-bootstrap-agents-design.md`**：C5-C6, I9, J1-J5, K1-K3 — bootstrap 迁移 + per-agent workspace + 启动迁移
-4. **`2026-MM-DD-memory-renderer-design.md`**：H1-H7 — Settings tab 化 + Embedding / Dreaming 独立 section + i18n
-5. **`2026-MM-DD-memory-dreaming-design.md`**（可选第四份）：Dreaming 独立功能（参考 LobsterAI dreaming spec 8 大节）
+1. **`2026-08-04-memory-core-design.md`**：A1-A11, B1-B7, C1-C4, D1-D5, F1-F4 — 核心存储 + 文件 + 工具 + 配置
+2. **`2026-08-04-memory-extract-cleanup-design.md`**：E1-E10 — 提取 / 过滤 / 近重复合并 / 启动清扫
+3. **`2026-08-04-memory-bootstrap-agents-design.md`**：C5-C6, I9, J1-J5, K1-K3 — bootstrap 迁移 + per-agent workspace + 启动迁移
+4. **`2026-08-04-memory-renderer-design.md`**：H1-H7 — Settings tab 化 + Embedding / Dreaming 独立 section + i18n
+5. **`2026-08-04-memory-dreaming-design.md`**（参见 `specs/features/commercialization-roadmap/P3-2026-08-04-memory-dreaming-design.md`）：Dreaming 独立功能（商业化路线图新增）
 
 各 spec 互不阻塞，可以并行实现 + 单独 review。
 

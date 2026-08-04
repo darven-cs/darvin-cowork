@@ -7,10 +7,14 @@
 | 文件 | 覆盖范围 | CHECKLIST 章节 |
 |---|---|---|
 | [CHECKLIST.md](./CHECKLIST.md) | 全局 checklist + 风险 + spec 拆分 | A-M 全部 |
-| [2026-MM-DD-memory-core-design.md](./2026-MM-DD-memory-core-design.md) | 存储 + 文件格式 + FTS5 + bootstrap + config + tools + IPC | A, B, C1-C4, D, F, I1-I8 |
-| [2026-MM-DD-memory-extract-cleanup-design.md](./2026-MM-DD-memory-extract-cleanup-design.md) | auto-extract pipeline + near-dup 合并 + 启动清扫 + pre-compaction 防护 | E, G |
-| [2026-MM-DD-memory-bootstrap-agents-design.md](./2026-MM-DD-memory-bootstrap-agents-design.md) | SQLite 迁移 + workspace 迁移 + AGENTS.md 用户区 + FTS trigram 升级 + per-agent 钩子 | C5-C6, I9, J, K |
-| [2026-MM-DD-memory-renderer-design.md](./2026-MM-DD-memory-renderer-design.md) | Settings 3 tab UI + 13 字段统一持久化 + i18n | H |
+| [2026-08-04-memory-core-design.md](../commercialization-roadmap/P3-2026-08-04-memory-core-design.md) | 存储 + 文件格式 + FTS5 + bootstrap + config + tools + IPC | A, B, C1-C4, D, F, I1-I8 |
+| [2026-08-04-memory-extract-cleanup-design.md](../commercialization-roadmap/P3-2026-08-04-memory-extract-cleanup-design.md) | auto-extract pipeline + near-dup 合并 + 启动清扫 + pre-compaction 防护 | E, G |
+| [2026-08-04-memory-bootstrap-agents-design.md](../commercialization-roadmap/P3-2026-08-04-memory-bootstrap-agents-design.md) | SQLite 迁移 + workspace 迁移 + AGENTS.md 用户区 + FTS trigram 升级 + per-agent 钩子 | C5-C6, I9, J, K |
+| [2026-08-04-memory-renderer-design.md](../commercialization-roadmap/P3-2026-08-04-memory-renderer-design.md) | Settings 3 tab UI + 13 字段统一持久化 + i18n | H |
+
+> 路线图追踪：[`specs/features/commercialization-roadmap/CHECKLIST.md`](../commercialization-roadmap/CHECKLIST.md)
+> 当前状态：沿用既有内容；文件名为本次从 `2026-MM-DD-*` 规范化为 `2026-08-04-*` 的新文件名，不重写正文。
+> 商业化路线图引用参见上方「路线图追踪」一行。
 
 ## 实现顺序（建议）
 
