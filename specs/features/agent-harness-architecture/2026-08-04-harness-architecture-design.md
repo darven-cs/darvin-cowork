@@ -38,46 +38,70 @@ darvin-cowork 当前 agent runtime 的根本问题:**Agent 类过胖 + 没有 ba
 
 ## 2. 改造后的 4 层架构
 
+```mermaid
+flowchart TD
+    subgraph L4["Layer 4 · Gateway（Electron 主进程调用方）"]
+        G1["chat.send / handlePrompt"]
+        G2["① 查 HarnessRegistry，按 sessionKey 选 harness"]
+        G3["② harness.RunAttempt(attemptParams)"]
+        G4["③ 订阅 EventBus → 转发 WebSocket"]
+        G1 --> G2 --> G3 --> G4
+    end
+
+    subgraph L3["Layer 3 · Harness（本次新增 internal/harness/）"]
+        H0["Harness interface · 9 capability"]
+        H1["runAttempt（必选，主路径）"]
+        H2["finalizeSettledTurn / compact / classify"]
+        H3["runSideQuestion / sessionFork"]
+        H4["reset / dispose（lifecycle 钩子）"]
+        HR["Registry（进程级 Map）"]
+        HS["Selection（5 维评分）"]
+        HP["Runtime Plugin（动态加载）"]
+        H0 --> H1 & H2 & H3 & H4
+    end
+
+    subgraph L2["Layer 2 · Builtin Harness"]
+        B1["BuiltinEmbeddedHarness（本次新增）"]
+        B2["BuiltinCliHarness（未来，子进程 backend）"]
+    end
+
+    subgraph L1["Layer 1 · Agent Runtime（瘦身）"]
+        A1["internal/agents/agent.go ~300 行（从 532 减）"]
+        A2["executor.RunConversation（1245 行，不动）"]
+        A3["ctx engine / tools / store / event / queue / session（不动）"]
+        A1 --> A2 --> A3
+    end
+
+    L4 --> H0
+    HR -.注册.-> B1 & B2
+    HS -.选择.-> HR
+    HP -.注入.-> HR
+    H1 --> B1
+    B1 --> A1
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Layer 4: Gateway (Electron 主进程调用方)                                │
-│   src/gateway/server-methods/chat.ts → chat.send                        │
-│   internal/gateway/handlers.go:handlePrompt                            │
-│   ↓                                                                       │
-│   ① 查 HarnessRegistry, 选 harness (per-sessionKey)                     │
-│   ② 调 harness.RunAttempt(attemptParams)                                 │
-│   ③ 订阅 event bus, 转发到 WebSocket 客户端                              │
-└─────────────────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Layer 3: Harness (本次新增, src/agents/harness/ ↔ internal/harness/)     │
-│   AgentHarness interface (9 capability):                                │
-│     - runAttempt          (必选, 主路径)                                 │
-│     - finalizeSettledTurn (可选)                                         │
-│     - compact             (可选)                                         │
-│     - classify            (可选)                                         │
-│     - runSideQuestion     (可选)                                         │
-│     - sessionFork         (可选)                                         │
-│     - reset / dispose     (lifecycle 钩子)                              │
-│   + Registry (进程级 Symbol-backed Map)                                  │
-│   + Selection (支持/优先级/能力匹配 5 维度)                               │
-│   + Runtime Plugin (动态加载)                                             │
-└─────────────────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Layer 2: Builtin Harness                                                  │
-│   BuiltinEmbeddedHarness (本次新增)                                     │
-│   ↓ 调用: Agent.Run / Agent.Prompt (瘦身后的 Agent)                       │
-│   BuiltinCliHarness (未来加, OpenClaw codex harness 同款)               │
-└─────────────────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Layer 1: Agent Runtime (瘦身)                                            │
-│   internal/agents/agent.go: ~300 行 (从 532 减)                          │
-│   ↓ 调用: executor.RunConversation (不变)                                │
-│   executor (1245 行, 不动)                                                │
-│   ctx engine / tools / store / event / queue / session (不动)            │
-└─────────────────────────────────────────────────────────────────────────┘
+
+### 2.1 一次 prompt 的调用链
+
+```mermaid
+sequenceDiagram
+    participant UI as Renderer
+    participant GW as Gateway handlePrompt
+    participant REG as harness.Registry + Selection
+    participant HN as BuiltinEmbeddedHarness
+    participant AG as Agent（瘦身后）
+    participant EX as executor.RunConversation
+    participant BUS as EventBus
+
+    UI->>GW: agent.prompt（RPC 不变）
+    GW->>REG: Select(sessionKey, provider, priority…)
+    REG-->>GW: Harness
+    GW->>HN: RunAttempt(attemptParams)
+    HN->>AG: Run / Prompt
+    AG->>EX: RunConversation（turn loop 不动）
+    EX-->>BUS: chunk / tool / usage events
+    BUS-->>GW: 订阅转发
+    GW-->>UI: WebSocket event（协议不变）
+    HN->>HN: finalizeSettledTurn / compact（可选 capability）
 ```
 
 ## 3. 与 OpenClaw 的逐文件对应

@@ -17,63 +17,39 @@
 
 ## 2. 实施顺序
 
-```
-Phase 0 (本文档)
-   ↓
-Phase 1: spec 01  ←  harness/ skeleton
-   ↓
-   ┌────────────┐
-   ↓            ↓
-Phase 2: 02  Phase 3: 03  (并行)
-   ↓            ↓
-   └────┬───────┘
-        ↓
-Phase 4: 05  (tool bridge,需 01+02)
-        ↓
-Phase 5: 06  (ctx engine,需 02+05)
-        ↓
-Phase 6: 04  (gateway 接入,需 01+02+03)
-        ↓
-Phase 7:  (可选,cli demo 验证)
-```
+`Phase 0 → Phase 1 (01) → Phase 2/3 (02 ∥ 03) → Phase 4 (05) → Phase 5 (06) → Phase 6 (04) → Phase 7 (可选 cli demo)`
 
-实际节奏:**Phase 1 → Phase 2/3 (可同 PR 拆分) → Phase 4 → Phase 5 → Phase 6**。Phase 6 必须最后,因为它把所有前面接好。
+实际节奏:**Phase 1 → Phase 2/3 (可同 PR 拆分) → Phase 4 → Phase 5 → Phase 6**。Phase 6 必须最后,因为它把所有前面接好。完整依赖见下方 §3。
 
 ## 3. 依赖关系图
 
-```
-                ┌─────────────────────────────────────┐
-                │  00 总览(无依赖)                      │
-                └──────────────┬──────────────────────┘
-                               ↓
-                ┌─────────────────────────────────────┐
-                │  01 Harness Core                      │
-                │  (registry, types, lifecycle, support)│
-                └──────┬──────────────────────┬────────┘
-                       ↓                      ↓
-        ┌────────────────────────┐ ┌────────────────────────┐
-        │  02 Agent Refactor     │ │  03 Selection + Plugin │
-        │  (perm, msgid, runtime,│ │  (5 维评分, plugin     │
-        │   usage 子包)          │ │   动态加载)            │
-        └──────┬─────────────────┘ └──────┬─────────────────┘
-               ↓                          ↓
-               └──────────┬───────────────┘
-                          ↓
-                ┌────────────────────────┐
-                │  05 Tool Bridge         │
-                │  (bridge + middleware) │
-                └──────────┬─────────────┘
-                           ↓
-                ┌────────────────────────┐
-                │  06 ctx Engine 启用    │
-                │  (assembler + skills)  │
-                └──────────┬─────────────┘
-                           ↓
-                ┌────────────────────────┐
-                │  04 Gateway 接入        │
-                │  (handlePrompt 改走    │
-                │   harness.RunAttempt) │
-                └────────────────────────┘
+```mermaid
+flowchart TD
+    S00["00 总览<br/>Phase 0 · 风险 0"]
+    S01["01 Harness Core<br/>registry / types / lifecycle / support<br/>Phase 1 · 低"]
+    S02["02 Agent Refactor<br/>perm / msgid / runtime / usage 子包<br/>Phase 2 · 中"]
+    S03["03 Selection + Plugin<br/>5 维评分 + 动态加载<br/>Phase 3 · 中"]
+    S05["05 Tool Bridge<br/>bridge + middleware<br/>Phase 4 · 中"]
+    S06["06 ctx Engine 启用<br/>assembler + compact<br/>Phase 5 · 高"]
+    S04["04 Gateway 接入<br/>handlePrompt → harness.RunAttempt<br/>Phase 6 · 高"]
+    S07["（可选）BuiltinCliHarness demo<br/>Phase 7 · 低"]
+
+    S00 --> S01
+    S01 --> S02
+    S01 --> S03
+    S02 --> S05
+    S03 --> S04
+    S05 --> S06
+    S06 --> S04
+    S02 --> S04
+    S04 --> S07
+
+    classDef high fill:#ffe0e0,stroke:#c00
+    classDef mid fill:#fff4d6,stroke:#c90
+    classDef low fill:#e6f5e6,stroke:#2a2
+    class S06,S04 high
+    class S02,S03,S05 mid
+    class S00,S01,S07 low
 ```
 
 ## 4. 与现有 spec 的关系
