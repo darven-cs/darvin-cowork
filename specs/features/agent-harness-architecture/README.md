@@ -1,55 +1,63 @@
 # Harness Architecture — README
 
-> 7 个 spec 的总索引 + 实施顺序 + 依赖关系
+> 8 个 spec 的总索引 + 实施顺序 + 依赖关系
 
 ## 1. 文件列表
 
 | # | 文件 | 关注点 | 状态 |
 |---|---|---|---|
-| 00 | `2026-08-04-harness-architecture-design.md` | 总览 + 架构图 | 草案 v1 |
-| 01 | `2026-08-04-harness-core-interface.md` | Harness interface + Registry | 草案 v1 |
+| 00 | `2026-08-04-harness-architecture-design.md` | 总览 + 架构图 | 草案 v2 |
+| 01 | `2026-08-04-harness-core-interface.md` | Harness interface + Registry + Policy + Lifecycle | **已实现**(as-built,部分结论被 07 修正) |
 | 02 | `2026-08-04-agent-refactor.md` | Agent 拆分 | 草案 v1 |
-| 03 | `2026-08-04-selection-and-plugin.md` | Selection + Plugin | 草案 v1 |
+| 03 | `2026-08-04-selection-and-plugin.md` | Selection + Plugin | 草案 v1(§2.4 待对齐) |
 | 04 | `2026-08-04-gateway-integration.md` | Gateway 接入 | 草案 v1 |
 | 05 | `2026-08-04-tool-surface-bridge.md` | Tool bridge + middleware | 草案 v1 |
 | 06 | `2026-08-04-ctx-engine-binding.md` | ctx engine 启用 | 草案 v1 |
-| - | `CHECKLIST.md` | 实施 checklist | 草案 v1 |
+| 07 | `2026-08-04-harness-core-corrections.md` | **对照 OpenClaw 复核后的 13 处修正** | 草案 v1 |
+| - | `CHECKLIST.md` | 实施 checklist | Phase 1 已勾完 |
 
 ## 2. 实施顺序
 
-`Phase 0 → Phase 1 (01) → Phase 2/3 (02 ∥ 03) → Phase 4 (05) → Phase 5 (06) → Phase 6 (04) → Phase 7 (可选 cli demo)`
+`Phase 0 → Phase 1 (01) → Phase 1.5 (07) → Phase 2/3 (02 ∥ 03) → Phase 4 (05) → Phase 5 (06) → Phase 6 (04) → Phase 7 (可选 cli demo)`
 
-实际节奏:**Phase 1 → Phase 2/3 (可同 PR 拆分) → Phase 4 → Phase 5 → Phase 6**。Phase 6 必须最后,因为它把所有前面接好。完整依赖见下方 §3。
+实际节奏:**Phase 1 → Phase 1.5 → Phase 2/3 (可同 PR 拆分) → Phase 4 → Phase 5 → Phase 6**。
+
+Phase 1.5 是 Phase 1 落地后对照 OpenClaw 源码复核补出来的,**它的 P0 四项(C1–C5)必须在 Phase 3 之前完成**:spec 03 的评分模型与 spec 06 的 ctx engine 绑定都直接建在这几个语义上,建错了后面两个 phase 会一起返工。此刻 `internal/harness/` 还没有任何 import 方,改动成本最低。
+
+Phase 6 必须最后,因为它把所有前面接好。完整依赖见下方 §3。
 
 ## 3. 依赖关系图
 
 ```mermaid
 flowchart TD
-    S00["00 总览<br/>Phase 0 · 风险 0"]
-    S01["01 Harness Core<br/>registry / types / lifecycle / support<br/>Phase 1 · 低"]
+    S00["00 总览<br/>Phase 0 · 风险 0 · ✅"]
+    S01["01 Harness Core<br/>types / registry / policy / support / lifecycle<br/>Phase 1 · 低 · ✅"]
+    S07["07 Harness 修正<br/>选择语义 / host capability / lifecycle 断言<br/>Phase 1.5 · 低 · P0 阻塞 03·06"]
     S02["02 Agent Refactor<br/>perm / msgid / runtime / usage 子包<br/>Phase 2 · 中"]
     S03["03 Selection + Plugin<br/>5 维评分 + 动态加载<br/>Phase 3 · 中"]
     S05["05 Tool Bridge<br/>bridge + middleware<br/>Phase 4 · 中"]
     S06["06 ctx Engine 启用<br/>assembler + compact<br/>Phase 5 · 高"]
     S04["04 Gateway 接入<br/>handlePrompt → harness.RunAttempt<br/>Phase 6 · 高"]
-    S07["（可选）BuiltinCliHarness demo<br/>Phase 7 · 低"]
+    S08["（可选）BuiltinCliHarness demo<br/>Phase 7 · 低"]
 
     S00 --> S01
-    S01 --> S02
-    S01 --> S03
+    S01 --> S07
+    S07 --> S02
+    S07 --> S03
     S02 --> S05
     S03 --> S04
     S05 --> S06
+    S07 --> S06
     S06 --> S04
     S02 --> S04
-    S04 --> S07
+    S04 --> S08
 
     classDef high fill:#ffe0e0,stroke:#c00
     classDef mid fill:#fff4d6,stroke:#c90
     classDef low fill:#e6f5e6,stroke:#2a2
     class S06,S04 high
-    class S02,S03,S05 mid
-    class S00,S01,S07 low
+    class S02,S03,S05,S07 mid
+    class S00,S01,S08 low
 ```
 
 ## 4. 与现有 spec 的关系
@@ -88,11 +96,12 @@ flowchart TD
 
 | Phase | 风险 | 缓解 |
 |---|---|---|
-| 1 | 低(纯新加,不动旧) | 既有 test 0 改动 |
+| 1 | 低(纯新加,不动旧) | ✅ 既有 test 0 改动 0 失败,harness 不依赖任何 `internal/` 包 |
+| 1.5 | 低(仍无 import 方) | 13 条修正逐条对应一个回归 test;P0 四项阻塞 Phase 3 |
 | 2 | 中(大改 Agent) | 既有 test 必须 0 失败,字段一一对应迁移 |
-| 3 | 中(Selection 评分复杂) | 测试覆盖 negative case |
+| 3 | 中(Selection 评分复杂) | 测试覆盖 negative case;评分模型须先经 Phase 1.5 校正 |
 | 4 | 低(轻改动 executor) | ResultTransformer optional,nil 时跟现在一样 |
-| 5 | **高**(ctx engine 真启用) | 独立 spec,独立可回滚,启用前 100% 测试 |
+| 5 | **高**(ctx engine 真启用) | 独立 spec,独立可回滚,启用前 100% 测试;依赖 1.5 的 host capability |
 | 6 | **高**(全栈改动) | 既有 test 0 失败,新增集成 test |
 
 ## 7. 成功度量
@@ -102,18 +111,22 @@ flowchart TD
 | Public API 数 | Agent 30+ → ≤ 19 | grep `^func (a \*Agent) [A-Z]` |
 | Agent.go 行数 | 532 → ≤ 300 | wc -l |
 | Test 覆盖率 | 新增 ≥ 80% | go test -cover |
-| Test 总数 | 既有 70+ → ≥ 130 | go test -v |
+| Test 总数 | 既有 70+ → ≥ 145 | go test -v |
 | `lint-agents-boundaries` | PASS | make lint-agents-boundaries |
 | 启动延迟增加 | < 5% | smoke test 前后对比 |
 | 内存增量 | < 10MB | pprof heap diff |
+| 与 OpenClaw 的语义偏移 | spec 07 的 13 条清零 | 逐条回归 test |
 
 ## 8. 后续 spec(本 spec 不覆盖,留作未来)
 
 1. **`internal/agentloop/` rename** — 把 `internal/acp/` 整体改名为 `internal/agentloop/`,因为它已经不是"ACP"(协议)而是"agent loop"(turn queue 抽象)
 2. **BuiltinCliHarness** — 真 CLI 子进程 backend,类似 OpenClaw codex harness
-3. **`sessionFork` capability** — OpenClaw 的 session fork 完整实现
+3. **`sessionFork` capability** — OpenClaw 的 session fork 完整实现(含 `upstreamKinds` 与 4 个失败码,见 spec 07 §6)
 4. **multi-session 并发调度** — 跨 session 的 lane controller
 5. **harness.runSideQuestion** — 单独的回答小问题(不跑完整 turn loop)
+6. **auth / provider spec** — 解锁 spec 07 §6 挂起的 `RuntimeArtifact` / `AuthBinding` / `authBootstrap` / `PrepareAuthSupport` / `PrepareRouteSupport`
+
+spec 07 §6 是"已知缺失但暂不做"的**唯一登记处**,新发现的缺口往那里记,不要散落在各 spec。
 
 ## 9. 联系方式
 

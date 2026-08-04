@@ -125,7 +125,7 @@ func (f *AgentFactory) NewAcpSession(sessionID string) (*AcpSession, error) {
 
 func (f *AgentFactory) resolveHarness() (harness.Harness, error) {
     if f.HarnessID != "" {
-        h, ok := harness.GetHarness(f.HarnessID)
+        h, ok := harness.Get(f.HarnessID)
         if !ok { return nil, fmt.Errorf("harness %q not registered", f.HarnessID) }
         return h, nil
     }
@@ -268,12 +268,32 @@ factory := &acp.AgentFactory{
     ConfigRef:  cfg,           // 传 cfg 用于 selection
 }
 
-// 注册 builtin harness
-harness.RegisterHarness(harness.NewEmbeddedHarness(), "")
-// 未来: harness.RegisterHarness(harness.NewCliHarness(...), "cli")
+// 注册 builtin harness。harness 包不持有 agent 引用,能力通过闭包注入
+// (spec 01 §7),闭包由 wiring 层持有 factory / sessionmgr。
+harness.MustRegister(harness.NewEmbedded(harness.EmbeddedConfig{
+    Run: func(ctx context.Context, p harness.RunAttemptParams) (*harness.AttemptResult, error) {
+        // 把 p 转成 acp.PromptRequest,驱动对应 session 的 Loop
+    },
+}), "")
+// 未来: harness.MustRegister(harness.NewCliHarness(...), "cli")
 
 sessions := gateway.NewSessionManager(gateway.WithAgentFactory(factory), ...)
 ```
+
+关闭路径同样要接上 —— spec 07 C8 之前 `Harness.Dispose` 没有任何调用方,进程退出时 harness 不会被拆:
+
+```go
+// gateway 关闭 / 进程退出时
+defer func() {
+    if err := harness.DisposeAll(context.Background()); err != nil {
+        log.Warn("harness dispose failed", "err", err)
+    }
+}()
+```
+
+`DisposeAll` 对每个 harness 单独收敛错误(`errors.Join`),一个失败不阻断其余。
+
+embedded harness **不设** `harness.SetObserver`(spec 07 C10):它内部的 `Agent.Run` 已经在发 `RunStartEvent` / `RunEndEvent`,再设一个 Observer 会让订阅者收到重复语义。Observer 留给未来的 CLI / plugin harness。
 
 ## 6. 不动的东西
 
@@ -338,7 +358,7 @@ $ git commit -m "feat(gateway): route prompts through Harness abstraction
 - AgentFactory 新增 HarnessID + ConfigRef 字段,resolveHarness() 选 harness
 - AcpSession 持 Harness 引用,Loop.executeTurn 调 harness.RunAttempt
 - SessionEntry 新增 Harness 字段
-- main.go 启动时 RegisterHarness(embedded)
+- main.go 启动时 Register(embedded)
 
 RPC 协议不变,EventBus 协议不变,数据库 schema 不变。
 
@@ -362,3 +382,4 @@ Spec: specs/features/agent-harness-architecture/04-gateway-integration.md"
 - **03 spec**: Selection 在 factory.resolveHarness 调,本 spec 是它的**第一个真实消费者**
 - **05 spec**: Tool bridge 接 harness 和 agent,本 spec **不直接调** tool bridge
 - **06 spec**: ctx engine 接 harness 的 Compact capability,本 spec **不调** Compact
+- **07 spec**: 关闭路径调 `DisposeAll`(C8);embedded 不设 `Observer`(C10);`RunAttemptParams.ContextEngine` 由本 spec 从 session 状态填入(C5)

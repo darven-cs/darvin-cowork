@@ -2,8 +2,16 @@
 
 > 状态: 草案 v1 · 2026-08-04
 > 父 spec: `00-harness-architecture-design.md`
-> 前置: `01-harness-core-interface.md`, `02-agent-refactor.md`, `05-tool-surface-bridge.md`
+> 前置: `01-harness-core-interface.md`, **`2026-08-04-harness-core-corrections.md`(spec 07 C4/C5)**, `02-agent-refactor.md`, `05-tool-surface-bridge.md`
 > 输出: `internal/agents/ctxengine/` 改造 + `agent.Agent` 改造
+
+> ⚠️ spec 01 §11 称 `Capabilities.ContextEngineHost` 对本 spec「已就位」——**不成立**。
+> 已实现的是 engine id 白名单且空为放行(fail-open),而本 spec 需要区分的是
+> 「某个 host 能不能做 assemble-before-prompt / compact」。OpenClaw 的 generic CLI
+> host 恰恰只有 bootstrap / after-turn / maintain 三个动词,没有这两个。
+> 先落 spec 07 C4(能力动词集 + 按 operation 超集检查)与 C5(lifecycle 断言),
+> 否则本 spec 启用 assembler 后,一个托管不了 assemble-before-prompt 的 harness
+> 会被静默放行。
 
 ## 1. 目标
 
@@ -241,17 +249,23 @@ if assemblerEnabled {
 
 ### 4.5 harness.Compact 接入
 
+> ⚠️ 下方写法早于 spec 01 实施。实际 Compact 是 `EmbeddedConfig.Compact` 钩子,
+> 由 wiring 层传闭包;`agentsBySession` 归闭包持有,不在 harness 包里。
+> 调用侧走 `harness.Compact(ctx, h, params)` helper(自带 Implements 校验)。
+> `CompactParams` 目前只有 `{SessionID, TargetTokens}`,`AutoTrigger` 需要本
+> spec 实施时补进 spec 01 的类型。
+
 ```go
-// internal/harness/builtin-embedded.go
-func (h *embeddedHarness) Compact(ctx, params) (*CompactResult, error) {
+// wiring 层(cmd/app),闭进 EmbeddedConfig.Compact
+func(ctx context.Context, params harness.CompactParams) (*harness.CompactResult, error) {
     // 拿到对应 session 的 Agent
-    a := h.agentsBySession[params.SessionID]
+    a := agentsBySession[params.SessionID]
     if a == nil { return nil, errors.New("session not found") }
 
     if !params.AutoTrigger {
         // 手动:用户主动请求,允许 skip
         res, err := a.Assembler().Compact(ctx, ...)
-        return &CompactResult{...}, err
+        return &harness.CompactResult{...}, err
     }
     // 自动:由 executor 在 token 超 budget 时调
     res, err := a.Assembler().CompactIfNeeded(ctx, ...)
@@ -306,7 +320,7 @@ $ go test -count=1 -short ./internal/agents/...
 
 ```bash
 $ git add internal/agents/ctxengine/ internal/agents/agent.go internal/agents/executor/
-$ git add internal/harness/builtin-embedded.go
+$ git add internal/harness/builtin_embedded.go
 $ go test -count=1 -short ./...
 $ go test -count=1 ./internal/agents/... ./internal/harness/...
 $ git commit -m "feat(ctx-engine): wire up Assembler + AvailableSkills + harness.Compact
@@ -317,7 +331,7 @@ $ git commit -m "feat(ctx-engine): wire up Assembler + AvailableSkills + harness
   真渲染到 system prompt
 - internal/agents/agent.go: 注入 skills + mcp registry,新增 ListSummaries
 - internal/agents/executor/executor.go: token 超 budget 主动触发 compact
-- internal/harness/builtin-embedded.go: Compact capability 走 DefaultAssembler
+- internal/harness/builtin_embedded.go: Compact capability 走 DefaultAssembler
 
 Config 改动:agents.defaults.assembler_enabled = true(从 false)
 
@@ -352,3 +366,4 @@ Spec: specs/features/agent-harness-architecture/06-ctx-engine-binding.md"
 - **03 spec**: Selection 不直接用 ctx engine
 - **04 spec**: Gateway 调 harness.Compact,本 spec 是它的**第一个真实消费者**
 - **05 spec**: Tool result middleware 配合本 spec 的 ToolResultMaxBytes 真正生效
+- **07 spec**: C4 提供 host capability 动词集与按 operation 的超集检查,C5 让 lifecycle 每次 attempt 都断言。本 spec 落地时须给 embedded 声明它实际提供的动词(至少 `bootstrap` / `assemble-before-prompt` / `after-turn` / `maintain` / `compact`),并为 `OpCompact` 与 `OpAgentRun` 分别声明 engine 的 requiredCapabilities。

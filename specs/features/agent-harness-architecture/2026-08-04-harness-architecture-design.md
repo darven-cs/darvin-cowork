@@ -1,6 +1,6 @@
 # 00 — Harness Architecture 总览
 
-> 状态: 草案 v1 · 2026-08-04
+> 状态: 草案 v2 · 2026-08-04(Phase 1 实施后回写)
 > 范围: 整个 `internal/agents/` 包 + `internal/acp/` 包 + `internal/gateway/`
 > 目标: 将 darvin-cowork 的 agent runtime 重构为 OpenClaw 风格的 harness 架构
 
@@ -49,7 +49,7 @@ flowchart TD
     end
 
     subgraph L3["Layer 3 · Harness（本次新增 internal/harness/）"]
-        H0["Harness interface · 9 capability"]
+        H0["Harness interface · 必选 8 方法 + 6 可选 capability"]
         H1["runAttempt（必选，主路径）"]
         H2["finalizeSettledTurn / compact / classify"]
         H3["runSideQuestion / sessionFork"]
@@ -108,26 +108,31 @@ sequenceDiagram
 
 | OpenClaw | darvin-cowork 新位置 | 工作量 |
 |---|---|---|
-| `src/agents/harness/types.ts` (340) | `internal/harness/types.go` | ~200 行 |
-| `src/agents/harness/registry.ts` (108) | `internal/harness/registry.go` | ~80 行 |
-| `src/agents/harness/selection.ts` (847) | `internal/harness/selection.go` | ~450 行 |
-| `src/agents/harness/lifecycle.ts` (~600) | `internal/harness/lifecycle.go` | ~350 行 |
-| `src/agents/harness/policy.ts` (220) | `internal/harness/policy.go` | ~150 行 |
-| `src/agents/harness/support.ts` (274) | `internal/harness/support.go` | ~180 行 |
-| `src/agents/harness/builtin-openclaw.ts` (82) | `internal/harness/builtin-embedded.go` | ~70 行 |
-| `src/agents/harness/runtime-plugin.ts` (310) | `internal/harness/runtime-plugin.go` | ~180 行 |
+| `src/agents/harness/types.ts` (340) | `internal/harness/types.go` | 424 行 ✅ |
+| `src/agents/harness/registry.ts` (108) | `internal/harness/registry.go` | 135 行 ✅ |
+| `src/agents/harness/selection.ts` (847) | `internal/harness/support.go`(Rank)+ `selection.go`(spec 03) | 137 行 ✅ + ~450 行待做 |
+| `src/agents/harness/lifecycle.ts` (~600) | `internal/harness/lifecycle.go` | 166 行 ✅ |
+| `src/agents/harness/policy.ts` (220) | `internal/harness/policy.go` | 71 行 ✅ |
+| `src/agents/harness/support.ts` (274) | 并入 `internal/harness/support.go` | ✅ |
+| `src/agents/harness/builtin-openclaw.ts` (82) | `internal/harness/builtin_embedded.go` | 112 行 ✅ |
+| `src/agents/harness/runtime-plugin.ts` (310) | `internal/harness/plugin/` | ~180 行 |
 | `src/agents/harness/tool-surface-bridge.ts` (234) | `internal/harness/tool-surface-bridge.go` | ~150 行 |
 | `src/agents/harness/tool-result-middleware.ts` (556) | `internal/harness/tool-result-middleware.go` | ~280 行 |
 | `src/agents/embedded-agent-runner/` 内部拆分 | `internal/agents/` 重新组织 | ~600 行新组织 + 现有 9164 行中 600 行搬迁 |
 
-**总规模估算**: +3000 ~ +4000 行 Go,迁移/重构 ~600 行,删除 ~400 行。
+不平移的两项:
+
+- **`Symbol.for` 全局注册表** — Go 单二进制里 package 级 var 本身就是进程单例,Symbol 是 Node 多份模块实例的解法,这里不存在这个问题。
+- **`RuntimeArtifact` / `AuthBinding` capability + `PrepareAuthSupport` / `PrepareRouteSupport`** — 本仓库没有 artifact binding 与 auth profile 层,等对应 spec 落地再补。
+
+**总规模估算**: +3000 ~ +4000 行 Go,迁移/重构 ~600 行,删除 ~400 行。Phase 1 实测 1045 行实现 + 1071 行测试。
 
 ## 4. 7 个子 spec 索引
 
 | # | 文件 | 关注点 | 依赖 |
 |---|---|---|---|
 | 00 | `2026-08-04-harness-architecture-design.md` (本文) | 总览 + 架构图 | - |
-| 01 | `2026-08-04-harness-core-interface.md` | 9 capability interface + Registry | 00 |
+| 01 | `2026-08-04-harness-core-interface.md` | Harness interface + Registry + Policy + Lifecycle | 00 |
 | 02 | `2026-08-04-agent-refactor.md` | Agent 内部职责拆分 | 01 |
 | 03 | `2026-08-04-selection-and-plugin.md` | Selection + Runtime Plugin | 01 |
 | 04 | `2026-08-04-gateway-integration.md` | Gateway 调用链改造 | 01, 02, 03 |
@@ -159,8 +164,9 @@ sequenceDiagram
 
 | 期 | 动作 | spec | 风险 |
 |---|---|---|---|
-| Phase 0 | 写 7 个 spec + CHECKLIST + README | 全部 | 0 (文档) |
-| Phase 1 | 加 `internal/harness/` skeleton,Registry + types + Builtin(空实现) | 01 | 低 (不接入) |
+| Phase 0 | 写 8 个 spec + CHECKLIST + README | 全部 | 0 (文档) ✅ |
+| Phase 1 | 加 `internal/harness/`:types + Registry + Policy + Support + Lifecycle + Embedded(钩子注入) | 01 | 低 (不接入) ✅ |
+| Phase 1.5 | 对照 OpenClaw 复核后的 13 处修正,P0 四项阻塞 Phase 3 | 07 | 低 (仍无 import 方) |
 | Phase 2 | `agent.Agent` 重构,内部职责拆出 5 个子模块 | 02 | 中 (大改 Agent) |
 | Phase 3 | Selection + Plugin 实现 | 03 | 中 |
 | Phase 4 | Tool bridge + middleware | 05 | 中 |
@@ -205,10 +211,12 @@ sequenceDiagram
 | `src/agents/harness/` | `internal/harness/` | 新建,顶级包,与 agents/ 平级 |
 | `src/agents/embedded-agent-runner/` | `internal/agents/` | 保留(不拆子包,内部重组) |
 | `AgentHarness` (interface) | `Harness` (interface) | 去 `Agent` 前缀,因为已经在 harness 包里 |
-| `createOpenClawAgentHarness` | `NewEmbeddedHarness` (constructor) | Go 风格 |
+| `createOpenClawAgentHarness` | `NewEmbedded` (constructor) | Go 风格 |
 | `harness.runAttempt()` | `Harness.RunAttempt()` | Go 风格 |
-| `HarnessRegistry` | `Registry` (in harness 包) | 短名 |
+| `HarnessRegistry` | 包级函数 `Register` / `Get` / `List` | 已在 harness 包里,`RegisterHarness` 结巴 |
 | `agent-runtime-plugin` | `internal/harness/plugin/` | 子包 |
+
+文件名一律用下划线(`builtin_embedded.go`),跟仓库既有的 `agent_mini_loop.go` / `text_delta_hook.go` 一致,不用 OpenClaw 的连字符。
 
 ## 11. 后续工作(本 spec 不覆盖)
 

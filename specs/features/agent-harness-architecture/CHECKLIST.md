@@ -12,35 +12,77 @@
 - [x] 写 `04-gateway-integration.md` Gateway 接入
 - [x] 写 `05-tool-surface-bridge.md` Tool bridge + middleware
 - [x] 写 `06-ctx-engine-binding.md` ctx engine 启用
+- [x] 写 `07-harness-core-corrections.md` 核心修正(Phase 1 复核后补写)
 - [x] 写本 CHECKLIST.md
 - [x] 写 README.md(实施顺序)
 
-## Phase 1 — Harness 骨架(基于 spec 01)
+## Phase 1 — Harness 骨架(基于 spec 01)· 已完成
 
 ### 文件创建
-- [ ] `internal/harness/types.go` — Harness interface + 9 capability 子类型
-- [ ] `internal/harness/registry.go` — 进程级 Symbol-backed Map
-- [ ] `internal/harness/policy.go` — HarnessPolicy 解析
-- [ ] `internal/harness/support.go` — capability matching 评分函数
-- [ ] `internal/harness/lifecycle.go` — RunAttemptWithLifecycle
-- [ ] `internal/harness/builtin-embedded.go` — NewEmbeddedHarness stub
-- [ ] `internal/harness/symbol/symbol.go` — Symbol-backed 全局 var 工具
+- [x] `internal/harness/types.go` — Harness interface + 6 个可选 capability interface + 参数/结果类型
+- [x] `internal/harness/registry.go` — 进程级注册表(package var,非 Symbol)
+- [x] `internal/harness/policy.go` — Policy 解析 + Resolve
+- [x] `internal/harness/support.go` — capability 校验 + Rank 评分
+- [x] `internal/harness/lifecycle.go` — RunAttemptWithLifecycle + per-session generation
+- [x] `internal/harness/builtin_embedded.go` — NewEmbedded(EmbeddedConfig)
+- [x] ~~`internal/harness/symbol/symbol.go`~~ — **取消**:Go 单二进制里 package 级 var 本身就是进程单例,Symbol 是 Node 专有问题
 
 ### 测试
-- [ ] `internal/harness/registry_test.go` (6 case)
-- [ ] `internal/harness/support_test.go` (4 case)
-- [ ] `internal/harness/lifecycle_test.go` (6 case)
-- [ ] `internal/harness/builtin-embedded_test.go` (2 case)
-- [ ] `internal/harness/harness_test.go` 集成 (1 case)
+- [x] `internal/harness/registry_test.go` (11 case)
+- [x] `internal/harness/support_test.go` (14 case)
+- [x] `internal/harness/policy_test.go` (8 case)
+- [x] `internal/harness/lifecycle_test.go` (12 case)
+- [x] `internal/harness/harness_test.go` fixture + embedded 集成 (6 case)
+
+### 验证
+- [x] `go build ./...` PASS
+- [x] `go vet ./...` PASS
+- [x] `go test -count=1 -race -cover ./internal/harness/...` PASS(51 case,覆盖率 92.9%)
+- [x] 现有既有 test 0 改动 0 失败(21 个包全 PASS)
+- [x] `go list -deps ./internal/harness` 不含任何 `internal/` 包
+
+### 提交
+- [ ] `git commit -m "feat(harness): add Harness interface + Registry + Lifecycle skeleton"`
+
+## Phase 1.5 — Harness 核心修正(基于 spec 07)· **Phase 3 之前必须完成 P0**
+
+> 对照 OpenClaw 源码复核 Phase 1 产出后发现的 13 处偏移。
+> `internal/harness/` 目前零 import 方,改动成本此刻最低。
+
+### P0(阻塞 spec 03 / 06)
+- [ ] C1 `support.go` / `types.go` / `builtin_embedded.go` — 删 `AutoSelectionHint.Priority`,`Rank` 不再叠加 bonus;`registry.go:autoPriority` 移除,`List()` 改纯 id 升序
+- [ ] C2 `types.go` — `Matches` → `Eligible`,区分 nil(探测)/ 空切片(explicit-only,硬拒);`builtin_embedded.go` 无 Providers 时返回 nil hint
+- [ ] C3 `types.go` — 新增 `normalizeProviderID` / `containsProvider`,白名单比较前归一
+- [ ] C4 `types.go` — `ContextEngineHost` 改能力动词集 + `ContextEngineRequirement` + `MissingHostCapabilities`;`SupportContext.ContextEngine` 换类型
+- [ ] C5 `lifecycle.go` — `RunAttemptParams` 加 `ContextEngine`,`RunAttemptWithLifecycle` 每次 attempt 断言 host 支持(nil / legacy 放行)
+
+### P1
+- [ ] C6 `lifecycle.go` — 分类前清除陈旧 classification;裸 type assertion 换 `Implements`
+- [ ] C7 `types.go` / `lifecycle.go` — `AttemptResult.HarnessID`,三条路径都写
+- [ ] C8 `registry.go` — `ResetAll` / `DisposeAll` 扇出,`errors.Join` 聚合不吞错
+- [ ] C9 `types.go` — `SettledTurnResult` 补 AssistantText / Usage / TranscriptOwned / IdempotencyKey / MessageIndex
+- [ ] C10 `lifecycle.go` — 可选 `Observer` 钩子 + `SetObserver`,默认 nil 不发任何事件
+
+### P2
+- [ ] C11 `types.go` / `lifecycle.go` — `Superseded` 注释收窄到 reset 语义,注明机制为本仓库自创
+- [ ] C12 `registry.go` — `Register` 校验 `h.PluginID()` 与 ownerPluginID 一致性
+- [ ] C13 `types.go` — `Capabilities.DeliveryDefaults`(spec 03 第 5 维依赖)
+
+### 测试
+- [ ] `support_test.go` 新增 7 case(C1 回归 / nil vs 空切片 / 大小写 / host capability 3 类)
+- [ ] `lifecycle_test.go` 新增 5 case(host 断言 / legacy 豁免 / 陈旧分类 / HarnessID / Observer)
+- [ ] `registry_test.go` 新增 4 case(扇出容错 / 错误聚合 / PluginID 冲突 / List 排序)
+- [ ] 既有 53 case 全过(`support_test.go` 部分断言随 C1/C2/C4 调整,属预期)
 
 ### 验证
 - [ ] `go build ./...` PASS
 - [ ] `go vet ./...` PASS
-- [ ] `go test -count=1 -short ./internal/harness/...` 全 PASS(≥ 19 case)
-- [ ] 现有 70+ 既有 test 0 改动 0 失败
+- [ ] `go test -count=1 -race -cover ./internal/harness/...` PASS(≥ 69 case,覆盖率 ≥ 92.9%)
+- [ ] 既有 test 0 改动 0 失败
+- [ ] `go list -deps ./internal/harness` 仍不含任何 `internal/` 包(C4 的常量必须包内自声明)
 
 ### 提交
-- [ ] `git commit -m "feat(harness): add Harness interface + Registry + Lifecycle skeleton"`
+- [ ] `git commit -m "fix(harness): align selection and capability semantics with reference design"`
 
 ## Phase 2 — Agent 重构(基于 spec 02)
 
@@ -72,7 +114,7 @@
 ## Phase 3 — Selection + Plugin(基于 spec 03)
 
 ### 文件创建
-- [ ] `internal/harness/selection.go` — 5 维评分 + Decision tree
+- [ ] `internal/harness/selection.go` — 在 Rank 现有 5 类过滤之上扩展评分维度 + Decision tree
 - [ ] `internal/harness/plugin/plugin.go` — Plugin struct
 - [ ] `internal/harness/plugin/manager.go` — Manager 单例
 - [ ] `internal/harness/selection_test.go` (10 case)
@@ -81,7 +123,8 @@
 ### 验证
 - [ ] `go build ./...` PASS
 - [ ] 既有 test 0 失败
-- [ ] Phase 1+2+3 test 总数 ≥ 53
+- [ ] Phase 1.5 的 P0 四项(C1–C5)已完成 —— 否则评分模型建在错误的地基上
+- [ ] Phase 1+1.5+2+3 test 总数 ≥ 103(Phase 1 已有 53,Phase 1.5 +16)
 - [ ] 0 业务代码改动(纯加 harness/ 子包)
 
 ### 提交
@@ -128,8 +171,9 @@
 - [ ] 超 budget 时调 `d.CompactHarness()(harness.Compact)`
 
 ### harness.Compact 实现
-- [ ] `internal/harness/builtin-embedded.go:embeddedHarness.Compact` 走 assembler
-- [ ] `internal/harness/builtin-embedded_test.go` 加 Compact 测试
+- [ ] `internal/harness/builtin_embedded.go:EmbeddedConfig.Compact` 钩子在 wiring 层传入走 assembler 的闭包
+- [ ] 调用方走 `harness.Compact(ctx, h, params)` helper(自带 Implements 校验)
+- [ ] `internal/harness/harness_test.go` 加 Compact 端到端测试
 
 ### config 改动
 - [ ] `config.yaml`:`agents.defaults.assembler_enabled: true`(从 false 改)
@@ -163,8 +207,9 @@
 - [ ] `internal/gateway/sessionmgr.go:attachAcpLocked` 复制 Harness 引用
 
 ### main.go 改造
-- [ ] 启动时 `harness.RegisterHarness(harness.NewEmbeddedHarness(...), "")`
+- [ ] 启动时 `harness.MustRegister(harness.NewEmbedded(harness.EmbeddedConfig{Run: ...}), "")`
 - [ ] 构造 `acp.AgentFactory` 时填 ConfigRef = cfg
+- [ ] 关闭路径调 `harness.DisposeAll(ctx)`(spec 07 C8 提供)
 
 ### 验证
 - [ ] `go build ./...` PASS
@@ -187,8 +232,9 @@
 
 - [ ] `go build ./...` PASS
 - [ ] `go vet ./...` PASS
-- [ ] `go test -count=1 -short ./...` PASS(预计总 test 数 ≥ 130,既有 70+ + 新增 60+)
+- [ ] `go test -count=1 -short ./...` PASS(预计总 test 数 ≥ 145,既有 70+ + 新增 75+)
 - [ ] `make lint-agents-boundaries` PASS(harness 不 import agents 的具体子包)
+- [ ] spec 07 的 13 条修正全部落地(P0 四项在 Phase 3 之前,P1/P2 可延后但不得跳过)
 - [ ] smoke test:`client.prompt → LLM first chunk` 延迟增加 < 5%
 - [ ] 内存增量 < 10MB
 - [ ] 端到端覆盖:AvailableSkills / AvailableMcp / Auto compact / Manual compact / Steer / Abort

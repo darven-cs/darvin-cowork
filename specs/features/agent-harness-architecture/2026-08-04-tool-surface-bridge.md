@@ -173,15 +173,22 @@ func Chain(mws ...ResultMiddleware) ResultMiddleware {
 
 ### 5.1 5.1 harness 初始化时挂 middleware
 
+> ⚠️ 下方签名早于 spec 01 实施。实际 `NewEmbedded(cfg EmbeddedConfig) Harness`,
+> harness 包**不 import `internal/agents`**,也不持有 `*agent.Registry`。
+> surface 要么由 wiring 层构造后闭进 `EmbeddedConfig.Run`,要么给
+> `EmbeddedConfig` 加一个 surface 字段 —— 本 spec 实施时二选一。
+
 ```go
-// internal/harness/builtin-embedded.go
-func NewEmbeddedHarness(agentRegistry *agent.Registry) Harness {
+// wiring 层(cmd/app),不是 internal/harness/
+func newEmbeddedHarness(agentRegistry *agent.Registry) harness.Harness {
     reg := agentRegistry.Tools()                  // 拿 tool registry
     surface := tooldridge.New(reg).WithMiddleware(tooldridge.DefaultMiddleware()...)
 
-    return &embeddedHarness{
-        surface: surface,                          // 注入
-    }
+    return harness.NewEmbedded(harness.EmbeddedConfig{
+        Run: func(ctx context.Context, p harness.RunAttemptParams) (*harness.AttemptResult, error) {
+            // surface 被闭进来
+        },
+    })
 }
 
 type embeddedHarness struct {

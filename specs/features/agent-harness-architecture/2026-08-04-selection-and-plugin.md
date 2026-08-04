@@ -2,8 +2,12 @@
 
 > 状态: 草案 v1 · 2026-08-04
 > 父 spec: `00-harness-architecture-design.md`
-> 前置: `01-harness-core-interface.md`
+> 前置: `01-harness-core-interface.md`, **`2026-08-04-harness-core-corrections.md`(spec 07,P0 四项)**
 > 输出: `internal/harness/selection.go` (~450) + `internal/harness/plugin/` 子包 (~180) + 测试
+
+> ⚠️ 本文写于 spec 01 实施之前,下方若干类型声明与**已实现的形状不一致**,
+> 且第 2 维评分模型与 OpenClaw 相反。实施前须先落 spec 07 P0,并按
+> §2.4「与已实现代码的对齐」重写 §2.1 / §2.2 / §3.1 / §3.3。
 
 ## 1. 目标
 
@@ -68,10 +72,10 @@ type SupportResult struct {
 | 维度 | 含义 | 来源 |
 |---|---|---|
 | **1. requestedRuntime 匹配** | 如果 `requestedRuntime = "codex"` 且 harness.id = "codex",直接胜出 | `SupportContext.RequestedRuntime` |
-| **2. provider 静态白名单** | harness.AutoSelection().ProviderIDs 包含当前 provider | `Harness.AutoSelection()` |
-| **3. supports() 评分** | harness.Supports(ctx) 主动评估 | `Harness.Supports(ctx)` |
-| **4. context engine host capabilities** | ctx engine 要求的 capability,harness 必须声明 | `Harness.Capabilities().ContextEngineHost` |
-| **5. deliveryDefaults** | "automatic" / "message_tool" 模式匹配 | `Harness.Capabilities().DeliveryDefaults` |
+| **2. provider 静态白名单** | **硬过滤**:未命中直接出局,不参与评分 | `Harness.AutoSelection()` |
+| **3. supports() 评分** | harness.Supports(ctx) 主动评估,**唯一的 priority 来源** | `Harness.Supports(ctx)` |
+| **4. context engine host capabilities** | **硬过滤**:engine 按 operation 声明的 requiredCapabilities,harness 必须全覆盖 | `Harness.Capabilities().ContextEngineHost`(spec 07 C4 后的形状) |
+| **5. deliveryDefaults** | "automatic" / "message_tool" 模式匹配 | `Harness.Capabilities().DeliveryDefaults`(**spec 07 C13 新增**) |
 
 **排序规则**(OpenClaw `compareHarnessSupport`):
 
@@ -82,6 +86,21 @@ func compareSupport(a, b ScoredHarness) int {
     return strings.Compare(a.Harness.ID(), b.Harness.ID())
 }
 ```
+
+### 2.4 与已实现代码的对齐(实施前必读)
+
+本文 §2.1 / §2.2 / §3.1 / §3.3 写于 spec 01 落地之前,与 `internal/harness/` 现状有四类冲突,实施时以**已实现形状 + spec 07 修正**为准:
+
+| 本文声明 | 已实现 | 处理 |
+|---|---|---|
+| `SupportContext{Provider, ModelID, ModelProvider, RequestedRuntime, Config, AgentID, SessionKey, ProviderOwnership, PreparedModelProvider}` | `SupportContext{SessionID, SessionKey, Provider, Model, ContextEngine, PluginID, RequestedHarnessID}` | **扩展**已实现的,不是另起一个。`ModelID`/`Model` 取已实现命名 |
+| `SupportResult`(重新声明) | 已存在,字段一致 | 删掉本文的重复声明 |
+| `Candidate{ID, Label, PluginID, Supported, Priority, Reason}` | `Candidate{Harness, Result}`(`support.go:62`) | **名字已被占用**。本文这个是给 Decision 做诊断用的,改名 `CandidateReport` |
+| `Config *config.OpenClawConfig` | harness 包**零 `internal/` 依赖**(spec 01 §2.1 硬约束) | 不能把 config 类型塞进 SupportContext;由 wiring 层解析成扁平事实后传入 |
+
+最后一条是硬约束:`make lint-agents-boundaries` 与 `go list -deps ./internal/harness` 会挡住。`BuildSupportContext`(§4.1)因此**不能**放在 harness 包内 —— 它读 config、查 provider ownership,属于 wiring 层职责,应落在 `cmd/app` 或一个新的 `internal/harnesswiring/` 里,harness 包只收结果。
+
+`ProviderOwnership` 是 spec 01 §11 声称「SupportContext 已稳定」时漏掉的东西(见 spec 07 §6 末),由本 spec 补进 `SupportContext`。
 
 ## 3. Selection 完整算法
 
@@ -142,7 +161,7 @@ func SelectHarness(params SelectionParams) (*Decision, error) {
 
     // 1. 显式指定(最高优先级)
     if params.ExplicitHarnessID != "" {
-        h := GetHarness(params.ExplicitHarnessID)
+        h := Get(params.ExplicitHarnessID)
         if h == nil {
             return nil, fmt.Errorf("harness: explicit %q not registered", params.ExplicitHarnessID)
         }
@@ -154,14 +173,14 @@ func SelectHarness(params SelectionParams) (*Decision, error) {
 
     // 3. implicit codex 但无 codex harness → 退回 embedded
     if policy.Runtime == "codex" && policy.RuntimeSource == "implicit" {
-        codex := GetHarness("codex")
+        codex := Get("codex")
         if codex == nil {
-            embedded := GetHarness("embedded")
+            embedded := Get("embedded")
             return &Decision{Harness: embedded, SelectedReason: ReasonImplicitPluginUnavailable, ...}, nil
         }
         // 调 codex.Supports 进一步判断
         if !codex.Supports(ctx).Supported {
-            embedded := GetHarness("embedded")
+            embedded := Get("embedded")
             return &Decision{Harness: embedded, SelectedReason: ReasonImplicitPluginUnsupported, ...}, nil
         }
     }
@@ -171,7 +190,7 @@ func SelectHarness(params SelectionParams) (*Decision, error) {
     sorted := sortByPriorityAndID(scored)
     if len(sorted) == 0 {
         // 没有 supported 的 → fallback embedded
-        embedded := GetHarness("embedded")
+        embedded := Get("embedded")
         return &Decision{Harness: embedded, SelectedReason: ReasonAutoOpenClaw, ...}, nil
     }
     top := sorted[0]
@@ -184,29 +203,41 @@ func SelectHarness(params SelectionParams) (*Decision, error) {
 
 ### 3.3 scoreAllCandidates 实现
 
+> ⚠️ 下方的加分模型**与 OpenClaw 相反,不要照抄**。OpenClaw 的
+> `resolveAgentHarnessAutoSelectionHint` 是**硬过滤**(未命中白名单直接
+> `{supported: false}`),不是 +100 的 bonus;`autoSelection` 里也**没有**
+> priority 字段。spec 01 实现时误加了 bonus 叠加,已由 spec 07 C1 判定为
+> 排序 bug(实测声明 6 的能压过声明 10 的)。本节按下面的正确形状实施。
+
 ```go
 type ScoredHarness struct {
     Harness Harness
     Support SupportResult
-    Score   int    // 综合得分
 }
 
 func scoreAllCandidates(ctx SupportContext, candidates []Harness) []ScoredHarness {
     out := make([]ScoredHarness, 0, len(candidates))
     for _, h := range candidates {
+        // 维度 2:provider 白名单 —— 硬过滤,不加分
+        if sel, ok := h.(AutoSelector); ok {
+            if !sel.AutoSelection().Eligible(ctx.Provider) { continue }
+        }
+        // 维度 4:ctx engine host —— 硬过滤
+        if len(h.Capabilities().MissingHostCapabilities(ctx.ContextEngine)) > 0 { continue }
+
+        // 维度 3:priority 的唯一来源
         s := h.Supports(ctx)
         if !s.Supported { continue }
-        score := s.Priority
 
-        // 加分维度
-        if matchesAutoSelection(h, ctx)   { score += 100 }  // provider 白名单
-        if matchesRequestedRuntime(h, ctx) { score += 1000 } // 强匹配
-
-        out = append(out, ScoredHarness{Harness: h, Support: s, Score: score})
+        out = append(out, ScoredHarness{Harness: h, Support: s})
     }
     return out
 }
 ```
+
+维度 1(requestedRuntime 强匹配)不走评分,由 §3.2 决策树在进入 auto 模式**之前**短路处理 —— 这也是 OpenClaw 的做法:`resolveAutoAgentHarnessId` 只负责 auto,显式/隐式 runtime 在它之上决策。
+
+维度 5(deliveryDefaults)同理不参与排序,它决定的是选中之后 visible reply 怎么发,不是选谁。
 
 ## 4. Support 详细逻辑
 
@@ -338,7 +369,7 @@ LoadPlugin(p)
   1. validate p (id / version / factory)
   2. run p.Hooks.OnLoad(ctx)  (若提供)
   3. h, err := p.HarnessFactory()
-  4. harness.RegisterHarness(h, p.ID)
+  4. harness.Register(h, p.ID)
   5. stored := &loadedPlugin{Plugin: p, Harness: h, Hooks: p.Hooks, ...}
   6. defaultManager.mu.Lock(); defaultManager.loaded[p.ID] = stored
   7. emit event.PluginLoadedEvent{PluginID, Version, HarnessID}
@@ -374,7 +405,9 @@ plugins:
 | `runtime-plugin.ts` 310 行 | ~180 行 | 砍掉 dynamic .so load(Go 暂不用),只留 static factory + lifecycle hook |
 | 5 维评分全支持 | **全支持** | 完全平移 |
 | `compareHarnessSupport` 排序算法 | 同 | 平移 |
-| `autoSelection` provider 白名单 | 同 | 平移 |
+| `autoSelection` provider 白名单 | 同(**硬过滤,非加分**) | 平移;见 §3.3 警告 |
+| 无候选时 `resolveAutoAgentHarnessId` 返回 undefined → 上层退回默认 runtime | 退回 embedded | 同语义 |
+| `buildAgentHarnessSupportContext` 在 harness 包内读 config | **放 wiring 层** | harness 包零 `internal/` 依赖(spec 01 §2.1),见 §2.4 |
 
 ## 7. 测试要求
 
@@ -387,7 +420,10 @@ plugins:
 | `TestImplicitCodexFallback` | policy.Runtime="codex" 但无 codex → 选 embedded, Reason=ImplicitPluginUnavailable |
 | `TestImplicitCodexUnsupported` | codex.Supports=false → 选 embedded, Reason=ImplicitPluginUnsupported |
 | `TestAutoSelectByPriority` | 3 个 harness 不同 priority → 选 priority 最高 |
-| `TestAutoSelectByProviderWhitelist` | harness.AutoSelection() 命中 → 加分 |
+| `TestAutoSelectByProviderWhitelist` | harness.AutoSelection() 未命中 → **出局**(不是减分) |
+| `TestExplicitOnlyHarnessNeverAutoSelected` | `Providers` 为空切片 → auto 模式永远选不中,只能 RequestedHarnessID 点名 |
+| `TestPriorityComesOnlyFromSupports` | harness 同时有 Supports priority 与 AutoSelection → 不叠加(spec 07 C1 回归) |
+| `TestMissingHostCapabilityFiltered` | engine 要 assemble-before-prompt,harness 没声明 → 出局 |
 | `TestAutoFallbackToEmbedded` | 没有 supported → 选 embedded, Reason=AutoOpenClaw |
 | `TestStableSortByID` | 同 priority 按字典序 |
 | `TestEmptyRegistry` | 没有任何 harness → 选 embedded |
