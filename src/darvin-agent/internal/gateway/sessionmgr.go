@@ -1,7 +1,7 @@
 // Package gateway:Gateway 的 per-session 状态索引。SessionManager 持有
 // session id → *SessionEntry 的内存映射;持久化走 agent/store,这里
 // 只承载"当前活跃哪些 session"。每个 entry 在首次 prompt 触发懒建
-// AcpSession,subscribe 路径只建 SessionEntry 不建 AcpSession,避免
+// AgentLoopSession,subscribe 路径只建 SessionEntry 不建 AgentLoopSession,避免
 // renderer 订历史 session 时拉起 5000 个 Agent。
 package gateway
 
@@ -14,7 +14,7 @@ import (
 
 	"github.com/jaevor/go-nanoid"
 
-	"darvin-cowork/backend/internal/acp"
+	"darvin-cowork/backend/internal/agentloop"
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 )
@@ -43,17 +43,17 @@ const (
 // SessionEntry 是 SessionManager 为单个 session 持有的状态,字段由
 // SessionManager 的 mutex 保护,handler 不直接写。
 //
-// Acp 在首次 prompt 触发懒建;空 Acp 的 entry 只能订阅、不能 Submit
+// AgentLoop 在首次 prompt 触发懒建;空 AgentLoop 的 entry 只能订阅、不能 Submit
 // / Stop。
 type SessionEntry struct {
-	Session *session.Session
-	Acp     *acp.AcpSession
+	Session   *session.Session
+	AgentLoop *agentloop.AgentLoopSession
 
 	lastTouchedMs  int64
 	stoppedUntilMs int64
 
-	// cancel 触发监听 ctx 的后台 goroutine 调 AcpSession.Loop.Close,
-	// 见 attachAcpLocked。evict 路径调它。
+	// cancel 触发监听 ctx 的后台 goroutine 调 AgentLoopSession.Loop.Close,
+	// 见 attachAgentLoopLocked。evict 路径调它。
 	cancel context.CancelFunc
 
 	idleElem *list.Element
@@ -68,7 +68,7 @@ var (
 	ErrSessionNotFound = errors.New("sessionmgr: session not found")
 
 	// ErrRunMismatch:Stop 收到与当前 active run 不匹配的 runId,或该
-	// session 还没建 AcpSession。Stop 在这两种情况下都是 no-op。
+	// session 还没建 AgentLoopSession。Stop 在这两种情况下都是 no-op。
 	ErrRunMismatch = errors.New("sessionmgr: run id mismatch")
 
 	// ErrSessionStalled:prompt 落在 Stop 之后的拒绝窗口内。
@@ -90,11 +90,11 @@ type SessionManager struct {
 
 	idGen func() string
 
-	// factory 在 GetOrCreateEntry 未知 id 分支里懒建 AcpSession;nil 时
+	// factory 在 GetOrCreateEntry 未知 id 分支里懒建 AgentLoopSession;nil 时
 	// 不建(handler 测试 / 老 main 走"只建 session"路径)。
-	factory *acp.AgentFactory
+	factory *agentloop.AgentFactory
 
-	// ledger 在懒建路径里挂该 AcpSession 的事件 bus 订阅。
+	// ledger 在懒建路径里挂该 AgentLoopSession 的事件 bus 订阅。
 	ledger *EventLedger
 }
 
@@ -102,13 +102,13 @@ type SessionManager struct {
 type SessionManagerOption func(*SessionManager)
 
 // WithAgentFactory 打开懒建路径:factory 注入后,GetOrCreateEntry 在未知
-// id 上调 factory.NewAcpSession(id)。
-func WithAgentFactory(f *acp.AgentFactory) SessionManagerOption {
+// id 上调 factory.NewAgentLoopSession(id)。
+func WithAgentFactory(f *agentloop.AgentFactory) SessionManagerOption {
 	return func(m *SessionManager) { m.factory = f }
 }
 
-// WithEventLedger 把新建 AcpSession 的事件订阅挂到 WS 事件 ledger 上,
-// 该 AcpSession 的事件会 fan-out 到订阅其 session id 的客户端。
+// WithEventLedger 把新建 AgentLoopSession 的事件订阅挂到 WS 事件 ledger 上,
+// 该 AgentLoopSession 的事件会 fan-out 到订阅其 session id 的客户端。
 func WithEventLedger(l *EventLedger) SessionManagerOption {
 	return func(m *SessionManager) { m.ledger = l }
 }
@@ -138,7 +138,7 @@ func (m *SessionManager) DefaultID() string { return DefaultSessionID }
 // agent.create_session 用它生成 session id。
 func (m *SessionManager) MintSessionID() string { return m.idGen() }
 
-// Remove 把 session 从 SessionManager 中摘除:有 AcpSession 时先 Abort
+// Remove 把 session 从 SessionManager 中摘除:有 AgentLoopSession 时先 Abort
 // in-flight run,再 cancel 触发 Close(关 DeltaHook + Loop),最后从 byID
 // / LRU 删除。与 evictLocked 不同,Remove 不跳 active run —— 删除语义
 // 就是要强制结束。未知 id 返 ErrSessionNotFound。
@@ -149,8 +149,8 @@ func (m *SessionManager) Remove(id string) error {
 	if !ok {
 		return ErrSessionNotFound
 	}
-	if e.Acp != nil {
-		e.Acp.Loop.Abort(context.Background())
+	if e.AgentLoop != nil {
+		e.AgentLoop.Loop.Abort(context.Background())
 	}
 	if e.cancel != nil {
 		e.cancel()
@@ -173,7 +173,7 @@ func (m *SessionManager) Has(id string) bool {
 	return ok
 }
 
-// RefreshAllTools 对每个已建 AcpSession 的 agent 重跑 factory 插件
+// RefreshAllTools 对每个已建 AgentLoopSession 的 agent 重跑 factory 插件
 // (Unregister + Register),让工具面跟随 skill / mcp 状态变化。无 factory
 // 或某个插件失败时静默跳过。返回成功刷新的 session 数。
 func (m *SessionManager) RefreshAllTools() int {
@@ -184,10 +184,10 @@ func (m *SessionManager) RefreshAllTools() int {
 	}
 	var n int
 	for _, e := range m.byID {
-		if e.Acp == nil {
+		if e.AgentLoop == nil {
 			continue
 		}
-		reg := e.Acp.Agent.Tools()
+		reg := e.AgentLoop.Agent.Tools()
 		tr, ok := reg.(protocol.ToolRegistrar)
 		if !ok {
 			continue
@@ -204,11 +204,11 @@ func (m *SessionManager) RefreshAllTools() int {
 }
 
 // GetOrCreateEntry 返回 id 对应的 SessionEntry;未知 id 时创建并在
-// factory 注入时懒建 AcpSession。
+// factory 注入时懒建 AgentLoopSession。
 //
 // 命中现有 entry 时先检查 stoppedUntilMs(落在窗口内返回 ErrSessionStalled),
 // 再刷新 lastTouchedMs 并把 entry 提到 LRU 头。FR-8 阶段 2:subscribe 早于
-// prompt 留下的空 Acp entry 在首个 prompt 触发 AcpSession 懒建。懒建失败
+// prompt 留下的空 AgentLoop entry 在首个 prompt 触发 AgentLoopSession 懒建。懒建失败
 // 时回滚 byID + LRU 防止半残 entry 卡住下次重试。cap 已满且全是 active
 // run 时返回 ErrSessionsLimit —— 不主动打断 active run。
 func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {
@@ -221,8 +221,8 @@ func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {
 		}
 		e.lastTouchedMs = m.nowMs()
 		m.touchLRU(e)
-		if e.Acp == nil && m.factory != nil {
-			if err := m.attachAcpLocked(e); err != nil {
+		if e.AgentLoop == nil && m.factory != nil {
+			if err := m.attachAgentLoopLocked(e); err != nil {
 				return nil, err
 			}
 		}
@@ -234,7 +234,7 @@ func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {
 		return nil, err
 	}
 	if m.factory != nil {
-		if err := m.attachAcpLocked(e); err != nil {
+		if err := m.attachAgentLoopLocked(e); err != nil {
 			return nil, err
 		}
 	}
@@ -242,7 +242,7 @@ func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {
 }
 
 // EnsureEntry 返回 id 对应的 SessionEntry;未知 id 时只建 SessionEntry
-// 不触发 AcpSession 懒建。subscribe handler 用它,避免 renderer 订
+// 不触发 AgentLoopSession 懒建。subscribe handler 用它,避免 renderer 订
 // 历史 session 时拉起 5000 个 Agent / Loop / 订阅。
 //
 // stoppedUntilMs / LRU / maxSessions 行为与 GetOrCreateEntry 一致。
@@ -286,10 +286,10 @@ func (m *SessionManager) createEntryLocked(id string) (*SessionEntry, error) {
 	return e, nil
 }
 
-// attachAcpLocked 调 factory.NewAcpSession 把结果挂到 e 上;ledger 注入
+// attachAgentLoopLocked 调 factory.NewAgentLoopSession 把结果挂到 e 上;ledger 注入
 // 时同时挂事件订阅。失败时回滚 byID + LRU。调用方持 m.mu。
-func (m *SessionManager) attachAcpLocked(e *SessionEntry) error {
-	acpSess, err := m.factory.NewAcpSession(e.Session.ID)
+func (m *SessionManager) attachAgentLoopLocked(e *SessionEntry) error {
+	agentLoopSess, err := m.factory.NewAgentLoopSession(e.Session.ID)
 	if err != nil {
 		delete(m.byID, e.Session.ID)
 		if e.idleElem != nil {
@@ -298,17 +298,17 @@ func (m *SessionManager) attachAcpLocked(e *SessionEntry) error {
 		}
 		return err
 	}
-	e.Acp = acpSess
+	e.AgentLoop = agentLoopSess
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
 	// Close 会关 DeltaHook 订阅 + Loop(阻塞到 run goroutine 退出),
 	// 放后台跑避免拖 evict。
 	go func() {
 		<-ctx.Done()
-		acpSess.Close()
+		agentLoopSess.Close()
 	}()
 	if m.ledger != nil {
-		sub := acpSess.Agent.Subscribe(64)
+		sub := agentLoopSess.Agent.Subscribe(64)
 		m.ledger.AttachSubscription(sub)
 	}
 	return nil
@@ -336,7 +336,7 @@ func (m *SessionManager) Get(id string) (*session.Session, string) {
 // Stop 中止 (sessionID, runId) 对应的 turn。
 //
 //   - session 未知:ErrSessionNotFound
-//   - entry 没有 AcpSession(subscribe 早于 prompt):ErrRunMismatch
+//   - entry 没有 AgentLoopSession(subscribe 早于 prompt):ErrRunMismatch
 //   - entry 的 Loop.Stop(runId) 报 false(run id 不匹配或当前 idle):ErrRunMismatch
 //   - 成功:Loop.Stop 内部 cancel in-flight turn,本方法把 stoppedUntilMs
 //     推到 now()+StopWindow,GetOrCreateEntry 在该窗口内会返 ErrSessionStalled
@@ -348,10 +348,10 @@ func (m *SessionManager) Stop(sessionID, runId string) error {
 	if !ok {
 		return ErrSessionNotFound
 	}
-	if e.Acp == nil {
+	if e.AgentLoop == nil {
 		return ErrRunMismatch
 	}
-	if !e.Acp.Loop.Stop(runId) {
+	if !e.AgentLoop.Loop.Stop(runId) {
 		return ErrRunMismatch
 	}
 	e.stoppedUntilMs = m.nowMs() + m.stopWindow.Milliseconds()
@@ -385,7 +385,7 @@ func (m *SessionManager) reapIdleLocked() {
 		}
 		id := elem.Value.(string)
 		e := m.byID[id]
-		if e.Acp != nil && e.Acp.Loop.ActiveRunID() != "" {
+		if e.AgentLoop != nil && e.AgentLoop.Loop.ActiveRunID() != "" {
 			return
 		}
 		if e.lastTouchedMs > cutoff {
@@ -401,7 +401,7 @@ func (m *SessionManager) evictLRULocked() bool {
 	for elem := m.idleOrder.Back(); elem != nil; elem = elem.Prev() {
 		id := elem.Value.(string)
 		e := m.byID[id]
-		if e.Acp == nil || e.Acp.Loop.ActiveRunID() == "" {
+		if e.AgentLoop == nil || e.AgentLoop.Loop.ActiveRunID() == "" {
 			m.evictLocked(id)
 			return true
 		}
@@ -416,11 +416,11 @@ func (m *SessionManager) evictLocked(id string) {
 	if !ok {
 		return
 	}
-	if e.Acp != nil && e.Acp.Loop.ActiveRunID() != "" {
+	if e.AgentLoop != nil && e.AgentLoop.Loop.ActiveRunID() != "" {
 		return
 	}
-	if e.Acp != nil {
-		e.Acp.Loop.Abort(context.Background())
+	if e.AgentLoop != nil {
+		e.AgentLoop.Loop.Abort(context.Background())
 	}
 	if e.cancel != nil {
 		e.cancel()

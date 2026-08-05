@@ -1,4 +1,4 @@
-package acp
+package agentloop
 
 import (
 	"context"

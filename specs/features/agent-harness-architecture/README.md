@@ -70,7 +70,7 @@ flowchart TD
 
 ### 接管(本 spec 替代其设计)
 - `specs/features/agent-acp-loop` — **本 spec 完成后可标 DEPRECATED**
-  - 因为 `internal/acp/Loop` 还在,但内部走 harness;`internal/acp/AcpSession` 变成 harness 的 thin wrapper
+  - 因为 `internal/agentloop/Loop` 还在,但内部走 harness;`internal/agentloop/AgentLoopSession` 变成 harness 的 thin wrapper
   - 未来 spec 可整体 rename 到 `internal/agentloop/`,但本 spec 不做
 
 ### 依赖(本 spec 实现后,这些 spec 自动生效)
@@ -119,7 +119,7 @@ flowchart TD
 
 ## 8. 后续 spec(本 spec 不覆盖,留作未来)
 
-1. **`internal/agentloop/` rename** — 把 `internal/acp/` 整体改名为 `internal/agentloop/`,因为它已经不是"ACP"(协议)而是"agent loop"(turn queue 抽象)
+1. **`internal/agentloop/` rename** — 把 `internal/agentloop/` 整体改名为 `internal/agentloop/`,因为它已经不是"ACP"(协议)而是"agent loop"(turn queue 抽象)
 2. **BuiltinCliHarness** — 真 CLI 子进程 backend,类似 OpenClaw codex harness
 3. **`sessionFork` capability** — OpenClaw 的 session fork 完整实现(含 `upstreamKinds` 与 4 个失败码,见 spec 07 §6)
 4. **multi-session 并发调度** — 跨 session 的 lane controller

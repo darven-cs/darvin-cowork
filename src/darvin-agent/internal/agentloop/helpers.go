@@ -1,4 +1,4 @@
-package acp
+package agentloop
 
 import (
 	"errors"
@@ -10,7 +10,7 @@ import (
 )
 
 // errNoHarness is surfaced when a session has no harness bound. Spec 04
-// §4.2: every AcpSession is built with a Harness by factory.resolveHarness.
+// §4.2: every AgentLoopSession is built with a Harness by factory.resolveHarness.
 // A nil here means the wiring is wrong; the renderer's bubble needs an
 // explicit AgentErrorEvent or it stays in streaming state.
 var errNoHarness = errors.New("acp: session has no harness bound")

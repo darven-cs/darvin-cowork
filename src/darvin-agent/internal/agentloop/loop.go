@@ -3,7 +3,7 @@
 // queue and the in-flight messageID; Queue is a thin shim around
 // agent/queue; SteerControl separates Steer (cancel + enqueue) from
 // Redirect.
-package acp
+package agentloop
 
 import (
 	"context"
@@ -374,7 +374,7 @@ func (l *Loop) executeTurn(req promptReq) {
 	}
 
 	if l.harness == nil {
-		// Spec 04 §4.2: every AcpSession is built with a Harness (factory
+		// Spec 04 §4.2: every AgentLoopSession is built with a Harness (factory
 		// resolveHarness picks one). A nil here is a wiring bug; surface it
 		// the same way the agent would have.
 		l.agent.Emit(event.AgentErrorEvent{

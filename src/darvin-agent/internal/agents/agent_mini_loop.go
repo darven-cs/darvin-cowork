@@ -15,7 +15,7 @@ import (
 //
 // Errors from the underlying Run are already emitted as AgentErrorEvent by
 // the dispatcher; only a rejected enqueue (e.g. session busy) surfaces here
-// so the caller (acp.Loop) can emit an explicit error event.
+// so the caller (agentloop.Loop) can emit an explicit error event.
 func (a *Agent) RunSkillSession(ctx context.Context, systemPrompt, userContent string, skillTools []protocol.Tool) error {
 	isRunning := a.controller.IsRunning
 	if running := isRunning(); running {

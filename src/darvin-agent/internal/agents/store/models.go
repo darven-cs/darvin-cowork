@@ -26,7 +26,7 @@ type Session struct {
 // stable across Go-side renames).
 func (Session) TableName() string { return "sessions" }
 
-// Message is one persisted LLM turn. Writes are owned by the ACP loop's
+// Message is one persisted LLM turn. Writes are owned by the agent loop's
 // MessageStore implementation.
 type Message struct {
 	ID         string `gorm:"primaryKey"`

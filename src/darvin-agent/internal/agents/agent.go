@@ -378,7 +378,7 @@ func (a *Agent) Subscribe(buffer int) *event.Subscription {
 
 // AttachMessageIDSrc wires the function the executor queries (via
 // Deps.CurrentMessageID) to read the in-flight messageID. main.go passes
-// a method value of acp.Loop.CurrentMessageID so every emitted event's
+// a method value of agentloop.Loop.CurrentMessageID so every emitted event's
 // EventCommon.MessageID matches the prompt that triggered the run.
 func (a *Agent) AttachMessageIDSrc(src func() string) {
 	a.msgidBridge.AttachMessageID(src)
@@ -386,7 +386,7 @@ func (a *Agent) AttachMessageIDSrc(src func() string) {
 
 // AttachRunIDSrc wires the function the executor and dispatcher query
 // (via Deps.CurrentRunID) to read the in-flight runID. main.go passes a
-// method value of acp.Loop.CurrentRunID so every emitted event's
+// method value of agentloop.Loop.CurrentRunID so every emitted event's
 // EventCommon.RunID matches the prompt that triggered the run.
 func (a *Agent) AttachRunIDSrc(src func() string) {
 	a.msgidBridge.AttachRunID(src)
@@ -394,7 +394,7 @@ func (a *Agent) AttachRunIDSrc(src func() string) {
 
 // AttachUserMessageIDSrc wires the function the dispatcher queries (via
 // CurrentUserMessageID) to read the messageID minted for the current turn's
-// user message. main.go passes a method value of acp.Loop.CurrentUserMessageID.
+// user message. main.go passes a method value of agentloop.Loop.CurrentUserMessageID.
 func (a *Agent) AttachUserMessageIDSrc(src func() string) {
 	a.msgidBridge.AttachUserMessageID(src)
 }

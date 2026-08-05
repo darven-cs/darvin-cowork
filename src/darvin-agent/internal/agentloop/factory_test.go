@@ -1,4 +1,4 @@
-package acp
+package agentloop
 
 import (
 	"context"
@@ -39,9 +39,9 @@ func newTestFactory() *AgentFactory {
 
 func TestFactory_BuildAttachesLoopAndSources(t *testing.T) {
 	f := newTestFactory()
-	sess, err := f.NewAcpSession("alpha")
+	sess, err := f.NewAgentLoopSession("alpha")
 	if err != nil {
-		t.Fatalf("NewAcpSession: %v", err)
+		t.Fatalf("NewAgentLoopSession: %v", err)
 	}
 	t.Cleanup(sess.Close)
 
@@ -67,14 +67,14 @@ func TestFactory_BuildAttachesLoopAndSources(t *testing.T) {
 
 func TestFactory_DifferentSessionIDsDifferentAgents(t *testing.T) {
 	f := newTestFactory()
-	a, err := f.NewAcpSession("alpha")
+	a, err := f.NewAgentLoopSession("alpha")
 	if err != nil {
-		t.Fatalf("NewAcpSession alpha: %v", err)
+		t.Fatalf("NewAgentLoopSession alpha: %v", err)
 	}
 	t.Cleanup(a.Close)
-	b, err := f.NewAcpSession("beta")
+	b, err := f.NewAgentLoopSession("beta")
 	if err != nil {
-		t.Fatalf("NewAcpSession beta: %v", err)
+		t.Fatalf("NewAgentLoopSession beta: %v", err)
 	}
 	t.Cleanup(b.Close)
 
@@ -97,9 +97,9 @@ func TestFactory_DifferentSessionIDsDifferentAgents(t *testing.T) {
 
 func TestFactory_CloseIsIdempotent(t *testing.T) {
 	f := newTestFactory()
-	sess, err := f.NewAcpSession("alpha")
+	sess, err := f.NewAgentLoopSession("alpha")
 	if err != nil {
-		t.Fatalf("NewAcpSession: %v", err)
+		t.Fatalf("NewAgentLoopSession: %v", err)
 	}
 	sess.Close()
 	sess.Close()

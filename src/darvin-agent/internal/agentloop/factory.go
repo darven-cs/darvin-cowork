@@ -1,4 +1,4 @@
-package acp
+package agentloop
 
 import (
 	"fmt"
@@ -17,7 +17,7 @@ import (
 
 // AgentFactory 携带构建一个 *agent.Agent 所需的共享依赖;main.go 构造
 // 一次并注入 SessionManager,SessionManager 在懒建路径里调
-// NewAcpSession。Provider / Store / Logger / Tools / Assembler 在 Agent
+// NewAgentLoopSession。Provider / Store / Logger / Tools / Assembler 在 Agent
 // 看来都是只读,只有 conversation history 走 session.Session 自己的锁。
 type AgentFactory struct {
 	Name         string
@@ -42,7 +42,7 @@ type AgentFactory struct {
 	AssemblerEnabled bool
 
 	// HarnessID pins a specific harness by id (spec 04 §4.1). An empty
-	// value defers to harness.SelectHarness at NewAcpSession time.
+	// value defers to harness.SelectHarness at NewAgentLoopSession time.
 	HarnessID string
 
 	// Selector is the factory's harness selector. nil falls back to a
@@ -56,14 +56,14 @@ type AgentFactory struct {
 // implementation goes through harness.SelectHarness.
 type HarnessSelector func(a *agent.Agent, f *AgentFactory) (harness.Harness, error)
 
-// NewAcpSession 一次构造 Agent + Harness + Loop,并把 Loop 的 CurrentMessageID /
+// NewAgentLoopSession 一次构造 Agent + Harness + Loop,并把 Loop 的 CurrentMessageID /
 // CurrentRunID 挂到 Agent 上,确保事件带的 messageID / runID 与 Loop 当前
 // 状态一致。顺序必须先建 Loop 再 AttachMessageIDSrc,否则 executor
 // Deps.Current* 解析时会拿到空字符串。
 //
 // MessageStore 注入时同时挂 TextDeltaHook(streaming 落库,spec FR-4);
-// hook 的订阅由 AcpSession.Close 在 evict 时清理。
-func (f *AgentFactory) NewAcpSession(sessionID string) (*AcpSession, error) {
+// hook 的订阅由 AgentLoopSession.Close 在 evict 时清理。
+func (f *AgentFactory) NewAgentLoopSession(sessionID string) (*AgentLoopSession, error) {
 	a, err := f.Build(sessionID)
 	if err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func (f *AgentFactory) NewAcpSession(sessionID string) (*AcpSession, error) {
 	a.AttachUserMessageIDSrc(l.CurrentUserMessageID)
 	deltaHook := agent.NewTextDeltaHook(f.MessageStore, f.Logger)
 	deltaHook.Attach(a)
-	return &AcpSession{
+	return &AgentLoopSession{
 		SessionID: sessionID,
 		Agent:     a,
 		Harness:   h,

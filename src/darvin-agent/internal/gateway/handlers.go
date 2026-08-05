@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/acp"
+	"darvin-cowork/backend/internal/agentloop"
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
@@ -228,7 +228,7 @@ type HandlerOptions struct {
 type Handler struct {
 	Sessions     *SessionManager
 	Ledger       *EventLedger
-	Steer        acp.SteerControl
+	Steer        agentloop.SteerControl
 	SessionStore store.SessionStore
 	MessageStore store.MessageStore
 	// AppState 承载 active_session_id 持久化(get/set_active_session 与
@@ -261,7 +261,7 @@ type Handler struct {
 func NewHandler(
 	s *SessionManager,
 	l *EventLedger,
-	steer acp.SteerControl,
+	steer agentloop.SteerControl,
 	sessStore store.SessionStore,
 	msgStore store.MessageStore,
 	appState *store.AppStateStore,
@@ -361,10 +361,10 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 	}
 }
 
-// handlePrompt 把 prompt 路由到 sessionID 对应的 AcpSession.Loop。
+// handlePrompt 把 prompt 路由到 sessionID 对应的 AgentLoopSession.Loop。
 // ErrSessionStalled(Stop 拒绝窗口)返 CodeSessionStalled;factory
-// 构造失败返 CodeAgentInitFailed;handler 测试 stub 场景(entry.Acp
-// 为 nil)返 CodeNoAcpSession。空 sessionId 默认走 DefaultSessionID,
+// 构造失败返 CodeAgentInitFailed;handler 测试 stub 场景(entry.AgentLoop
+// 为 nil)返 CodeNoAgentLoopSession。空 sessionId 默认走 DefaultSessionID,
 // 与旧 CreateOrGet 行为一致。
 func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage, c *client, h *Handler) *Response {
 	if len(params) == 0 {
@@ -389,11 +389,11 @@ func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage,
 		}
 		return errorResp(id, CodeAgentInitFailed, "get session", err)
 	}
-	if entry.Acp == nil {
+	if entry.AgentLoop == nil {
 		// handler 测试 stub 没注入 factory 时走这里。
-		return errorResp(id, CodeNoAcpSession, "no AcpSession bound", nil)
+		return errorResp(id, CodeNoAgentLoopSession, "no AgentLoopSession bound", nil)
 	}
-	ticket, err := entry.Acp.Loop.Submit(acp.PromptRequest{RunID: p.RunID, Content: p.Content, Attachments: p.Attachments, Images: p.Images})
+	ticket, err := entry.AgentLoop.Loop.Submit(agentloop.PromptRequest{RunID: p.RunID, Content: p.Content, Attachments: p.Attachments, Images: p.Images})
 	if err != nil {
 		return errorResp(id, CodeInternalError, "loop submit", err)
 	}
@@ -440,7 +440,7 @@ type CompactContextResult struct {
 }
 
 // handleCompactContext 触发一次手动上下文压缩。会话不在可压状态
-// （运行中 / 无 assembler / 无 AcpSession）时返回 accepted=false，renderer
+// （运行中 / 无 assembler / 无 AgentLoopSession）时返回 accepted=false，renderer
 // 保持圆环现状不进入动画。压缩含 LLM 摘要调用，放后台跑避免阻塞 WS 读
 // 循环；最终成败由随后的 compaction 事件驱动 UI。
 func handleCompactContext(_ context.Context, id json.RawMessage, params json.RawMessage, c *client, _ *Handler) *Response {
@@ -454,10 +454,10 @@ func handleCompactContext(_ context.Context, id json.RawMessage, params json.Raw
 		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
 	}
 	entry, err := c.sessions.GetOrCreateEntry(p.SessionID)
-	if err != nil || entry.Acp == nil || entry.Acp.Agent == nil {
+	if err != nil || entry.AgentLoop == nil || entry.AgentLoop.Agent == nil {
 		return successResp(id, CompactContextResult{Accepted: false, SessionID: p.SessionID})
 	}
-	a := entry.Acp.Agent
+	a := entry.AgentLoop.Agent
 	if a.IsRunning() || a.Assembler() == nil || !a.AssemblerEnabled() {
 		return successResp(id, CompactContextResult{Accepted: false, SessionID: p.SessionID})
 	}
@@ -488,7 +488,7 @@ func runManualCompact(a *agent.Agent, sessionID string) {
 }
 
 // handleSubscribeEvents 走两阶段(FR-8):EnsureEntry 只建 SessionEntry
-// 不触发 AcpSession 懒建,避免 renderer 订历史 session 时拉起 N 个 Agent /
+// 不触发 AgentLoopSession 懒建,避免 renderer 订历史 session 时拉起 N 个 Agent /
 // Loop / 订阅。真正的事件源在首个 prompt 到达时才补建。
 func handleSubscribeEvents(_ context.Context, id json.RawMessage, params json.RawMessage, c *client, _ *Handler) *Response {
 	if len(params) == 0 {
@@ -570,7 +570,7 @@ func handleGetMessages(ctx context.Context, id json.RawMessage, params json.RawM
 
 // handleCreateSession 新建一个 session 并把它设为 active:
 //  1. 用 SessionManager 的 idGen 生成 21 位 nanoid
-//  2. GetOrCreateEntry 建 SessionEntry,并借 factory 懒建 AcpSession
+//  2. GetOrCreateEntry 建 SessionEntry,并借 factory 懒建 AgentLoopSession
 //  3. 落 SessionStore(默认 title),title 非空时 UpdateTitle
 //  4. AppState.SetActiveSession 持久化 active
 //
@@ -1127,10 +1127,10 @@ func handlePermissionResponse(_ context.Context, id json.RawMessage, params json
 		return errorResp(id, CodeInvalidParams, "sessionId, requestId and behavior (allow|deny) are required", nil)
 	}
 	entry, err := c.sessions.GetOrCreateEntry(p.SessionID)
-	if err != nil || entry.Acp == nil || entry.Acp.Agent == nil {
+	if err != nil || entry.AgentLoop == nil || entry.AgentLoop.Agent == nil {
 		return errorResp(id, CodeAgentInitFailed, "no agent bound for session", nil)
 	}
-	entry.Acp.Agent.ResolvePermission(p.RequestID, executor.PermissionResult{
+	entry.AgentLoop.Agent.ResolvePermission(p.RequestID, executor.PermissionResult{
 		Behavior:     p.Behavior,
 		UpdatedInput: p.UpdatedInput,
 		Message:      p.Message,
@@ -1236,7 +1236,7 @@ type ListToolsParams struct {
 }
 
 // handleListTools 返回指定 session(缺省 default)的 agent tool registry
-// 合并视图。session 尚未建 AcpSession 时懒建一次,让首次查询就能拿到
+// 合并视图。session 尚未建 AgentLoopSession 时懒建一次,让首次查询就能拿到
 // 包含 skill / mcp 插件的完整列表。
 func handleListTools(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Sessions == nil {
@@ -1254,10 +1254,10 @@ func handleListTools(id json.RawMessage, params json.RawMessage, h *Handler) *Re
 	if err != nil {
 		return errorResp(id, CodeInternalError, err.Error(), err)
 	}
-	if entry.Acp == nil {
+	if entry.AgentLoop == nil {
 		return successResp(id, ListToolsResult{Tools: []ToolDescriptorWire{}})
 	}
-	reg := entry.Acp.Agent.Tools()
+	reg := entry.AgentLoop.Agent.Tools()
 	entries := reg.List()
 	out := make([]ToolDescriptorWire, 0, len(entries))
 	for _, e := range entries {
@@ -1393,8 +1393,8 @@ func handleInvokeSkillUser(id json.RawMessage, params json.RawMessage, h *Handle
 		}
 		return errorResp(id, CodeAgentInitFailed, "get session", err)
 	}
-	if entry.Acp == nil {
-		return errorResp(id, CodeNoAcpSession, "no AcpSession bound", nil)
+	if entry.AgentLoop == nil {
+		return errorResp(id, CodeNoAgentLoopSession, "no AgentLoopSession bound", nil)
 	}
 
 	content := p.Content
@@ -1404,7 +1404,7 @@ func handleInvokeSkillUser(id json.RawMessage, params json.RawMessage, h *Handle
 			content += " " + p.Args
 		}
 	}
-	ticket, err := entry.Acp.Loop.SubmitSkill(acp.SkillInvocation{
+	ticket, err := entry.AgentLoop.Loop.SubmitSkill(agentloop.SkillInvocation{
 		SystemPrompt: sec.SystemPrompt,
 		Content:      content,
 		Tools:        sec.Tools,
@@ -1613,7 +1613,7 @@ type McpRegisterParams struct {
 
 func handleMcpRegister(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Mcp == nil {
-		return errorResp(id, CodeNoAcpSession, "mcp registry not configured", nil)
+		return errorResp(id, CodeNoAgentLoopSession, "mcp registry not configured", nil)
 	}
 	var p McpRegisterParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -1635,7 +1635,7 @@ type McpUpdateParams struct {
 
 func handleMcpUpdate(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Mcp == nil {
-		return errorResp(id, CodeNoAcpSession, "mcp registry not configured", nil)
+		return errorResp(id, CodeNoAgentLoopSession, "mcp registry not configured", nil)
 	}
 	var p McpUpdateParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -1661,7 +1661,7 @@ type McpServerIDParams struct {
 
 func handleMcpUnregister(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Mcp == nil {
-		return errorResp(id, CodeNoAcpSession, "mcp registry not configured", nil)
+		return errorResp(id, CodeNoAgentLoopSession, "mcp registry not configured", nil)
 	}
 	var p McpServerIDParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -1680,7 +1680,7 @@ type McpSetEnabledParams struct {
 
 func handleMcpSetEnabled(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Mcp == nil {
-		return errorResp(id, CodeNoAcpSession, "mcp registry not configured", nil)
+		return errorResp(id, CodeNoAgentLoopSession, "mcp registry not configured", nil)
 	}
 	var p McpSetEnabledParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -1721,7 +1721,7 @@ func handleMcpTest(id json.RawMessage, params json.RawMessage, h *Handler) *Resp
 
 func handleMcpRetryResolution(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Mcp == nil {
-		return errorResp(id, CodeNoAcpSession, "mcp registry not configured", nil)
+		return errorResp(id, CodeNoAgentLoopSession, "mcp registry not configured", nil)
 	}
 	var p McpServerIDParams
 	if err := json.Unmarshal(params, &p); err != nil {

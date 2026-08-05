@@ -12,7 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/acp"
+	"darvin-cowork/backend/internal/agentloop"
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
@@ -174,7 +174,7 @@ func main() {
 	}
 
 	// Steer 仍接单例 Agent(本期不迁,见 spec §1.3 非目标)。这个 steerAgent
-	// 仅给 acp.NewSteerControl 持有,不会被任何 Loop 驱动、也不会订阅事件
+	// 仅给 agentloop.NewSteerControl 持有,不会被任何 Loop 驱动、也不会订阅事件
 	// —— UI 本期不发 steer message,实际不影响行为。
 	steerAgent, err := agent.New(agent.NewAgentConfig{
 		Name:             cfg.App.Name + "-agent",
@@ -207,7 +207,7 @@ func main() {
 		},
 	}), "")
 
-	factory := &acp.AgentFactory{
+	factory := &agentloop.AgentFactory{
 		Name:             cfg.App.Name + "-agent",
 		Instructions:     cfg.Agent.Instructions,
 		Model:            agent.ModelRef{Provider: cfg.Agent.ProviderName, Model: cfg.Agent.Model},
@@ -218,7 +218,7 @@ func main() {
 		Config:           agentCfg,
 		Tools:            toolsReg,
 		AssemblerEnabled: cfg.Agent.AssemblerEnabled,
-		Selector: func(a *agent.Agent, _ *acp.AgentFactory) (harness.Harness, error) {
+		Selector: func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
 			return harness.NewEmbedded(harness.EmbeddedConfig{
 				Run: func(ctx context.Context, p harness.RunAttemptParams) (*harness.AttemptResult, error) {
 					if err := a.Prompt(ctx, p.Prompt, nil, p.Attachments); err != nil {
@@ -245,11 +245,11 @@ func main() {
 		gateway.WithAgentFactory(factory),
 		gateway.WithEventLedger(ledger),
 	)
-	steer := acp.NewSteerControl(steerAgent)
+	steer := agentloop.NewSteerControl(steerAgent)
 
 	// FR-9:启动期 active session 同步 —— 从 app_state 读出上次的
 	// active_session_id,灌进 SessionManager。EnsureEntry 只建轻量
-	// SessionEntry、不触发 AcpSession 懒建(per-session spec 两阶段),
+	// SessionEntry、不触发 AgentLoopSession 懒建(per-session spec 两阶段),
 	// 事件流由 main 端 connect → subscribeAllSessions 时覆盖。
 	if activeID, err := appState.GetActiveSession(rootCtx); err == nil && activeID != "" {
 		if _, err := sessions.EnsureEntry(activeID); err != nil {
@@ -307,7 +307,7 @@ func main() {
 		OnResolutionChanged: handler.OnMcpResolutionChanged,
 	})
 
-	// skill / mcp 插件注入 factory：每个新 AcpSession 建好后工具面自动带上
+	// skill / mcp 插件注入 factory：每个新 AgentLoopSession 建好后工具面自动带上
 	// skill:<id> 与 mcp:<server>:<tool>。skill 启停与 mcp 连接变化由
 	// handler 的 RefreshAllTools 重跑这两组插件（见 gateway 侧钩子）。
 	skillPlugin := skills.NewSkillPlugin(skillsResult.Registry, skillsResult.Runner)

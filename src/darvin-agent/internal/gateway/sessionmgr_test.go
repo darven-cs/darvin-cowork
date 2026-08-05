@@ -10,7 +10,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/acp"
+	"darvin-cowork/backend/internal/agentloop"
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/session"
@@ -27,18 +27,20 @@ import (
 // test harness so resolveHarness passes without the production registry.
 //
 // Tests that need the prompt path to actually start a turn (e.g.
-// stoppedUntil / evict tests that observe Acp.Agent.IsRunning) need an
+// stoppedUntil / evict tests that observe AgentLoop.Agent.IsRunning) need an
 // embedded harness that drives Agent.Prompt + Agent.Run. The selector here
-// returns the no-op harness because attachAcp in this file uses
-// installRunningAcp to side-step the factory path and keep the turn
+// returns the no-op harness because attachAgentLoop in this file uses
+// installRunningAgentLoop to side-step the factory path and keep the turn
 // observable.
-func newTestAgentFactoryForSessionMgr() *acp.AgentFactory {
-	return &acp.AgentFactory{
+func newTestAgentFactoryForSessionMgr() *agentloop.AgentFactory {
+	return &agentloop.AgentFactory{
 		Provider: &blockingProvider{},
 		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 		Logger:   zap.NewNop(),
-		Selector: func(*agent.Agent, *acp.AgentFactory) (harness.Harness, error) { return acp.HarnessForTest, nil },
+		Selector: func(*agent.Agent, *agentloop.AgentFactory) (harness.Harness, error) {
+			return agentloop.HarnessForTest, nil
+		},
 	}
 }
 
@@ -91,24 +93,24 @@ func waitForCondition(t *testing.T, cond func() bool) {
 	t.Fatal("condition not met within budget")
 }
 
-// installRunningAcp 用 blocking provider 构 AcpSession 并把一个 turn
+// installRunningAgentLoop 用 blocking provider 构 AgentLoopSession 并把一个 turn
 // 推入 in-flight 状态,然后手动挂到 m 的 entry 上 —— 等价于懒建路径
 // 跑完之后的样子,只是绕开 GetOrCreateEntry 的工厂调用,避免在不动
 // factory 的测试里双建。
 //
-// 后台 goroutine 是镜像 attachAcpLocked 的 cancel 监听;evict 测试
+// 后台 goroutine 是镜像 attachAgentLoopLocked 的 cancel 监听;evict 测试
 // 靠 poll Submit 拿 ErrLoopClosed 验证 Loop 确实被关掉。
-func installRunningAcp(t *testing.T, m *SessionManager, id, runID string) *acp.AcpSession {
+func installRunningAgentLoop(t *testing.T, m *SessionManager, id, runID string) *agentloop.AgentLoopSession {
 	t.Helper()
 	// The factory's selector runs after Build, so it can wire a harness
 	// whose Run closure drives the freshly-built agent.
 	factory := newTestAgentFactoryForSessionMgr()
-	factory.Selector = func(a *agent.Agent, _ *acp.AgentFactory) (harness.Harness, error) {
-		return acp.NewEmbeddedTestHarness(a), nil
+	factory.Selector = func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
+		return agentloop.NewEmbeddedTestHarness(a), nil
 	}
-	sess, err := factory.NewAcpSession(id)
+	sess, err := factory.NewAgentLoopSession(id)
 	if err != nil {
-		t.Fatalf("NewAcpSession(%q): %v", id, err)
+		t.Fatalf("NewAgentLoopSession(%q): %v", id, err)
 	}
 	sub := sess.Agent.Subscribe(64)
 	t.Cleanup(func() {
@@ -126,7 +128,7 @@ func installRunningAcp(t *testing.T, m *SessionManager, id, runID string) *acp.A
 		}
 		sess.Close()
 	})
-	ticket, err := sess.Loop.Submit(acp.PromptRequest{RunID: runID, Content: "test"})
+	ticket, err := sess.Loop.Submit(agentloop.PromptRequest{RunID: runID, Content: "test"})
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -144,7 +146,7 @@ func installRunningAcp(t *testing.T, m *SessionManager, id, runID string) *acp.A
 		m.byID[id] = e
 		e.idleElem = m.idleOrder.PushFront(id)
 	}
-	e.Acp = sess
+	e.AgentLoop = sess
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
 	m.mu.Unlock()
@@ -310,7 +312,7 @@ func TestActiveRunNotEvicted(t *testing.T) {
 	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
-	installRunningAcp(t, m, DefaultSessionID, "default-run")
+	installRunningAgentLoop(t, m, DefaultSessionID, "default-run")
 	m.mu.Lock()
 	def := m.byID[DefaultSessionID]
 	if def.idleElem != nil {
@@ -341,7 +343,7 @@ func TestActiveRunOnlyReturnsLimit(t *testing.T) {
 		if _, err := m.GetOrCreateEntry(id); err != nil {
 			t.Fatalf("seed %s: %v", id, err)
 		}
-		installRunningAcp(t, m, id, id+"-run")
+		installRunningAgentLoop(t, m, id, id+"-run")
 	}
 	_, err := m.GetOrCreateEntry("s2")
 	if !errors.Is(err, ErrSessionsLimit) {
@@ -376,7 +378,7 @@ func TestReapIdleSessionsKeepsActive(t *testing.T) {
 	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
-	installRunningAcp(t, m, DefaultSessionID, "run-1")
+	installRunningAgentLoop(t, m, DefaultSessionID, "run-1")
 	clk.advance(200 * time.Millisecond)
 	m.reapIdleSessions()
 	if !m.Has(DefaultSessionID) {
@@ -389,7 +391,7 @@ func TestStopByRunIdMatches(t *testing.T) {
 	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
-	sess := installRunningAcp(t, m, DefaultSessionID, "run-1")
+	sess := installRunningAgentLoop(t, m, DefaultSessionID, "run-1")
 	if err := m.Stop(DefaultSessionID, "run-1"); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
@@ -412,9 +414,9 @@ func TestStopReturnsNotFoundAndMismatch(t *testing.T) {
 		t.Fatalf("seed default: %v", err)
 	}
 	if err := m.Stop(DefaultSessionID, "r"); !errors.Is(err, ErrRunMismatch) {
-		t.Fatalf("no-Acp stop: err = %v, want ErrRunMismatch", err)
+		t.Fatalf("no-AgentLoop stop: err = %v, want ErrRunMismatch", err)
 	}
-	installRunningAcp(t, m, DefaultSessionID, "actual")
+	installRunningAgentLoop(t, m, DefaultSessionID, "actual")
 	if err := m.Stop(DefaultSessionID, "stale"); !errors.Is(err, ErrRunMismatch) {
 		t.Fatalf("wrong-id stop: err = %v, want ErrRunMismatch", err)
 	}
@@ -425,7 +427,7 @@ func TestStoppedUntilBlocksPrompt(t *testing.T) {
 	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
-	installRunningAcp(t, m, DefaultSessionID, "run-1")
+	installRunningAgentLoop(t, m, DefaultSessionID, "run-1")
 	if err := m.Stop(DefaultSessionID, "run-1"); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
@@ -441,12 +443,14 @@ func TestStoppedUntilBlocksPrompt(t *testing.T) {
 
 func TestSessionManager_LazyBuildPerSession(t *testing.T) {
 	prov := &blockingProvider{}
-	factory := &acp.AgentFactory{
+	factory := &agentloop.AgentFactory{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 		Logger:   zap.NewNop(),
-		Selector: func(*agent.Agent, *acp.AgentFactory) (harness.Harness, error) { return acp.HarnessForTest, nil },
+		Selector: func(*agent.Agent, *agentloop.AgentFactory) (harness.Harness, error) {
+			return agentloop.HarnessForTest, nil
+		},
 	}
 	m := NewSessionManager(WithAgentFactory(factory))
 	a, err := m.GetOrCreateEntry("a")
@@ -457,24 +461,24 @@ func TestSessionManager_LazyBuildPerSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateEntry b: %v", err)
 	}
-	if a.Acp == nil || b.Acp == nil {
-		t.Fatalf("expected both entries to have AcpSession built; got a=%v b=%v", a.Acp, b.Acp)
+	if a.AgentLoop == nil || b.AgentLoop == nil {
+		t.Fatalf("expected both entries to have AgentLoopSession built; got a=%v b=%v", a.AgentLoop, b.AgentLoop)
 	}
-	if a.Acp == b.Acp {
-		t.Fatalf("two ids share the same AcpSession — per-session isolation broken")
+	if a.AgentLoop == b.AgentLoop {
+		t.Fatalf("two ids share the same AgentLoopSession — per-session isolation broken")
 	}
-	if a.Acp.SessionID != "a" || b.Acp.SessionID != "b" {
-		t.Fatalf("AcpSessionID mismatch: a=%q b=%q", a.Acp.SessionID, b.Acp.SessionID)
+	if a.AgentLoop.SessionID != "a" || b.AgentLoop.SessionID != "b" {
+		t.Fatalf("AgentLoopSessionID mismatch: a=%q b=%q", a.AgentLoop.SessionID, b.AgentLoop.SessionID)
 	}
 }
 
 func TestSessionManager_StopGoesToPerSessionLoop(t *testing.T) {
 	m := NewSessionManager()
-	sa := installRunningAcp(t, m, "a", "run-a")
+	sa := installRunningAgentLoop(t, m, "a", "run-a")
 	if _, err := m.GetOrCreateEntry("b"); err != nil {
 		t.Fatalf("GetOrCreateEntry b: %v", err)
 	}
-	sb := installRunningAcp(t, m, "b", "run-b")
+	sb := installRunningAgentLoop(t, m, "b", "run-b")
 
 	if err := m.Stop("a", "run-a"); err != nil {
 		t.Fatalf("Stop a/run-a: %v", err)
@@ -485,12 +489,12 @@ func TestSessionManager_StopGoesToPerSessionLoop(t *testing.T) {
 	}
 }
 
-func TestSessionManager_EvictClosesAcpSession(t *testing.T) {
+func TestSessionManager_EvictClosesAgentLoopSession(t *testing.T) {
 	m, _ := withFakeClock(2, time.Hour)
 	if _, err := m.GetOrCreateEntry("a"); err != nil {
 		t.Fatalf("seed a: %v", err)
 	}
-	sa := installRunningAcp(t, m, "a", "run-a")
+	sa := installRunningAgentLoop(t, m, "a", "run-a")
 	if err := m.Stop("a", "run-a"); err != nil {
 		t.Fatalf("Stop a: %v", err)
 	}
@@ -506,15 +510,15 @@ func TestSessionManager_EvictClosesAcpSession(t *testing.T) {
 		t.Fatalf("a must be evicted as LRU tail")
 	}
 	waitForCondition(t, func() bool {
-		_, err := sa.Loop.Submit(acp.PromptRequest{Content: "after-evict"})
-		return errors.Is(err, acp.ErrLoopClosed)
+		_, err := sa.Loop.Submit(agentloop.PromptRequest{Content: "after-evict"})
+		return errors.Is(err, agentloop.ErrLoopClosed)
 	})
 }
 
 // Provider 故意为 nil 触发 agent.New 的 ErrProviderRequired —— 真实启动
 // 期会遇到的失败(配置错误 / 拿不到 key)比 mock factory 更贴实际。
 func TestSessionManager_LazyBuildFailureRollsBack(t *testing.T) {
-	factory := &acp.AgentFactory{
+	factory := &agentloop.AgentFactory{
 		Provider: nil,
 		Logger:   zap.NewNop(),
 	}
@@ -533,15 +537,17 @@ func TestSessionManager_LazyBuildFailureRollsBack(t *testing.T) {
 }
 
 // FR-8 阶段 2 回归:renderer 启动期给历史 session 发 subscribe_events 留下
-// 大量 AcpSession=nil 的 entry,首个 prompt 到该 id 时 GetOrCreateEntry 命中
-// "现有 entry"分支,需要补建 AcpSession,不能直接返 CodeNoAcpSession。
+// 大量 AgentLoopSession=nil 的 entry,首个 prompt 到该 id 时 GetOrCreateEntry 命中
+// "现有 entry"分支,需要补建 AgentLoopSession,不能直接返 CodeNoAgentLoopSession。
 func TestSessionManager_PromptUpgradesEntryCreatedBySubscribe(t *testing.T) {
-	factory := &acp.AgentFactory{
+	factory := &agentloop.AgentFactory{
 		Provider: &blockingProvider{},
 		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 		Logger:   zap.NewNop(),
-		Selector: func(*agent.Agent, *acp.AgentFactory) (harness.Harness, error) { return acp.HarnessForTest, nil },
+		Selector: func(*agent.Agent, *agentloop.AgentFactory) (harness.Harness, error) {
+			return agentloop.HarnessForTest, nil
+		},
 	}
 	m := NewSessionManager(WithAgentFactory(factory))
 
@@ -551,19 +557,19 @@ func TestSessionManager_PromptUpgradesEntryCreatedBySubscribe(t *testing.T) {
 	m.mu.Lock()
 	empty := m.byID["sub-then-prompt"]
 	m.mu.Unlock()
-	if empty.Acp != nil {
-		t.Fatalf("EnsureEntry leaked AcpSession: %+v", empty)
+	if empty.AgentLoop != nil {
+		t.Fatalf("EnsureEntry leaked AgentLoopSession: %+v", empty)
 	}
 
 	upgraded, err := m.GetOrCreateEntry("sub-then-prompt")
 	if err != nil {
 		t.Fatalf("GetOrCreateEntry upgrade: %v", err)
 	}
-	if upgraded.Acp == nil {
-		t.Fatalf("expected AcpSession built on the upgrade path; got nil")
+	if upgraded.AgentLoop == nil {
+		t.Fatalf("expected AgentLoopSession built on the upgrade path; got nil")
 	}
-	if upgraded.Acp.SessionID != "sub-then-prompt" {
-		t.Fatalf("AcpSessionID = %q, want %q", upgraded.Acp.SessionID, "sub-then-prompt")
+	if upgraded.AgentLoop.SessionID != "sub-then-prompt" {
+		t.Fatalf("AgentLoopSessionID = %q, want %q", upgraded.AgentLoop.SessionID, "sub-then-prompt")
 	}
 	if n := m.Len(); n != 1 {
 		t.Fatalf("Len = %d, want 1 (no leak)", n)
@@ -573,7 +579,7 @@ func TestSessionManager_PromptUpgradesEntryCreatedBySubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second GetOrCreateEntry: %v", err)
 	}
-	if second.Acp != upgraded.Acp {
-		t.Fatalf("second call must reuse the upgraded AcpSession, not rebuild")
+	if second.AgentLoop != upgraded.AgentLoop {
+		t.Fatalf("second call must reuse the upgraded AgentLoopSession, not rebuild")
 	}
 }

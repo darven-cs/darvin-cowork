@@ -169,7 +169,7 @@ func NewGate(bus EventEmitter, logger *zap.Logger, timeout time.Duration) *Gate 
 
 ```go
 // Package msgid implements the in-flight turn identity bridge between
-// the loop (acp.Loop) and the agent runtime (executor / dispatcher).
+// the loop (agentloop.Loop) and the agent runtime (executor / dispatcher).
 // 拆出理由: 6 个 method + 3 个 src func,纯转发逻辑,可独立测试。
 package msgid
 
@@ -422,7 +422,7 @@ Spec: specs/features/agent-harness-architecture/02-agent-refactor.md"
 | 字段重命名漏改,compiler 报错一片 | 高(经验) | 中 | Phase 2b 用 `gofmt -r` 做 sed 替换:`a.permMu → a.perm.mu` |
 | permission 60s timeout 状态机迁出后行为不一致 | 中 | 高 | perm.Gate 复用现有 `deliverPermission` 逻辑,**算法完全平移** |
 | 现有 `agent_test.go` 模拟整 Agent,子包化后结构变化导致 break | 中 | 中 | 测试不感知子包边界,只测 public method,facade 保留保证 API 稳定 |
-| `internal/acp/factory.go` 在 Phase 2b 后拿不到某些字段 | 低 | 中 | factory 拿的是 *Agent,通过 facade 即可 |
+| `internal/agentloop/factory.go` 在 Phase 2b 后拿不到某些字段 | 低 | 中 | factory 拿的是 *Agent,通过 facade 即可 |
 | Permission 60s timeout 在 cancel 之后没清理 | 低 | 中 | Phase 2a 单独测试 timeout cleanup,确保 0 泄漏 |
 
 ## 7. 测试要求

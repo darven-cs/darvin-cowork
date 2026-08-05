@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"darvin-cowork/backend/internal/acp"
+	"darvin-cowork/backend/internal/agentloop"
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
@@ -26,7 +26,7 @@ import (
 )
 
 // newTestHandler wires factory + SessionManager + SteerControl so handlers
-// run against production code paths. prompt 路径走 factory 懒建 AcpSession,
+// run against production code paths. prompt 路径走 factory 懒建 AgentLoopSession,
 // steer 路径接一个仅供 SteerControl 持有的 steerAgent(spec §1.3 非目标)。
 //
 // spec 04 added harness resolution; tests inject a Selector that returns
@@ -36,13 +36,13 @@ func newTestHandler(t *testing.T) (*Handler, *client) {
 	t.Helper()
 	prov := &blockingProvider{}
 	store := store.NewMemoryStore()
-	factory := &acp.AgentFactory{
+	factory := &agentloop.AgentFactory{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),
 		Store:    store,
 		Logger:   zap.NewNop(),
-		Selector: func(a *agent.Agent, _ *acp.AgentFactory) (harness.Harness, error) {
-			return acp.NewEmbeddedTestHarness(a), nil
+		Selector: func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
+			return agentloop.NewEmbeddedTestHarness(a), nil
 		},
 	}
 	steerAgent, err := agent.New(agent.NewAgentConfig{
@@ -54,7 +54,7 @@ func newTestHandler(t *testing.T) (*Handler, *client) {
 	if err != nil {
 		t.Fatalf("agent.New steer: %v", err)
 	}
-	steer := acp.NewSteerControl(steerAgent)
+	steer := agentloop.NewSteerControl(steerAgent)
 	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
@@ -77,13 +77,13 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 	t.Helper()
 	prov := &blockingProvider{}
 	memStore := store.NewMemoryStore()
-	factory := &acp.AgentFactory{
+	factory := &agentloop.AgentFactory{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),
 		Store:    memStore,
 		Logger:   zap.NewNop(),
-		Selector: func(a *agent.Agent, _ *acp.AgentFactory) (harness.Harness, error) {
-			return acp.NewEmbeddedTestHarness(a), nil
+		Selector: func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
+			return agentloop.NewEmbeddedTestHarness(a), nil
 		},
 	}
 	steerAgent, err := agent.New(agent.NewAgentConfig{
@@ -95,7 +95,7 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 	if err != nil {
 		t.Fatalf("agent.New steer: %v", err)
 	}
-	steer := acp.NewSteerControl(steerAgent)
+	steer := agentloop.NewSteerControl(steerAgent)
 	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
@@ -141,7 +141,7 @@ func TestDispatchPrompt(t *testing.T) {
 		t.Fatalf("result type: %T", resp.Result)
 	}
 	// sessionId is the Agent's own session so the caller can subscribe to
-	// it; messageId is a fresh 21-char nanoid minted by acp.Loop.
+	// it; messageId is a fresh 21-char nanoid minted by agentloop.Loop.
 	if res.SessionID != DefaultSessionID || !idRe21.MatchString(res.MessageID) {
 		t.Fatalf("id shape: %+v", res)
 	}
@@ -533,7 +533,7 @@ func TestDispatchListGetMessagesNilStores(t *testing.T) {
 }
 
 // TestHandlePrompt_RoutesBySessionID:同 WS 连接上先后给 A、B 发 prompt,
-// 两条 prompt 落到各自 AcpSession.Loop,A/B 的 ActiveRunID 互不干扰。
+// 两条 prompt 落到各自 AgentLoopSession.Loop,A/B 的 ActiveRunID 互不干扰。
 func TestHandlePrompt_RoutesBySessionID(t *testing.T) {
 	_, c := newTestHandler(t)
 	respA := dispatchRequest(context.Background(), &Request{
@@ -562,16 +562,16 @@ func TestHandlePrompt_RoutesBySessionID(t *testing.T) {
 
 	entryA, _ := c.sessions.GetOrCreateEntry("a")
 	entryB, _ := c.sessions.GetOrCreateEntry("b")
-	waitForActiveRun(t, entryA.Acp)
-	waitForActiveRun(t, entryB.Acp)
-	if got := entryA.Acp.Loop.ActiveRunID(); got == "" {
+	waitForActiveRun(t, entryA.AgentLoop)
+	waitForActiveRun(t, entryB.AgentLoop)
+	if got := entryA.AgentLoop.Loop.ActiveRunID(); got == "" {
 		t.Errorf("a ActiveRunID is empty; expected in-flight")
 	}
-	if got := entryB.Acp.Loop.ActiveRunID(); got == "" {
+	if got := entryB.AgentLoop.Loop.ActiveRunID(); got == "" {
 		t.Errorf("b ActiveRunID is empty; expected in-flight")
 	}
-	if entryA.Acp == entryB.Acp {
-		t.Fatalf("a and b share AcpSession — per-session isolation broken")
+	if entryA.AgentLoop == entryB.AgentLoop {
+		t.Fatalf("a and b share AgentLoopSession — per-session isolation broken")
 	}
 }
 
@@ -595,8 +595,8 @@ func TestHandleAbort_RoutesBySessionIDAndRunID(t *testing.T) {
 
 	entryA, _ := c.sessions.GetOrCreateEntry("a")
 	entryB, _ := c.sessions.GetOrCreateEntry("b")
-	waitForActiveRun(t, entryA.Acp)
-	waitForActiveRun(t, entryB.Acp)
+	waitForActiveRun(t, entryA.AgentLoop)
+	waitForActiveRun(t, entryB.AgentLoop)
 
 	abortResp := dispatchRequest(context.Background(), &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"3"`), Method: "agent.abort",
@@ -606,8 +606,8 @@ func TestHandleAbort_RoutesBySessionIDAndRunID(t *testing.T) {
 		t.Fatalf("abort a: %+v", abortResp.Error)
 	}
 
-	waitForCondition(t, func() bool { return entryA.Acp.Loop.ActiveRunID() == "" })
-	if got := entryB.Acp.Loop.ActiveRunID(); got != "run-b" {
+	waitForCondition(t, func() bool { return entryA.AgentLoop.Loop.ActiveRunID() == "" })
+	if got := entryB.AgentLoop.Loop.ActiveRunID(); got != "run-b" {
 		t.Fatalf("b ActiveRunID = %q, want \"run-b\" (must NOT be cancelled)", got)
 	}
 }
@@ -627,7 +627,7 @@ func TestHandlePrompt_QueuedForActiveSession(t *testing.T) {
 		t.Fatalf("first prompt should not be queued")
 	}
 	entryA, _ := c.sessions.GetOrCreateEntry("a")
-	waitForActiveRun(t, entryA.Acp)
+	waitForActiveRun(t, entryA.AgentLoop)
 
 	second := dispatchRequest(context.Background(), &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.prompt",
@@ -641,11 +641,11 @@ func TestHandlePrompt_QueuedForActiveSession(t *testing.T) {
 	}
 }
 
-// TestHandleSubscribeEvents_BuildsEntryNotAcp:FR-8 两阶段。subscribe
-// 只建 SessionEntry,不触发 AcpSession 懒建 —— 否则 renderer 订历史
+// TestHandleSubscribeEvents_BuildsEntryNotAgentLoop:FR-8 两阶段。subscribe
+// 只建 SessionEntry,不触发 AgentLoopSession 懒建 —— 否则 renderer 订历史
 // session 时会拉起 N 个 Agent / Loop / 订阅。检查走 byID 直读而不是
 // GetOrCreateEntry,后者会触发"阶段 2"补建,掩盖 subscribe 自己的行为。
-func TestHandleSubscribeEvents_BuildsEntryNotAcp(t *testing.T) {
+func TestHandleSubscribeEvents_BuildsEntryNotAgentLoop(t *testing.T) {
 	_, c := newTestHandler(t)
 	resp := dispatchRequest(context.Background(), &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.subscribe_events",
@@ -663,15 +663,15 @@ func TestHandleSubscribeEvents_BuildsEntryNotAcp(t *testing.T) {
 	if entry == nil {
 		t.Fatalf("entry vanished from byID")
 	}
-	if entry.Acp != nil {
-		t.Fatalf("subscribe must NOT trigger AcpSession build (FR-8 two-phase); got Acp=%+v", entry.Acp)
+	if entry.AgentLoop != nil {
+		t.Fatalf("subscribe must NOT trigger AgentLoopSession build (FR-8 two-phase); got AgentLoop=%+v", entry.AgentLoop)
 	}
 }
 
 // waitForActiveRun 轮询 Loop.ActiveRunID 证明 prompt 已取出并设了
 // activeRun。基于状态而非订阅事件,避免"订阅晚于事件 burst"导致
 // waitForSubEvent 空等超时的竞态。
-func waitForActiveRun(t *testing.T, sess *acp.AcpSession) {
+func waitForActiveRun(t *testing.T, sess *agentloop.AgentLoopSession) {
 	t.Helper()
 	waitForCondition(t, func() bool { return sess.Loop.ActiveRunID() != "" })
 }
@@ -1248,14 +1248,14 @@ func newTestHandlerWithPlugins(t *testing.T, plugins []tool.Plugin) (*Handler, *
 	t.Helper()
 	prov := &blockingProvider{}
 	store := store.NewMemoryStore()
-	factory := &acp.AgentFactory{
+	factory := &agentloop.AgentFactory{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),
 		Store:    store,
 		Logger:   zap.NewNop(),
 		Plugins:  plugins,
-		Selector: func(a *agent.Agent, _ *acp.AgentFactory) (harness.Harness, error) {
-			return acp.NewEmbeddedTestHarness(a), nil
+		Selector: func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
+			return agentloop.NewEmbeddedTestHarness(a), nil
 		},
 	}
 	steerAgent, err := agent.New(agent.NewAgentConfig{
@@ -1267,7 +1267,7 @@ func newTestHandlerWithPlugins(t *testing.T, plugins []tool.Plugin) (*Handler, *
 	if err != nil {
 		t.Fatalf("agent.New steer: %v", err)
 	}
-	steer := acp.NewSteerControl(steerAgent)
+	steer := agentloop.NewSteerControl(steerAgent)
 	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0

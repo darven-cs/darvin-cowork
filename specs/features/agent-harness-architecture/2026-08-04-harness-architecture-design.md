@@ -1,7 +1,7 @@
 # 00 — Harness Architecture 总览
 
 > 状态: 草案 v2 · 2026-08-04(Phase 1 实施后回写)
-> 范围: 整个 `internal/agents/` 包 + `internal/acp/` 包 + `internal/gateway/`
+> 范围: 整个 `internal/agents/` 包 + `internal/agentloop/` 包 + `internal/gateway/`
 > 目标: 将 darvin-cowork 的 agent runtime 重构为 OpenClaw 风格的 harness 架构
 
 ## 1. 为什么改造
@@ -158,7 +158,7 @@ sequenceDiagram
 | Selection 评分逻辑太复杂,反不如写死 | 中 | 中 | 第一阶段只做 provider/priority 二维评分,后扩展 |
 | Plugin 动态注册破坏 cold start 性能 | 低 | 低 | Plugin 列表在 main.go 启动时同步加载,失败直接 fail-fast |
 | ctx engine 启用后 LLM 调用变慢/出错 | 中 | 大 | 06 spec 单独 spec,独立可回滚,启用前 100% 测试覆盖 |
-| `acp.AgentFactory` 改成 harness 后,既有的 event ledger 找不到事件 | 中 | 中 | EventBus 单例保持,harness 跟 Agent 共用同一个 bus |
+| `agentloop.AgentFactory` 改成 harness 后,既有的 event ledger 找不到事件 | 中 | 中 | EventBus 单例保持,harness 跟 Agent 共用同一个 bus |
 
 ## 7. 实施分期(每期一个 git commit 闭环)
 
@@ -182,7 +182,7 @@ sequenceDiagram
 2. `go vet ./...` 通过
 3. `go test -count=1 -short ./...` 通过,且**新增测试 ≥ 新增代码的 70%**
 4. 既有 RPC 集成测试通过(`internal/gateway/*_test.go` 不需要改)
-5. 既有 `acp.Loop` 集成测试通过(`internal/acp/loop_test.go` 保持 PASS)
+5. 既有 `agentloop.Loop` 集成测试通过(`internal/agentloop/loop_test.go` 保持 PASS)
 6. 性能:smoke test 从 `client.prompt` 到 LLM 第一 chunk 延迟增加 < 5%
 7. 内存:Phase 1-4 总增加 < 10MB(Plugin / Registry 不会显著增加)
 

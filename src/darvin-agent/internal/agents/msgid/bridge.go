@@ -1,5 +1,5 @@
 // Package msgid wires the in-flight turn ids — messageID, runID and the
-// distinct userMessageID — between the loop (acp.Loop) and the agent
+// distinct userMessageID — between the loop (agentloop.Loop) and the agent
 // runtime (executor, dispatcher).
 //
 // The Bridge is pure plumbing: every method is either a setter that records

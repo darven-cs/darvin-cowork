@@ -24,12 +24,12 @@ const (
 	// 见 SessionManager.Stop / stoppedUntilMs。
 	CodeSessionStalled = -32001
 
-	// CodeNoAcpSession: handler 命中一个 entry 但其 AcpSession 还没建
+	// CodeNoAgentLoopSession: handler 命中一个 entry 但其 AgentLoopSession 还没建
 	//(subscribe 早于 prompt,且 SessionManager 未注入 factory)。
 	// 正常生产路径不会触发;只用于 handler 测试 stub。
-	CodeNoAcpSession = -32002
+	CodeNoAgentLoopSession = -32002
 
-	// CodeAgentInitFailed: factory.NewAcpSession 构造失败,SessionManager
+	// CodeAgentInitFailed: factory.NewAgentLoopSession 构造失败,SessionManager
 	// 已回滚 entry;renderer 可重试。
 	CodeAgentInitFailed = -32003
 

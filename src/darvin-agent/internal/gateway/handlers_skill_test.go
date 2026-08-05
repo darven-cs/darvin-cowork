@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/acp"
+	"darvin-cowork/backend/internal/agentloop"
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
@@ -29,13 +29,13 @@ func skillTestHandler(t *testing.T) (*Handler, *client) {
 	t.Helper()
 	prov := &blockingProvider{}
 	st := store.NewMemoryStore()
-	factory := &acp.AgentFactory{
+	factory := &agentloop.AgentFactory{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),
 		Store:    st,
 		Logger:   zap.NewNop(),
-		Selector: func(*agent.Agent, *acp.AgentFactory) (harness.Harness, error) {
-			return acp.HarnessForTest, nil
+		Selector: func(*agent.Agent, *agentloop.AgentFactory) (harness.Harness, error) {
+			return agentloop.HarnessForTest, nil
 		},
 	}
 	steerAgent, err := agent.New(agent.NewAgentConfig{
@@ -47,7 +47,7 @@ func skillTestHandler(t *testing.T) (*Handler, *client) {
 	if err != nil {
 		t.Fatalf("agent.New steer: %v", err)
 	}
-	steer := acp.NewSteerControl(steerAgent)
+	steer := agentloop.NewSteerControl(steerAgent)
 	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0

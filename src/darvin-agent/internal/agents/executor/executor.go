@@ -93,12 +93,12 @@ type Deps interface {
 	// ContextEngine can prefer API token counts over the local estimator.
 	RecordUsage(u protocol.Usage)
 	LastUsage() protocol.Usage
-	// CurrentMessageID returns the messageID the ACP loop assigned to the
+	// CurrentMessageID returns the messageID the agent loop assigned to the
 	// prompt that triggered the in-flight run. The executor embeds it on
 	// every emitted event so downstream consumers (EventLedger, renderer)
 	// can correlate events back to the originating prompt.
 	CurrentMessageID() string
-	// CurrentRunID returns the caller-minted runID the ACP loop assigned
+	// CurrentRunID returns the caller-minted runID the agent loop assigned
 	// to the prompt that triggered the in-flight run. The executor embeds
 	// it on every emitted event so downstream consumers can abort a
 	// specific turn and demultiplex events by turn id.

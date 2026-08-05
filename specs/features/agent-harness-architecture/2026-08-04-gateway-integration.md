@@ -3,18 +3,18 @@
 > 状态: 草案 v1 · 2026-08-04
 > 父 spec: `00-harness-architecture-design.md`
 > 前置: `01-harness-core-interface.md`, `02-agent-refactor.md`, `03-selection-and-plugin.md`
-> 输出: `internal/gateway/handlers.go` + `sessionmgr.go` + `internal/acp/` 调整
+> 输出: `internal/gateway/handlers.go` + `sessionmgr.go` + `internal/agentloop/` 调整
 
 ## 1. 目标
 
-把 darvin-cowork gateway 从**直接绑 `acp.AcpSession`** 改为**走 harness 抽象**。具体说:
+把 darvin-cowork gateway 从**直接绑 `agentloop.AgentLoopSession`** 改为**走 harness 抽象**。具体说:
 
-- 保留 `acp.AgentFactory` 和 `acp.Loop`(因为它们是 per-session turn queue + steer + abort,这些 OpenClaw 也没有)
+- 保留 `agentloop.AgentFactory` 和 `agentloop.Loop`(因为它们是 per-session turn queue + steer + abort,这些 OpenClaw 也没有)
 - 但 AgentFactory 内部从"new 一个 *Agent"改为"从 harness registry 拿 harness"
 - handlers.handlePrompt 从"调 `entry.Acp.Loop.Submit`"改为"调 `harness.RunAttemptWithLifecycle`"
-- SessionManager 的 `Acp *acp.AcpSession` 字段保留(向后兼容 RPC),但内部走 harness
+- SessionManager 的 `Acp *agentloop.AgentLoopSession` 字段保留(向后兼容 RPC),但内部走 harness
 
-**核心思路**: 让 `acp.AcpSession` 变成 harness 的 thin wrapper,**不是**反过来。`acp.Loop` 仍存在但内部走 `harness.RunAttempt`,而不是直接 `agent.Prompt` / `agent.Run`。
+**核心思路**: 让 `agentloop.AgentLoopSession` 变成 harness 的 thin wrapper,**不是**反过来。`agentloop.Loop` 仍存在但内部走 `harness.RunAttempt`,而不是直接 `agent.Prompt` / `agent.Run`。
 
 ## 2. 当前调用链(改造前)
 
@@ -24,8 +24,8 @@ WebSocket message  "agent.prompt"
 handlePrompt(ctx, params)
    ↓
 c.sessions.GetOrCreateEntry(sessionID)
-   ↓ entry.Acp = factory.NewAcpSession(id)
-entry.Acp.Loop.Submit(acp.PromptRequest{...})
+   ↓ entry.Acp = factory.NewAgentLoopSession(id)
+entry.Acp.Loop.Submit(agentloop.PromptRequest{...})
    ↓
 Loop.admit(...)  [内部 push to followUpQueue]
    ↓
@@ -57,8 +57,8 @@ handlePrompt(ctx, params)
    ↓
 c.sessions.GetOrCreateEntry(sessionID)
    ↓ entry.Harness = harness.SelectHarnessFor(...)
-       entry.Acp = newAcpSession(entry.Harness, ...)
-entry.Acp.Submit(acp.PromptRequest{...})   // API 保持
+       entry.Acp = newAgentLoopSession(entry.Harness, ...)
+entry.Acp.Submit(agentloop.PromptRequest{...})   // API 保持
    ↓
 Loop.run() goroutine
    ↓
@@ -79,7 +79,7 @@ emit event → bus → ledger → WS
 
 ## 4. 详细改动
 
-### 4.1 `internal/acp/factory.go` 改动
+### 4.1 `internal/agentloop/factory.go` 改动
 
 ```go
 // 改造前
@@ -99,7 +99,7 @@ type AgentFactory struct {
 }
 
 func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) { ... }
-func (f *AgentFactory) NewAcpSession(sessionID string) (*AcpSession, error) { ... }
+func (f *AgentFactory) NewAgentLoopSession(sessionID string) (*AgentLoopSession, error) { ... }
 
 // 改造后
 type AgentFactory struct {
@@ -107,14 +107,14 @@ type AgentFactory struct {
     HarnessID string                  // 新增:本次 factory 绑定哪个 harness;空 = 运行时 SelectHarness
 }
 
-func (f *AgentFactory) NewAcpSession(sessionID string) (*AcpSession, error) {
+func (f *AgentFactory) NewAgentLoopSession(sessionID string) (*AgentLoopSession, error) {
     h, err := f.resolveHarness()      // 1. 优先 f.HarnessID;2. 兜底 harness.SelectHarness
     if err != nil { return nil, err }
 
     a, err := f.Build(sessionID)      // 保留
     if err != nil { return nil, err }
 
-    return &AcpSession{
+    return &AgentLoopSession{
         SessionID: sessionID,
         Agent:     a,
         Harness:   h,                 // 新增字段
@@ -140,7 +140,7 @@ func (f *AgentFactory) resolveHarness() (harness.Harness, error) {
 }
 ```
 
-### 4.2 `internal/acp/loop.go` 改动
+### 4.2 `internal/agentloop/loop.go` 改动
 
 ```go
 // 改造前
@@ -184,7 +184,7 @@ func (l *Loop) executeTurn(req promptReq) {
         Provider:    extractProviderName(l.agent.Provider()),
         Model:       l.agent.ModelName(),
         AbortSignal:  runCtx,
-        // ... 其它字段从 Agent / AcpSession 抽
+        // ... 其它字段从 Agent / AgentLoopSession 抽
     }
 
     _, err := harness.RunAttemptWithLifecycle(runCtx, l.harness, params)
@@ -197,7 +197,7 @@ func (l *Loop) executeTurn(req promptReq) {
 ```go
 type SessionEntry struct {
     Session *session.Session
-    Acp     *acp.AcpSession        // 保留(向后兼容 acp.Loop 公开 API)
+    Acp     *agentloop.AgentLoopSession        // 保留(向后兼容 agentloop.Loop 公开 API)
     Harness harness.Harness         // 新增(可空:handler 测试 stub 不注入时)
 
     lastTouchedMs  int64
@@ -212,7 +212,7 @@ type SessionEntry struct {
 ```go
 func (m *SessionManager) attachAcpLocked(e *SessionEntry) error {
     if m.factory == nil { return nil }  // handler 测试 stub
-    a, err := m.factory.NewAcpSession(e.Session.ID)
+    a, err := m.factory.NewAgentLoopSession(e.Session.ID)
     if err != nil { return err }
     e.Acp = a
     e.Harness = a.Harness              // 复制过来
@@ -234,11 +234,11 @@ func handlePrompt(ctx, id, params, c, h) *Response {
     // 改造前:
     // ticket, err := entry.Acp.Loop.Submit(...)
 
-    // 改造后:多一步解析 harness,然后让 AcpSession 内部走
+    // 改造后:多一步解析 harness,然后让 AgentLoopSession 内部走
     if entry.Acp == nil {
-        return errorResp(id, CodeNoAcpSession, "no AcpSession bound", nil)
+        return errorResp(id, CodeNoAgentLoopSession, "no AgentLoopSession bound", nil)
     }
-    ticket, err := entry.Acp.Loop.Submit(acp.PromptRequest{
+    ticket, err := entry.Acp.Loop.Submit(agentloop.PromptRequest{
         RunID: p.RunID, Content: p.Content,
         Attachments: p.Attachments, Images: p.Images,
     })
@@ -246,7 +246,7 @@ func handlePrompt(ctx, id, params, c, h) *Response {
 }
 ```
 
-**关键**: handler public API 完全不变。`entry.Acp.Loop.Submit` 仍然存在(向后兼容 renderer),只是 AcpSession 内部走 harness。
+**关键**: handler public API 完全不变。`entry.Acp.Loop.Submit` 仍然存在(向后兼容 renderer),只是 AgentLoopSession 内部走 harness。
 
 **新增能力**: 未来加 "agent.change_harness" RPC 可让 renderer 切 harness;Phase 6 不实现。
 
@@ -254,7 +254,7 @@ func handlePrompt(ctx, id, params, c, h) *Response {
 
 ```go
 // 改造前
-factory := &acp.AgentFactory{
+factory := &agentloop.AgentFactory{
     Name: ..., Instructions: ..., Model: ..., Provider: ...,
     Store: ..., MessageStore: ..., Logger: ..., Config: ...,
     Tools: ..., Assembler: ..., Plugins: ...,
@@ -262,7 +262,7 @@ factory := &acp.AgentFactory{
 sessions := gateway.NewSessionManager(gateway.WithAgentFactory(factory), ...)
 
 // 改造后
-factory := &acp.AgentFactory{
+factory := &agentloop.AgentFactory{
     // ... 同样字段 ...
     HarnessID:  "",            // 留空 → 运行时 SelectHarness
     ConfigRef:  cfg,           // 传 cfg 用于 selection
@@ -272,7 +272,7 @@ factory := &acp.AgentFactory{
 // (spec 01 §7),闭包由 wiring 层持有 factory / sessionmgr。
 harness.MustRegister(harness.NewEmbedded(harness.EmbeddedConfig{
     Run: func(ctx context.Context, p harness.RunAttemptParams) (*harness.AttemptResult, error) {
-        // 把 p 转成 acp.PromptRequest,驱动对应 session 的 Loop
+        // 把 p 转成 agentloop.PromptRequest,驱动对应 session 的 Loop
     },
 }), "")
 // 未来: harness.MustRegister(harness.NewCliHarness(...), "cli")
@@ -307,11 +307,11 @@ embedded harness **不设** `harness.SetObserver`(spec 07 C10):它内部的 `Age
 
 | 风险 | 概率 | 影响 | 缓解 |
 |---|---|---|---|
-| AcpSession.Loop 改走 harness 后,RunSkillSession 没跟改 | 高 | 中 | 显式标注:`req.skill != nil` 仍直接调 agent.RunSkillSession(不走 harness,保持 skill 的 transient state 逻辑不变) |
+| AgentLoopSession.Loop 改走 harness 后,RunSkillSession 没跟改 | 高 | 中 | 显式标注:`req.skill != nil` 仍直接调 agent.RunSkillSession(不走 harness,保持 skill 的 transient state 逻辑不变) |
 | Selection 在 main.go 启动时 config 还没准备好,选错 harness | 中 | 高 | factory.resolveHarness 在懒建时调,不是启动时;config 一定 ready |
 | event 流多了一层(Loop 调 harness 调 agent),RunID / MessageID 丢失 | 中 | 高 | Loop 显式构造 harness.RunAttemptParams 时把 msgIDSrc / runIDSrc 传进去;lifecycle 把它们绑给 harness.RunAttempt |
 | Harness.RunAttempt 失败时,Loop 不知道回滚 | 中 | 中 | 失败时,RunAttempt 同步返回 error;Loop.executeTurn 现有的 emit AgentErrorEvent 逻辑保留 |
-| `internal/acp/` 包名意义进一步弱化(已经是内部 turn loop) | 高 | 低 | Phase 7: 视情况把 `internal/acp/` 整体 rename 到 `internal/agentloop/`(本 spec 不做) |
+| `internal/agentloop/` 包名意义进一步弱化(已经是内部 turn loop) | 高 | 低 | Phase 7: 视情况把 `internal/agentloop/` 整体 rename 到 `internal/agentloop/`(本 spec 不做) |
 | EventLedger 现在订阅的是 agent.bus,harness 改后是同一个 bus 吗 | 低 | 高 | 验证:embeddedHarness.RunAttempt 调 agent.Prompt,emit 走的是 agent.bus,EventLedger 仍订阅它。**0 改动** |
 
 ## 8. 测试要求
@@ -320,7 +320,7 @@ embedded harness **不设** `harness.SetObserver`(spec 07 C10):它内部的 `Age
 
 ```
 $ go test -count=1 -short ./internal/gateway/...
-$ go test -count=1 -short ./internal/acp/...
+$ go test -count=1 -short ./internal/agentloop/...
 ```
 
 包括:
@@ -347,16 +347,16 @@ $ go test -count=1 -short ./internal/acp/...
 ## 9. Phase 6 提交清单
 
 ```bash
-$ git add internal/acp/factory.go internal/acp/loop.go
+$ git add internal/agentloop/factory.go internal/agentloop/loop.go
 $ git add internal/gateway/sessionmgr.go internal/gateway/handlers.go
 $ git add cmd/app/main.go
 $ go test -count=1 -short ./...   # 必须全 PASS
-$ go test -count=1 ./internal/gateway/... ./internal/acp/...   # 集成测试
+$ go test -count=1 ./internal/gateway/... ./internal/agentloop/...   # 集成测试
 $ git commit -m "feat(gateway): route prompts through Harness abstraction
 
 改造:
 - AgentFactory 新增 HarnessID + ConfigRef 字段,resolveHarness() 选 harness
-- AcpSession 持 Harness 引用,Loop.executeTurn 调 harness.RunAttempt
+- AgentLoopSession 持 Harness 引用,Loop.executeTurn 调 harness.RunAttempt
 - SessionEntry 新增 Harness 字段
 - main.go 启动时 Register(embedded)
 
@@ -369,7 +369,7 @@ Spec: specs/features/agent-harness-architecture/04-gateway-integration.md"
 
 1. `go build ./...` 通过
 2. `go vet ./...` 通过
-3. 既有 `internal/gateway/*_test.go` + `internal/acp/*_test.go` 0 改动 0 失败
+3. 既有 `internal/gateway/*_test.go` + `internal/agentloop/*_test.go` 0 改动 0 失败
 4. 新增 6 个集成测试全过
 5. 一次端到端跑:`client.prompt → LLM first chunk` 延迟 < 100ms (smoke log 历史 baseline)
 6. 内存使用增量 < 5MB (Harness struct 比 Agent 多了几个 func,影响微)

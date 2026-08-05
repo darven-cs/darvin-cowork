@@ -200,18 +200,18 @@
 ## Phase 6 — Gateway 集成(基于 spec 04)· 已完成
 
 ### AgentFactory 改造
-- [x] `internal/acp/factory.go:AgentFactory` 加 HarnessID + Selector 字段
-- [x] `internal/acp/factory.go:NewAcpSession` 调 resolveHarnessFor(刚 Build 的 agent 传入 Selector)
-- [x] `internal/acp/factory.go:resolveHarnessFor` 实现(显式 id → Selector → SelectHarness fallback)
+- [x] `internal/agentloop/factory.go:AgentFactory` 加 HarnessID + Selector 字段
+- [x] `internal/agentloop/factory.go:NewAgentLoopSession` 调 resolveHarnessFor(刚 Build 的 agent 传入 Selector)
+- [x] `internal/agentloop/factory.go:resolveHarnessFor` 实现(显式 id → Selector → SelectHarness fallback)
 
-### AcpSession / Loop 改造
-- [x] `internal/acp/session.go:AcpSession` 加 Harness 字段
-- [x] `internal/acp/loop.go:Loop` 持 harness(NewLoop(a, h) 新签名)
-- [x] `internal/acp/loop.go:executeTurn` prompt 路径调 harness.RunAttemptWithLifecycle
-- [x] `internal/acp/loop.go:executeTurn` skill 路径仍直接调 agent.RunSkillSession(transient state 留在 agent 上)
+### AgentLoopSession / Loop 改造
+- [x] `internal/agentloop/session.go:AgentLoopSession` 加 Harness 字段
+- [x] `internal/agentloop/loop.go:Loop` 持 harness(NewLoop(a, h) 新签名)
+- [x] `internal/agentloop/loop.go:executeTurn` prompt 路径调 harness.RunAttemptWithLifecycle
+- [x] `internal/agentloop/loop.go:executeTurn` skill 路径仍直接调 agent.RunSkillSession(transient state 留在 agent 上)
 
 ### SessionEntry 改造
-- [x] Harness 挂在 AcpSession 上,SessionEntry 的 Acp 字段兼容保留(handler 不需要动)
+- [x] Harness 挂在 AgentLoopSession 上,SessionEntry 的 Acp 字段兼容保留(handler 不需要动)
 
 ### main.go 改造
 - [x] 启动时 `harness.MustRegister(harness.NewEmbedded(...), "")`
@@ -220,14 +220,14 @@
 
 ### 测试
 - [x] `internal/gateway/gateway_integration_test.go` (4 case: factory resolve / prompt 走 harness / explicit 不存在 / abort)
-- [x] `internal/acp/loop_harness_test.go` (2 case: executeTurn 调 harness / skill 绕过 harness)
+- [x] `internal/agentloop/loop_harness_test.go` (2 case: executeTurn 调 harness / skill 绕过 harness)
 - [x] 既有 gateway 15+ / acp 10+ 个 test 0 失败(测试 factory 注入 Selector 驱动 blocking provider)
 
 ### 验证
 - [x] `go build ./...` PASS
 - [x] `go vet ./...` PASS
 - [x] `go test -count=1 -short ./...` 25 个包全 PASS
-- [x] `go test -race ./internal/harness/... ./internal/acp/ ./internal/gateway/` 无 data race
+- [x] `go test -race ./internal/harness/... ./internal/agentloop/ ./internal/gateway/` 无 data race
 - [x] `make lint-agents-boundaries` PASS
 - [x] RPC 协议 / EventBus 协议 / 数据库 schema 不变
 
