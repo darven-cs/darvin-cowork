@@ -607,7 +607,7 @@ export function useMessages() {
         messageId: ev.messageId,
         createdAt: ev.createdAt,
       };
-      artifacts.addArtifact(sid, artifact);
+      artifacts.addArtifact(sid, artifact, { openPanel: false });
       if (ev.messageId) {
         const bucket = messagesBySessionId.value[sid] ?? [];
         const msg = bucket.find((m) => m.id === ev.messageId && m.role === 'assistant');

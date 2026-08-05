@@ -34,6 +34,14 @@ describe('useArtifacts addArtifact', () => {
     expect(artifacts.artifactsBySession.value.s1[0].content).toBe('v2');
   });
 
+  it('addArtifact with openPanel:false registers a tab without opening the panel', () => {
+    artifacts.addArtifact('s1', { id: 'a1', kind: 'text', content: 'x', createdAt: 1 }, { openPanel: false });
+    expect(artifacts.artifactsBySession.value.s1).toHaveLength(1);
+    expect(artifacts.previewTabsBySession.value.s1).toHaveLength(1);
+    expect(artifacts.activeTabIdBySession.value.s1).toBe(previewTabId('a1'));
+    expect(artifacts.isPanelOpenBySession.value.s1).toBeUndefined();
+  });
+
   it('isolates artifacts by session', () => {
     artifacts.addArtifact('s1', { id: 'a1', kind: 'text', content: 'x', createdAt: 1 });
     artifacts.addArtifact('s2', { id: 'a2', kind: 'text', content: 'y', createdAt: 2 });

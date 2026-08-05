@@ -103,7 +103,7 @@ export function useArtifacts() {
     if (open && session.activeSessionId.value === sid) sidePanel.set(true);
   }
 
-  function openPreviewTab(sid: string, artifactId: string): void {
+  function openPreviewTab(sid: string, artifactId: string, openPanel = true): void {
     const tabs = previewTabsBySession.value[sid] ?? [];
     const tabId = previewTabId(artifactId);
     if (!tabs.some((t) => t.id === tabId)) {
@@ -113,10 +113,10 @@ export function useArtifacts() {
       };
     }
     activeTabIdBySession.value = { ...activeTabIdBySession.value, [sid]: tabId };
-    setPanelOpen(sid, true);
+    if (openPanel) setPanelOpen(sid, true);
   }
 
-  function addArtifact(sid: string, artifact: Artifact): void {
+  function addArtifact(sid: string, artifact: Artifact, opts?: { openPanel?: boolean }): void {
     const list = artifactsBySession.value[sid] ?? [];
     const existing = list.find((a) => a.id === artifact.id);
     if (existing) {
@@ -128,7 +128,7 @@ export function useArtifacts() {
     } else {
       artifactsBySession.value = { ...artifactsBySession.value, [sid]: [...list, artifact] };
     }
-    openPreviewTab(sid, artifact.id);
+    openPreviewTab(sid, artifact.id, opts?.openPanel ?? true);
   }
 
   function activateTab(sid: string, tabId: string): void {
