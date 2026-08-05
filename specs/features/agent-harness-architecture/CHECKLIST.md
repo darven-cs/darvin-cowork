@@ -234,12 +234,12 @@
 ### 提交
 - [x] `git commit -m "feat(gateway): route prompts through Harness abstraction"`
 
-## Phase 7 — (可选)BuiltinCliHarness demo
+## Phase 7 — (可选)BuiltinCliHarness demo · 已完成
 
-- [ ] 写 `internal/harness/builtin-cli.go`(mock 实现,真 CLI backend 后续 spec)
-- [ ] 在 main.go 临时注册,验证 selection 工作
-- [ ] 写 1 个 demo 集成 test
-- [ ] 删除 demo 保留 framework
+- [x] 写 `internal/harness/builtin_cli.go`(mock CLI:generic-CLI host 动词集 bootstrap/after-turn/maintain,Priority -100 保证默认 embedded 赢)
+- [x] 在 main.go 临时注册 + build 验证 selection 可达,然后删除(最终只留 embedded)
+- [x] 写 `internal/harness/builtin_cli_test.go`(4 个 demo case:显式选 cli / 默认选 embedded / assemble-before-prompt 需求下 cli 出局 / host 动词集断言)
+- [x] 删除 main.go 注册、保留 framework(CLIHarness 类型作为未来 CLI backend spec 的参考形状留在 harness 包)
 
 ## 最终验收(Phase 1–6 全部完成)
 
