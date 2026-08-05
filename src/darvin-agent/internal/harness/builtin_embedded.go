@@ -62,10 +62,25 @@ func (e *embedded) Label() string {
 }
 
 func (e *embedded) Capabilities() Capabilities {
+	// The embedded runtime satisfies every host verb the OpenClaw reference
+	// runtime does, except `thread-bootstrap-projection` (which is an
+	// OpenClaw-specific projection we have no analogue for). Wiring layers
+	// may override ContextEngineHost via EmbeddedConfig.
+	host := e.cfg.ContextEngineHost
+	if host == nil {
+		host = []ContextEngineHostCapability{
+			HostBootstrap,
+			HostAssembleBeforePrompt,
+			HostAfterTurn,
+			HostMaintain,
+			HostCompact,
+			HostRuntimeLLMComplete,
+		}
+	}
 	return Capabilities{
 		Healthy:           e.cfg.Run != nil,
 		Compact:           e.cfg.Compact != nil,
-		ContextEngineHost: e.cfg.ContextEngineHost,
+		ContextEngineHost: host,
 		DeliveryDefaults:  e.cfg.DeliveryDefaults,
 	}
 }

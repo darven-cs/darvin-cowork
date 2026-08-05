@@ -97,6 +97,43 @@ type NewAgentConfig struct {
 	// fallback path even if an assembler was wired. cfg.yaml users get
 	// true by default via the YAML front-end's default.
 	AssemblerEnabled bool
+
+	// Skills, when non-nil, feeds the assembler's AvailableSkills. nil
+	// means no skill registry is wired (Phase 5 default until the skill
+	// plugin ships its own registry).
+	Skills SkillsLister
+	// Mcp, when non-nil, feeds the assembler's AvailableMcp. nil means no
+	// MCP registry is wired (Phase 5 default until the MCP plugin ships).
+	Mcp McpLister
+}
+
+// SkillsLister is the narrow surface the agent needs from a skills
+// registry. internal/skills.SkillRegistry satisfies it; tests can supply
+// a stub without dragging the full registry in.
+type SkillsLister interface {
+	ListEnabled() []SkillEntry
+}
+
+// SkillEntry mirrors the public fields of internal/skills.SkillEntry the
+// agent reads to build a SkillSummary.
+type SkillEntry struct {
+	ID          string
+	Name        string
+	Description string
+	Enabled     bool
+}
+
+// McpLister is the narrow surface the agent needs from an MCP registry.
+type McpLister interface {
+	ListServers() []McpServerSummary
+}
+
+// McpServerSummary is the agent-facing shape of one MCP server.
+type McpServerSummary struct {
+	ServerID  string
+	Name      string
+	ToolCount int
+	Tools     []string
 }
 
 // Agent is the runtime. It is goroutine-safe.
@@ -139,6 +176,9 @@ type Agent struct {
 
 	assembler        ctxengine.ContextEngine
 	assemblerEnabled bool
+
+	skills SkillsLister
+	mcp    McpLister
 
 	// toolTransformer normalises a tool result before the executor forwards
 	// it to the LLM. The harness's tooldridge middleware chain sets this
@@ -209,6 +249,8 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		model:        cfg.Model,
 		provider:     cfg.Provider,
 		session:      cfg.Session,
+		skills:       cfg.Skills,
+		mcp:          cfg.Mcp,
 		store:        cfg.Store,
 		msgStore:     cfg.MessageStore,
 		logger:       cfg.Logger,
@@ -424,4 +466,34 @@ func (a *Agent) ResultTransformer() func(protocol.Result) protocol.Result {
 // with future CLI / plugin backends.
 func (a *Agent) SetToolResultTransformer(t func(protocol.Result) protocol.Result) {
 	a.toolTransformer = t
+}
+
+// SkillSummaries satisfies executor.Deps. nil registry → nil slice.
+func (a *Agent) SkillSummaries() []ctxengine.SkillSummary {
+	if a.skills == nil {
+		return nil
+	}
+	entries := a.skills.ListEnabled()
+	out := make([]ctxengine.SkillSummary, 0, len(entries))
+	for _, e := range entries {
+		name := e.Name
+		if name == "" {
+			name = e.ID
+		}
+		out = append(out, ctxengine.SkillSummary{Name: name, Description: e.Description})
+	}
+	return out
+}
+
+// McpServers satisfies executor.Deps. nil registry → nil slice.
+func (a *Agent) McpServers() []ctxengine.MCPServerInfo {
+	if a.mcp == nil {
+		return nil
+	}
+	servers := a.mcp.ListServers()
+	out := make([]ctxengine.MCPServerInfo, 0, len(servers))
+	for _, s := range servers {
+		out = append(out, ctxengine.MCPServerInfo{Name: s.Name, Tools: s.Tools})
+	}
+	return out
 }

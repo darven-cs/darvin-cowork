@@ -77,7 +77,14 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 		}
 	}
 
-	sysAddition := a.composeSystemAddition(p.SystemSections)
+	// Built-in sections for skills / facts / MCP servers come first so
+	// caller-supplied sections (which usually carry higher-priority
+	// per-instruction additions) land above them in the priority order.
+	builtIns := BuiltInSections(p.AvailableSkills, p.AvailableFacts, p.MCPServers)
+	merged := make([]SystemSection, 0, len(builtIns)+len(p.SystemSections))
+	merged = append(merged, builtIns...)
+	merged = append(merged, p.SystemSections...)
+	sysAddition := a.composeSystemAddition(merged)
 
 	return AssembleResult{
 		Messages:        msgs,

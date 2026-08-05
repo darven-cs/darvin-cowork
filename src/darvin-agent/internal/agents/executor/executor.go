@@ -122,6 +122,11 @@ type Deps interface {
 	// for the harness's tooldridge middleware chain; it is intentionally
 	// optional so the executor does not depend on harness.
 	ResultTransformer() func(protocol.Result) protocol.Result
+	// SkillSummaries / McpServers feed the assembler's system prompt
+	// sections. nil / nil are valid — empty registries just omit the
+	// <available_skills> / <available_mcp> blocks.
+	SkillSummaries() []ctxengine.SkillSummary
+	McpServers() []ctxengine.MCPServerInfo
 }
 
 // Executor runs one "user message -> possibly many turns -> natural stop"
@@ -169,11 +174,13 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 			messages = d.Session().Messages()
 		} else {
 			assembled := d.Assembler().Assemble(ctx, ctxengine.AssembleParams{
-				SessionID:      d.Session().ID,
-				Messages:       d.Session().Messages(),
-				ToolBudget:     d.Config().TokenBudget,
-				LastUsage:      d.LastUsage(),
-				SystemSections: d.SystemSections(),
+				SessionID:       d.Session().ID,
+				Messages:        d.Session().Messages(),
+				ToolBudget:      d.Config().TokenBudget,
+				LastUsage:       d.LastUsage(),
+				SystemSections:  d.SystemSections(),
+				AvailableSkills: d.SkillSummaries(),
+				MCPServers:      d.McpServers(),
 			})
 			messages = assembled.Messages
 		}

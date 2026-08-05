@@ -201,3 +201,37 @@ func TestEmbeddedDisposeWithoutHook(t *testing.T) {
 		t.Fatalf("Dispose: %v", err)
 	}
 }
+
+func TestEmbeddedDefaultHostCapabilities(t *testing.T) {
+	h := NewEmbedded(EmbeddedConfig{
+		Run: func(_ context.Context, _ RunAttemptParams) (*AttemptResult, error) {
+			return &AttemptResult{Status: AttemptOK}, nil
+		},
+	})
+	caps := h.Capabilities()
+	for _, want := range []ContextEngineHostCapability{
+		HostBootstrap, HostAssembleBeforePrompt, HostAfterTurn,
+		HostMaintain, HostCompact, HostRuntimeLLMComplete,
+	} {
+		found := false
+		for _, have := range caps.ContextEngineHost {
+			if have == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("Capabilities missing %q (have %v)", want, caps.ContextEngineHost)
+		}
+	}
+}
+
+func TestEmbeddedRespectsCustomHostCapabilities(t *testing.T) {
+	h := NewEmbedded(EmbeddedConfig{
+		ContextEngineHost: []ContextEngineHostCapability{HostBootstrap},
+	})
+	if len(h.Capabilities().ContextEngineHost) != 1 ||
+		h.Capabilities().ContextEngineHost[0] != HostBootstrap {
+		t.Fatalf("custom host capabilities ignored: %v", h.Capabilities().ContextEngineHost)
+	}
+}

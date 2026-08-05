@@ -124,6 +124,8 @@ func (f *fakeDeps) ApprovePath(_ string)                  {}
 func (f *fakeDeps) ResultTransformer() func(protocol.Result) protocol.Result {
 	return f.transform
 }
+func (f *fakeDeps) SkillSummaries() []ctxengine.SkillSummary { return nil }
+func (f *fakeDeps) McpServers() []ctxengine.MCPServerInfo     { return nil }
 
 func newFakeDeps(t *testing.T, provider llm.ModelProvider, regs []tool.Tool) *fakeDeps {
 	t.Helper()
