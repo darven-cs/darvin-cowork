@@ -120,20 +120,20 @@ func TestRegistryUnregister(t *testing.T) {
 func TestRegistryUnregisterByPlugin(t *testing.T) {
 	r := NewRegistry()
 	_ = r.Register(&stubTool{name: "builtin"})
-	_ = r.RegisterTool(&stubTool{name: "skill:a"}, KindSkill, map[string]any{"pluginID": "skill"})
-	_ = r.RegisterTool(&stubTool{name: "skill:b"}, KindSkill, map[string]any{"pluginID": "skill"})
-	_ = r.RegisterTool(&stubTool{name: "mcp:c"}, KindMcp, map[string]any{"pluginID": "mcp"})
+	_ = r.RegisterTool(&stubTool{name: "skill__a"}, KindSkill, map[string]any{"pluginID": "skill"})
+	_ = r.RegisterTool(&stubTool{name: "skill__b"}, KindSkill, map[string]any{"pluginID": "skill"})
+	_ = r.RegisterTool(&stubTool{name: "mcp__c"}, KindMcp, map[string]any{"pluginID": "mcp"})
 
 	if err := r.UnregisterByPlugin("skill"); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"skill:a", "skill:b"} {
+	for _, name := range []string{"skill__a", "skill__b"} {
 		if r.Get(name) != nil {
 			t.Errorf("Get(%s) after UnregisterByPlugin(skill) != nil", name)
 		}
 	}
-	if r.Get("mcp:c") == nil {
-		t.Error("Get(mcp:c) = nil, want surviving tool")
+	if r.Get("mcp__c") == nil {
+		t.Error("Get(mcp__c) = nil, want surviving tool")
 	}
 	if r.Get("builtin") == nil {
 		t.Error("Get(builtin) = nil, want surviving tool")
@@ -143,16 +143,16 @@ func TestRegistryUnregisterByPlugin(t *testing.T) {
 func TestRegistryListByKind(t *testing.T) {
 	r := NewRegistry()
 	_ = r.Register(&stubTool{name: "shell"})
-	_ = r.RegisterTool(&stubTool{name: "skill:z"}, KindSkill, nil)
-	_ = r.RegisterTool(&stubTool{name: "skill:a"}, KindSkill, nil)
-	_ = r.RegisterTool(&stubTool{name: "mcp:x"}, KindMcp, nil)
+	_ = r.RegisterTool(&stubTool{name: "skill__z"}, KindSkill, nil)
+	_ = r.RegisterTool(&stubTool{name: "skill__a"}, KindSkill, nil)
+	_ = r.RegisterTool(&stubTool{name: "mcp__x"}, KindMcp, nil)
 
 	skills := r.ListByKind(KindSkill)
 	if len(skills) != 2 {
 		t.Fatalf("len(ListByKind(skill)) = %d, want 2", len(skills))
 	}
-	if skills[0].Tool.Name() != "skill:a" || skills[1].Tool.Name() != "skill:z" {
-		t.Errorf("skill order = %q, %q, want skill:a, skill:z", skills[0].Tool.Name(), skills[1].Tool.Name())
+	if skills[0].Tool.Name() != "skill__a" || skills[1].Tool.Name() != "skill__z" {
+		t.Errorf("skill order = %q, %q, want skill__a, skill__z", skills[0].Tool.Name(), skills[1].Tool.Name())
 	}
 	if len(r.ListByKind(KindBuiltIn)) != 1 {
 		t.Errorf("len(ListByKind(builtin)) = %d, want 1", len(r.ListByKind(KindBuiltIn)))

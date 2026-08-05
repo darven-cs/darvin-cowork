@@ -1292,7 +1292,7 @@ func hasToolWire(tools []ToolDescriptorWire, name string) bool {
 
 func TestHandleListTools_IncludesPluginTools(t *testing.T) {
 	_, c := newTestHandlerWithPlugins(t, []tool.Plugin{
-		&stubGatewayPlugin{pluginID: "skill", tool: &stubGatewayTool{name: "skill:test-skill"}},
+		&stubGatewayPlugin{pluginID: "skill", tool: &stubGatewayTool{name: "skill__test-skill"}},
 	})
 	req := &Request{
 		JSONRPC: "2.0",
@@ -1307,7 +1307,7 @@ func TestHandleListTools_IncludesPluginTools(t *testing.T) {
 	res := resp.Result.(ListToolsResult)
 	found := false
 	for _, td := range res.Tools {
-		if td.Name == "skill:test-skill" {
+		if td.Name == "skill__test-skill" {
 			found = true
 			if td.Kind != "skill" {
 				t.Errorf("kind = %q, want skill", td.Kind)
@@ -1318,7 +1318,7 @@ func TestHandleListTools_IncludesPluginTools(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("skill:test-skill missing from tools: %+v", res.Tools)
+		t.Errorf("skill__test-skill missing from tools: %+v", res.Tools)
 	}
 }
 
@@ -1357,8 +1357,8 @@ func TestSetSkillEnabled_RefreshTools(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("list error: %+v", resp.Error)
 	}
-	if !hasToolWire(resp.Result.(ListToolsResult).Tools, "skill:code-review") {
-		t.Fatal("skill:code-review missing before disable")
+	if !hasToolWire(resp.Result.(ListToolsResult).Tools, "skill__code-review") {
+		t.Fatal("skill__code-review missing before disable")
 	}
 
 	disableReq := &Request{
@@ -1376,7 +1376,7 @@ func TestSetSkillEnabled_RefreshTools(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("list error after disable: %+v", resp.Error)
 	}
-	if hasToolWire(resp.Result.(ListToolsResult).Tools, "skill:code-review") {
-		t.Error("skill:code-review still present after disable")
+	if hasToolWire(resp.Result.(ListToolsResult).Tools, "skill__code-review") {
+		t.Error("skill__code-review still present after disable")
 	}
 }

@@ -16,7 +16,7 @@ type McpToolSource interface {
 }
 
 // McpPlugin exposes the tools of every connected MCP server as KindMcp
-// tools named mcp:<server>:<tool>. Register is meant to be re-run when a
+// tools named mcp__<server>__<tool>. Register is meant to be re-run when a
 // server connects or disconnects so the tool surface matches live state.
 type McpPlugin struct {
 	pluginID string
@@ -65,10 +65,12 @@ type McpTool struct {
 	source   McpToolSource
 }
 
-// mcpToolName maps a server + tool to its tool name.
-func mcpToolName(serverID, toolName string) string { return "mcp:" + serverID + ":" + toolName }
+// mcpToolName maps a server + tool to its tool name. The separator is
+// double-underscore (mcp__<server>__<tool>) so the name only contains
+// [a-zA-Z0-9_-], which Anthropic's API requires for tool names.
+func mcpToolName(serverID, toolName string) string { return "mcp__" + serverID + "__" + toolName }
 
-// Name returns the tool name (mcp:<server>:<tool>).
+// Name returns the tool name (mcp__<server>__<tool>).
 func (t *McpTool) Name() string { return mcpToolName(t.serverID, t.toolDesc.Name) }
 
 // Description returns the MCP tool's description for the LLM.

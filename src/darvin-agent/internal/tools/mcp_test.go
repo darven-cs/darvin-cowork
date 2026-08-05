@@ -43,12 +43,12 @@ func TestMcpPluginRegister(t *testing.T) {
 	if err := p.Register(reg); err != nil {
 		t.Fatal(err)
 	}
-	if got := reg.Get("mcp:filesystem:read_file"); got == nil {
-		t.Fatal("mcp:filesystem:read_file not registered")
+	if got := reg.Get("mcp__filesystem__read_file"); got == nil {
+		t.Fatal("mcp__filesystem__read_file not registered")
 	}
-	entry, ok := reg.GetEntry("mcp:filesystem:list_directory")
+	entry, ok := reg.GetEntry("mcp__filesystem__list_directory")
 	if !ok {
-		t.Fatal("GetEntry(mcp:filesystem:list_directory) missing")
+		t.Fatal("GetEntry(mcp__filesystem__list_directory) missing")
 	}
 	if entry.Kind != KindMcp {
 		t.Errorf("Kind = %q, want mcp", entry.Kind)
@@ -87,15 +87,15 @@ func TestMcpPluginUnregister(t *testing.T) {
 	if err := p.Unregister(reg); err != nil {
 		t.Fatal(err)
 	}
-	if reg.Get("mcp:fs:read_file") != nil {
+	if reg.Get("mcp__fs__read_file") != nil {
 		t.Error("mcp tool survives Unregister")
 	}
 }
 
 func TestMcpToolName(t *testing.T) {
 	mt := &McpTool{serverID: "filesystem", toolDesc: mcpToolDescriptor("read_file")}
-	if got := mt.Name(); got != "mcp:filesystem:read_file" {
-		t.Errorf("Name() = %q, want mcp:filesystem:read_file", got)
+	if got := mt.Name(); got != "mcp__filesystem__read_file" {
+		t.Errorf("Name() = %q, want mcp__filesystem__read_file", got)
 	}
 }
 

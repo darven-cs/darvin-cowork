@@ -57,7 +57,7 @@ func TestRunSkillSessionScopesPromptAndTools(t *testing.T) {
 	if err := full.RegisterTool(&dummyTool{name: "echo"}, tool.KindBuiltIn, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := full.RegisterTool(&dummyTool{name: "skill:code-review"}, tool.KindSkill, map[string]any{"skillID": "code-review"}); err != nil {
+	if err := full.RegisterTool(&dummyTool{name: "skill__code-review"}, tool.KindSkill, map[string]any{"skillID": "code-review"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,7 +87,7 @@ func TestRunSkillSessionScopesPromptAndTools(t *testing.T) {
 		t.Errorf("System = %q, want skill prompt", req.System)
 	}
 	if len(req.Tools) != 1 || req.Tools[0].Name != "echo" {
-		t.Errorf("Tools = %v, want only [echo] (skill:code-review excluded)", toolNames(req.Tools))
+		t.Errorf("Tools = %v, want only [echo] (skill__code-review excluded)", toolNames(req.Tools))
 	}
 	// Transient override cleared: the agent is back to the full surface.
 	if a.Tools() != full {
@@ -105,18 +105,18 @@ func TestBuildSkillToolsPreservesKinds(t *testing.T) {
 	if err := full.RegisterTool(&dummyTool{name: "shell"}, tool.KindBuiltIn, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := full.RegisterTool(&dummyTool{name: "skill:web-search"}, tool.KindSkill, map[string]any{"skillID": "web-search"}); err != nil {
+	if err := full.RegisterTool(&dummyTool{name: "skill__web-search"}, tool.KindSkill, map[string]any{"skillID": "web-search"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := full.RegisterTool(&dummyTool{name: "mcp:filesystem:list_directory"}, tool.KindMcp, map[string]any{"mcpServerID": "filesystem"}); err != nil {
+	if err := full.RegisterTool(&dummyTool{name: "mcp__filesystem__list_directory"}, tool.KindMcp, map[string]any{"mcpServerID": "filesystem"}); err != nil {
 		t.Fatal(err)
 	}
 
-	scoped := full.ScopedForSkill([]string{"skill:web-search", "mcp:filesystem:list_directory"})
+	scoped := full.ScopedForSkill([]string{"skill__web-search", "mcp__filesystem__list_directory"})
 
 	for name, wantKind := range map[string]tool.Kind{
-		"skill:web-search":              tool.KindSkill,
-		"mcp:filesystem:list_directory": tool.KindMcp,
+		"skill__web-search":               tool.KindSkill,
+		"mcp__filesystem__list_directory": tool.KindMcp,
 	} {
 		e, ok := scoped.GetEntry(name)
 		if !ok {

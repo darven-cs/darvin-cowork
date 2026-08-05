@@ -24,15 +24,15 @@ func TestSkillPluginRegisterEnabledOnly(t *testing.T) {
 	if err := p.Register(toolReg); err != nil {
 		t.Fatal(err)
 	}
-	if toolReg.Get("skill:web-search") == nil {
-		t.Error("skill:web-search not registered")
+	if toolReg.Get("skill__web-search") == nil {
+		t.Error("skill__web-search not registered")
 	}
-	if toolReg.Get("skill:code-review") != nil {
+	if toolReg.Get("skill__code-review") != nil {
 		t.Error("disabled skill registered")
 	}
-	entry, ok := toolReg.GetEntry("skill:web-search")
+	entry, ok := toolReg.GetEntry("skill__web-search")
 	if !ok {
-		t.Fatal("GetEntry(skill:web-search) missing")
+		t.Fatal("GetEntry(skill__web-search) missing")
 	}
 	if entry.Kind != tool.KindSkill {
 		t.Errorf("Kind = %q, want skill", entry.Kind)
@@ -56,15 +56,15 @@ func TestSkillPluginUnregister(t *testing.T) {
 	if err := p.Unregister(toolReg); err != nil {
 		t.Fatal(err)
 	}
-	if toolReg.Get("skill:web-search") != nil {
+	if toolReg.Get("skill__web-search") != nil {
 		t.Error("skill tool survives Unregister")
 	}
 }
 
 func TestSkillToolName(t *testing.T) {
 	st := &SkillTool{skillEntry: &SkillEntry{ID: "web-search"}}
-	if got := st.Name(); got != "skill:web-search" {
-		t.Errorf("Name() = %q, want skill:web-search", got)
+	if got := st.Name(); got != "skill__web-search" {
+		t.Errorf("Name() = %q, want skill__web-search", got)
 	}
 }
 

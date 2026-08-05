@@ -308,7 +308,8 @@ func main() {
 	})
 
 	// skill / mcp 插件注入 factory：每个新 AgentLoopSession 建好后工具面自动带上
-	// skill:<id> 与 mcp:<server>:<tool>。skill 启停与 mcp 连接变化由
+	// skill__<id> 与 mcp__<server>__<tool>（双下划线命名空间，符合 Anthropic
+	// 工具名 ^[a-zA-Z0-9_-]+$ 约束）。skill 启停与 mcp 连接变化由
 	// handler 的 RefreshAllTools 重跑这两组插件（见 gateway 侧钩子）。
 	skillPlugin := skills.NewSkillPlugin(skillsResult.Registry, skillsResult.Runner)
 	mcpPlugin := tool.NewMcpPlugin(mcpRegistry)

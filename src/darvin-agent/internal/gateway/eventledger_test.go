@@ -125,12 +125,12 @@ func TestMapEventToTSCarriesMessageID(t *testing.T) {
 		{
 			name: "tool_start carries kind attribution",
 			ev: event.ToolStartEvent{
-				EventBase: ec, CallID: "c1", Name: "skill:web-search",
+				EventBase: ec, CallID: "c1", Name: "skill__web-search",
 				ToolKind: "skill", SkillID: "web-search", Arguments: map[string]any{"args": "go"},
 			},
 			want: map[string]any{
 				"type": "tool_start", "sessionId": "s1", "runId": "r1", "messageId": "m1",
-				"tool": "skill:web-search", "toolKind": "skill", "skillId": "web-search",
+				"tool": "skill__web-search", "toolKind": "skill", "skillId": "web-search",
 				"input": map[string]any{"args": "go"}, "message": map[string]any{"id": "c1"},
 			},
 		},

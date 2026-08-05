@@ -8,7 +8,7 @@ import (
 	"darvin-cowork/backend/internal/tools"
 )
 
-// SkillPlugin exposes enabled skills as KindSkill tools named skill:<id>.
+// SkillPlugin exposes enabled skills as KindSkill tools named skill__<id>.
 // Register is meant to be re-run after the skill registry changes so the
 // tool surface stays in sync with the enabled set.
 type SkillPlugin struct {
@@ -54,10 +54,11 @@ type SkillTool struct {
 	runner     *SkillRunner
 }
 
-// skillToolName maps a skill ID to its tool name.
-func skillToolName(skillID string) string { return "skill:" + skillID }
+// skillToolName maps a skill ID to its tool name. Double-underscore keeps
+// the name inside [a-zA-Z0-9_-] so Anthropic accepts it as a tool name.
+func skillToolName(skillID string) string { return "skill__" + skillID }
 
-// Name returns the tool name (skill:<id>).
+// Name returns the tool name (skill__<id>).
 func (t *SkillTool) Name() string { return skillToolName(t.skillEntry.ID) }
 
 // Description returns the skill's description for the LLM.
