@@ -248,8 +248,8 @@ func TestRunAttemptSkipsUndeclaredClassifier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunAttemptWithLifecycle: %v", err)
 	}
-	if res.Classification != "" {
-		t.Fatalf("Classification = %q, want empty for an undeclared classifier", res.Classification)
+	if res.Classification != ClassificationOK {
+		t.Fatalf("Classification = %q, want %q for an undeclared classifier", res.Classification, ClassificationOK)
 	}
 }
 
@@ -294,5 +294,167 @@ func TestRunAttemptReportsProgressCallbacks(t *testing.T) {
 	}
 	if res.DurationMs < 0 {
 		t.Fatalf("DurationMs = %d", res.DurationMs)
+	}
+}
+
+func TestLifecycleAssertsContextEngineHost(t *testing.T) {
+	resetGlobals(t)
+
+	var ran bool
+	h := newStub("alpha")
+	h.run = func(context.Context, RunAttemptParams) (*AttemptResult, error) {
+		ran = true
+		return &AttemptResult{Status: AttemptOK}, nil
+	}
+
+	req := &ContextEngineRequirement{
+		EngineID:             "ctxv2",
+		Operation:            OpAgentRun,
+		RequiredCapabilities: []ContextEngineHostCapability{HostAssembleBeforePrompt},
+	}
+	_, err := RunAttemptWithLifecycle(context.Background(), h, RunAttemptParams{
+		SessionID: "s1", Prompt: "hi", ContextEngine: req,
+	})
+	if !errors.Is(err, ErrContextEngineUnsupported) {
+		t.Fatalf("err = %v, want ErrContextEngineUnsupported", err)
+	}
+	if ran {
+		t.Fatal("RunAttempt ran on a harness that cannot host the engine")
+	}
+}
+
+func TestLifecycleLegacyEngineExempt(t *testing.T) {
+	resetGlobals(t)
+
+	h := newStub("alpha") // no host capabilities advertised
+	h.run = func(context.Context, RunAttemptParams) (*AttemptResult, error) {
+		return &AttemptResult{Status: AttemptOK}, nil
+	}
+
+	legacy := &ContextEngineRequirement{
+		EngineID:             LegacyContextEngineID,
+		Operation:            OpAgentRun,
+		RequiredCapabilities: []ContextEngineHostCapability{HostAssembleBeforePrompt},
+	}
+	for _, req := range []*ContextEngineRequirement{nil, legacy} {
+		if _, err := RunAttemptWithLifecycle(context.Background(), h, RunAttemptParams{
+			SessionID: "s1", Prompt: "hi", ContextEngine: req,
+		}); err != nil {
+			t.Fatalf("requirement %+v: err = %v, want exempt", req, err)
+		}
+	}
+}
+
+func TestClassificationClearsStaleLabel(t *testing.T) {
+	resetGlobals(t)
+
+	// The classifier declines to answer (empty label), but the backend left a
+	// stale drift label on the result. The stale label must not survive.
+	h := classifyStub{stubHarness: newStub("alpha")}
+	h.caps.Classify = true
+	h.run = func(context.Context, RunAttemptParams) (*AttemptResult, error) {
+		return &AttemptResult{Status: AttemptOK, Classification: ClassificationDrift}, nil
+	}
+
+	res, err := RunAttemptWithLifecycle(context.Background(), h, RunAttemptParams{
+		SessionID: "s1", Prompt: "hi",
+	})
+	if err != nil {
+		t.Fatalf("RunAttemptWithLifecycle: %v", err)
+	}
+	if res.Classification != ClassificationOK {
+		t.Fatalf("Classification = %q, want %q (stale drift label cleared)", res.Classification, ClassificationOK)
+	}
+}
+
+func TestResultCarriesHarnessID(t *testing.T) {
+	resetGlobals(t)
+
+	boom := errors.New("boom")
+	cases := []struct {
+		name string
+		run  func(context.Context, RunAttemptParams) (*AttemptResult, error)
+	}{
+		{"success", func(context.Context, RunAttemptParams) (*AttemptResult, error) {
+			return &AttemptResult{Status: AttemptOK}, nil
+		}},
+		{"error", func(context.Context, RunAttemptParams) (*AttemptResult, error) {
+			return nil, boom
+		}},
+		{"panic", func(context.Context, RunAttemptParams) (*AttemptResult, error) {
+			panic("plugin bug")
+		}},
+	}
+	for _, tc := range cases {
+		h := newStub("alpha")
+		h.run = tc.run
+		res, err := RunAttemptWithLifecycle(context.Background(), h, RunAttemptParams{
+			SessionID: "s1", Prompt: "hi",
+		})
+		if tc.name == "panic" && err == nil {
+			t.Fatalf("%s: a panicking harness did not surface as an error", tc.name)
+		}
+		if res.HarnessID != "alpha" {
+			t.Fatalf("%s: HarnessID = %q, want %q", tc.name, res.HarnessID, "alpha")
+		}
+	}
+}
+
+// recordingObserver collects diagnostics for TestObserverReceivesAttemptEvents.
+type recordingObserver struct {
+	started []ObserverAttempt
+	done    []ObserverAttempt
+	failed  []ObserverAttempt
+}
+
+func (o *recordingObserver) AttemptStarted(a ObserverAttempt) {
+	o.started = append(o.started, a)
+}
+
+func (o *recordingObserver) AttemptCompleted(a ObserverAttempt, _ *AttemptResult) {
+	o.done = append(o.done, a)
+}
+
+func (o *recordingObserver) AttemptFailed(a ObserverAttempt, _ error) {
+	o.failed = append(o.failed, a)
+}
+
+func TestObserverReceivesAttemptEvents(t *testing.T) {
+	resetGlobals(t)
+
+	obs := &recordingObserver{}
+	SetObserver(obs)
+	t.Cleanup(func() { SetObserver(nil) })
+
+	h := newStub("alpha")
+	h.run = func(context.Context, RunAttemptParams) (*AttemptResult, error) {
+		return &AttemptResult{Status: AttemptOK, AssistantText: "ok"}, nil
+	}
+	if _, err := RunAttemptWithLifecycle(context.Background(), h, RunAttemptParams{
+		SessionID: "s1", Prompt: "hi",
+	}); err != nil {
+		t.Fatalf("successful attempt: %v", err)
+	}
+	if len(obs.started) != 1 || len(obs.done) != 1 || len(obs.failed) != 0 {
+		t.Fatalf("observer counts after success: started=%d done=%d failed=%d",
+			len(obs.started), len(obs.done), len(obs.failed))
+	}
+	if obs.started[0].HarnessID != "alpha" || obs.started[0].SessionID != "s1" {
+		t.Fatalf("started = %+v", obs.started[0])
+	}
+
+	boom := errors.New("boom")
+	h2 := newStub("beta")
+	h2.run = func(context.Context, RunAttemptParams) (*AttemptResult, error) {
+		return nil, boom
+	}
+	if _, err := RunAttemptWithLifecycle(context.Background(), h2, RunAttemptParams{
+		SessionID: "s2", Prompt: "hi",
+	}); !errors.Is(err, boom) {
+		t.Fatalf("failing attempt err = %v", err)
+	}
+	if len(obs.started) != 2 || len(obs.done) != 1 || len(obs.failed) != 1 {
+		t.Fatalf("observer counts after failure: started=%d done=%d failed=%d",
+			len(obs.started), len(obs.done), len(obs.failed))
 	}
 }

@@ -66,11 +66,12 @@ type Candidate struct {
 
 // Rank returns every registered harness that supports sc, best first.
 //
-// A harness is filtered out when it is unhealthy, cannot host the requested
-// context engine, refuses the delegating plugin, falls outside its own
-// AutoSelection provider allowlist, or answers Supports with false. The
-// surviving candidates sort by descending priority (Supports plus the
-// AutoSelection bonus) then ascending id.
+// A harness is filtered out when it is unhealthy, misses a host capability the
+// caller's context engine requires, refuses the delegating plugin, falls
+// outside its own AutoSelection allowlist, or answers Supports with false.
+//
+// Priority comes from Supports and nowhere else, so a harness cannot have the
+// same score counted twice. Ties break on ascending id.
 func Rank(sc SupportContext) []Candidate {
 	var out []Candidate
 	for _, reg := range List() {
@@ -79,27 +80,19 @@ func Rank(sc SupportContext) []Candidate {
 		if !caps.Healthy {
 			continue
 		}
-		if !caps.HostsContextEngine(sc.ContextEngine) {
+		if len(caps.MissingHostCapabilities(sc.ContextEngine)) > 0 {
 			continue
 		}
 		if sc.PluginID != "" && !caps.AllowsDelegation(sc.PluginID) {
 			continue
 		}
-		bonus := 0
-		if sel, ok := h.(AutoSelector); ok {
-			hint := sel.AutoSelection()
-			if !hint.Matches(sc.Provider) {
-				continue
-			}
-			if hint != nil {
-				bonus = hint.Priority
-			}
+		if sel, ok := h.(AutoSelector); ok && !sel.AutoSelection().Eligible(sc.Provider) {
+			continue
 		}
 		res := h.Supports(sc)
 		if !res.Supported {
 			continue
 		}
-		res.Priority += bonus
 		out = append(out, Candidate{Harness: h, Result: res})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -109,6 +102,33 @@ func Rank(sc SupportContext) []Candidate {
 		return out[i].Harness.ID() < out[j].Harness.ID()
 	})
 	return out
+}
+
+// describeMissingHostCapabilities renders a rejection that names the missing
+// verbs alongside what was required and what the harness actually provides,
+// so a failure says which facility is absent rather than only that one is.
+func describeMissingHostCapabilities(h Harness, req *ContextEngineRequirement, missing []ContextEngineHostCapability) string {
+	if req.UnsupportedMessage != "" {
+		return req.UnsupportedMessage
+	}
+	return fmt.Sprintf(
+		"context engine %q cannot run operation %q on harness %q: missing host capabilities: %s; required: %s; host provides: %s",
+		req.EngineID, req.Operation, h.ID(),
+		joinHostCapabilities(missing),
+		joinHostCapabilities(req.RequiredCapabilities),
+		joinHostCapabilities(h.Capabilities().ContextEngineHost),
+	)
+}
+
+func joinHostCapabilities(list []ContextEngineHostCapability) string {
+	if len(list) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(list))
+	for _, v := range list {
+		parts = append(parts, string(v))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func implementsCapability(h Harness, cap Capability) bool {

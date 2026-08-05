@@ -17,6 +17,11 @@ type stubHarness struct {
 
 	supports func(SupportContext) SupportResult
 	run      func(context.Context, RunAttemptParams) (*AttemptResult, error)
+
+	resetErr   error
+	disposeErr error
+	resets     int
+	disposes   int
 }
 
 func newStub(id string) *stubHarness {
@@ -42,8 +47,15 @@ func (s *stubHarness) RunAttempt(ctx context.Context, params RunAttemptParams) (
 	return &AttemptResult{Status: AttemptOK}, nil
 }
 
-func (s *stubHarness) Reset(context.Context, ResetParams) error { return nil }
-func (s *stubHarness) Dispose(context.Context) error            { return nil }
+func (s *stubHarness) Reset(context.Context, ResetParams) error {
+	s.resets++
+	return s.resetErr
+}
+
+func (s *stubHarness) Dispose(context.Context) error {
+	s.disposes++
+	return s.disposeErr
+}
 
 // autoStub adds the AutoSelector interface to a stub.
 type autoStub struct{ *stubHarness }

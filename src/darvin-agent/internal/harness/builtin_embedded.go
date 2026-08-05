@@ -28,12 +28,18 @@ type EmbeddedConfig struct {
 	// Dispose releases process-level resources.
 	Dispose func(ctx context.Context) error
 
-	// Providers restricts the harness to these provider ids; empty means any.
+	// Providers restricts the harness to auto-selection for these provider
+	// ids. Empty leaves eligibility to Supports rather than marking the
+	// harness explicit-only.
 	Providers []string
-	// Priority biases auto-selection against other registered harnesses.
+	// Priority biases auto-selection against other registered harnesses. It
+	// is reported through Supports, the single source of ranking priority.
 	Priority int
-	// ContextEngineHost lists hostable context engine ids; empty means any.
-	ContextEngineHost []string
+	// ContextEngineHost lists the host facilities this harness provides.
+	ContextEngineHost []ContextEngineHostCapability
+	// DeliveryDefaults is the reply-delivery preference; nil leaves it
+	// undeclared.
+	DeliveryDefaults *DeliveryDefaults
 }
 
 type embedded struct {
@@ -60,22 +66,26 @@ func (e *embedded) Capabilities() Capabilities {
 		Healthy:           e.cfg.Run != nil,
 		Compact:           e.cfg.Compact != nil,
 		ContextEngineHost: e.cfg.ContextEngineHost,
+		DeliveryDefaults:  e.cfg.DeliveryDefaults,
 	}
 }
 
+// AutoSelection returns nil when no allowlist is configured: an empty
+// Providers slice would mark the harness explicit-only, which is the opposite
+// of the in-process default.
 func (e *embedded) AutoSelection() *AutoSelectionHint {
-	if len(e.cfg.Providers) == 0 && e.cfg.Priority == 0 {
+	if len(e.cfg.Providers) == 0 {
 		return nil
 	}
-	return &AutoSelectionHint{Providers: e.cfg.Providers, Priority: e.cfg.Priority}
+	return &AutoSelectionHint{Providers: e.cfg.Providers}
 }
 
 func (e *embedded) Supports(sc SupportContext) SupportResult {
 	if e.cfg.Run == nil {
 		return SupportResult{Reason: "no runner bound"}
 	}
-	if !e.AutoSelection().Matches(sc.Provider) {
-		return SupportResult{Reason: "provider not in allowlist"}
+	if !e.AutoSelection().Eligible(sc.Provider) {
+		return SupportResult{Reason: "provider is not auto-selectable"}
 	}
 	return SupportResult{Supported: true, Priority: e.cfg.Priority}
 }

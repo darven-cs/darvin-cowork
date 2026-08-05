@@ -42,7 +42,7 @@
 - [x] `go list -deps ./internal/harness` 不含任何 `internal/` 包
 
 ### 提交
-- [ ] `git commit -m "feat(harness): add Harness interface + Registry + Lifecycle skeleton"`
+- [x] `git commit -m "feat(harness): add Harness interface + Registry + Lifecycle skeleton"`
 
 ## Phase 1.5 — Harness 核心修正(基于 spec 07)· **Phase 3 之前必须完成 P0**
 
@@ -50,39 +50,39 @@
 > `internal/harness/` 目前零 import 方,改动成本此刻最低。
 
 ### P0(阻塞 spec 03 / 06)
-- [ ] C1 `support.go` / `types.go` / `builtin_embedded.go` — 删 `AutoSelectionHint.Priority`,`Rank` 不再叠加 bonus;`registry.go:autoPriority` 移除,`List()` 改纯 id 升序
-- [ ] C2 `types.go` — `Matches` → `Eligible`,区分 nil(探测)/ 空切片(explicit-only,硬拒);`builtin_embedded.go` 无 Providers 时返回 nil hint
-- [ ] C3 `types.go` — 新增 `normalizeProviderID` / `containsProvider`,白名单比较前归一
-- [ ] C4 `types.go` — `ContextEngineHost` 改能力动词集 + `ContextEngineRequirement` + `MissingHostCapabilities`;`SupportContext.ContextEngine` 换类型
-- [ ] C5 `lifecycle.go` — `RunAttemptParams` 加 `ContextEngine`,`RunAttemptWithLifecycle` 每次 attempt 断言 host 支持(nil / legacy 放行)
+- [x] C1 `support.go` / `types.go` / `builtin_embedded.go` — 删 `AutoSelectionHint.Priority`,`Rank` 不再叠加 bonus;`registry.go:autoPriority` 移除,`List()` 改纯 id 升序
+- [x] C2 `types.go` — `Matches` → `Eligible`,区分 nil(探测)/ 空切片(explicit-only,硬拒);`builtin_embedded.go` 无 Providers 时返回 nil hint
+- [x] C3 `types.go` — 新增 `normalizeProviderID` / `containsProvider`,白名单比较前归一
+- [x] C4 `types.go` — `ContextEngineHost` 改能力动词集 + `ContextEngineRequirement` + `MissingHostCapabilities`;`SupportContext.ContextEngine` 换类型
+- [x] C5 `lifecycle.go` — `RunAttemptParams` 加 `ContextEngine`,`RunAttemptWithLifecycle` 每次 attempt 断言 host 支持(nil / legacy 放行)
 
 ### P1
-- [ ] C6 `lifecycle.go` — 分类前清除陈旧 classification;裸 type assertion 换 `Implements`
-- [ ] C7 `types.go` / `lifecycle.go` — `AttemptResult.HarnessID`,三条路径都写
-- [ ] C8 `registry.go` — `ResetAll` / `DisposeAll` 扇出,`errors.Join` 聚合不吞错
-- [ ] C9 `types.go` — `SettledTurnResult` 补 AssistantText / Usage / TranscriptOwned / IdempotencyKey / MessageIndex
-- [ ] C10 `lifecycle.go` — 可选 `Observer` 钩子 + `SetObserver`,默认 nil 不发任何事件
+- [x] C6 `lifecycle.go` — 分类前清除陈旧 classification;裸 type assertion 换 `Implements`
+- [x] C7 `types.go` / `lifecycle.go` — `AttemptResult.HarnessID`,三条路径都写
+- [x] C8 `registry.go` — `ResetAll` / `DisposeAll` 扇出,`errors.Join` 聚合不吞错
+- [x] C9 `types.go` — `SettledTurnResult` 补 AssistantText / Usage / TranscriptOwned / IdempotencyKey / MessageIndex
+- [x] C10 `lifecycle.go` — 可选 `Observer` 钩子 + `SetObserver`,默认 nil 不发任何事件
 
 ### P2
-- [ ] C11 `types.go` / `lifecycle.go` — `Superseded` 注释收窄到 reset 语义,注明机制为本仓库自创
-- [ ] C12 `registry.go` — `Register` 校验 `h.PluginID()` 与 ownerPluginID 一致性
-- [ ] C13 `types.go` — `Capabilities.DeliveryDefaults`(spec 03 第 5 维依赖)
+- [x] C11 `types.go` / `lifecycle.go` — `Superseded` 注释收窄到 reset 语义,注明机制为本仓库自创
+- [x] C12 `registry.go` — `Register` 校验 `h.PluginID()` 与 ownerPluginID 一致性
+- [x] C13 `types.go` — `Capabilities.DeliveryDefaults`(spec 03 第 5 维依赖)
 
 ### 测试
-- [ ] `support_test.go` 新增 7 case(C1 回归 / nil vs 空切片 / 大小写 / host capability 3 类)
-- [ ] `lifecycle_test.go` 新增 5 case(host 断言 / legacy 豁免 / 陈旧分类 / HarnessID / Observer)
-- [ ] `registry_test.go` 新增 4 case(扇出容错 / 错误聚合 / PluginID 冲突 / List 排序)
-- [ ] 既有 53 case 全过(`support_test.go` 部分断言随 C1/C2/C4 调整,属预期)
+- [x] `support_test.go` 新增 7 case(C1 回归 / nil vs 空切片 / 大小写 / host capability 3 类)
+- [x] `lifecycle_test.go` 新增 5 case(host 断言 / legacy 豁免 / 陈旧分类 / HarnessID / Observer)
+- [x] `registry_test.go` 新增 4 case(扇出容错 / 错误聚合 / PluginID 冲突 / List 排序)
+- [x] 既有 53 case 全过(`support_test.go` 部分断言随 C1/C2/C4 调整,属预期)
 
 ### 验证
-- [ ] `go build ./...` PASS
-- [ ] `go vet ./...` PASS
-- [ ] `go test -count=1 -race -cover ./internal/harness/...` PASS(≥ 69 case,覆盖率 ≥ 92.9%)
-- [ ] 既有 test 0 改动 0 失败
-- [ ] `go list -deps ./internal/harness` 仍不含任何 `internal/` 包(C4 的常量必须包内自声明)
+- [x] `go build ./...` PASS
+- [x] `go vet ./...` PASS
+- [x] `go test -count=1 -race -cover ./internal/harness/...` PASS(≥ 69 case,覆盖率 ≥ 92.9%)
+- [x] 既有 test 0 改动 0 失败
+- [x] `go list -deps ./internal/harness` 仍不含任何 `internal/` 包(C4 的常量必须包内自声明)
 
 ### 提交
-- [ ] `git commit -m "fix(harness): align selection and capability semantics with reference design"`
+- [x] `git commit -m "fix(harness): align selection and capability semantics with reference design"`
 
 ## Phase 2 — Agent 重构(基于 spec 02)
 

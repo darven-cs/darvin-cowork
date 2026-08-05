@@ -12,6 +12,7 @@ package harness
 import (
 	"context"
 	"errors"
+	"strings"
 )
 
 // ErrNotImplemented is returned by a harness for a capability it declares no
@@ -32,6 +33,12 @@ var (
 	ErrNotRegistered = errors.New("harness: not registered")
 	// ErrNoCandidate is returned when no registered harness supports the context.
 	ErrNoCandidate = errors.New("harness: no supporting harness")
+	// ErrContextEngineUnsupported is returned when a harness does not advertise
+	// every host capability the caller's context engine requires.
+	ErrContextEngineUnsupported = errors.New("harness: context engine unsupported")
+	// ErrPluginIDMismatch is returned by Register when a harness reports a
+	// plugin id that disagrees with the registering owner.
+	ErrPluginIDMismatch = errors.New("harness: PluginID disagrees with owner")
 )
 
 // Harness is the surface every backend must implement. Optional behaviour
@@ -105,6 +112,58 @@ type AutoSelector interface {
 	AutoSelection() *AutoSelectionHint
 }
 
+// ContextEngineHostCapability names one host-side facility a context engine
+// may require. A harness advertises the set it provides; a context engine
+// declares, per operation, the subset it needs.
+type ContextEngineHostCapability string
+
+const (
+	HostBootstrap            ContextEngineHostCapability = "bootstrap"
+	HostAssembleBeforePrompt ContextEngineHostCapability = "assemble-before-prompt"
+	HostAfterTurn            ContextEngineHostCapability = "after-turn"
+	HostMaintain             ContextEngineHostCapability = "maintain"
+	HostCompact              ContextEngineHostCapability = "compact"
+	HostRuntimeLLMComplete   ContextEngineHostCapability = "runtime-llm-complete"
+)
+
+// ContextEngineOperation is the operation whose host requirements are checked.
+type ContextEngineOperation string
+
+const (
+	OpAgentRun ContextEngineOperation = "agent-run"
+	OpCompact  ContextEngineOperation = "compact"
+)
+
+// LegacyContextEngineID names the pre-assembler path. A requirement carrying
+// it is exempt from host capability checks, so enabling the real engine is
+// what turns the gate on rather than this package's rollout.
+const LegacyContextEngineID = "legacy"
+
+// ContextEngineRequirement is what the caller's context engine needs from a
+// harness for one operation.
+type ContextEngineRequirement struct {
+	EngineID  string
+	Operation ContextEngineOperation
+	// RequiredCapabilities must all be advertised by the harness.
+	RequiredCapabilities []ContextEngineHostCapability
+	// UnsupportedMessage overrides the generated rejection text.
+	UnsupportedMessage string
+}
+
+// VisibleReplies is how a harness expects visible replies to be produced.
+type VisibleReplies string
+
+const (
+	VisibleRepliesAutomatic   VisibleReplies = "automatic"
+	VisibleRepliesMessageTool VisibleReplies = "message_tool"
+)
+
+// DeliveryDefaults is a harness's reply-delivery preference, consulted when
+// configuration does not override it.
+type DeliveryDefaults struct {
+	VisibleReplies VisibleReplies
+}
+
 // Capability names one optional interface for declaration and verification.
 type Capability string
 
@@ -131,12 +190,17 @@ type Capabilities struct {
 	FinalizeSettledTurn bool
 	UsageSnapshot       bool
 
-	// ContextEngineHost lists the context engine ids this harness can host.
-	// Empty means it hosts any engine.
-	ContextEngineHost []string
+	// ContextEngineHost lists the host facilities this harness provides. A
+	// harness advertising none cannot run a context engine that declares
+	// requirements for the operation: the check is a superset test, so an
+	// unadvertised host fails closed.
+	ContextEngineHost []ContextEngineHostCapability
 	// DelegatedExecution lists the plugin ids allowed to delegate to this
 	// harness. Empty means no delegation.
 	DelegatedExecution []string
+	// DeliveryDefaults is the harness's reply-delivery preference. Nil means
+	// undeclared, leaving the caller on its own default.
+	DeliveryDefaults *DeliveryDefaults
 }
 
 // Declares reports whether c claims the given capability.
@@ -159,13 +223,23 @@ func (c Capabilities) Declares(cap Capability) bool {
 	}
 }
 
-// HostsContextEngine reports whether c accepts the given engine id. An empty
-// ContextEngineHost list accepts every engine.
-func (c Capabilities) HostsContextEngine(id string) bool {
-	if id == "" || len(c.ContextEngineHost) == 0 {
-		return true
+// MissingHostCapabilities returns the capabilities req demands that c does
+// not advertise. An empty return means the harness can host req.
+//
+// A nil req, a req with no required capabilities, and the legacy engine all
+// return nothing. Everything else is a plain superset test, so a harness that
+// advertises no host capabilities fails every non-trivial requirement.
+func (c Capabilities) MissingHostCapabilities(req *ContextEngineRequirement) []ContextEngineHostCapability {
+	if req == nil || len(req.RequiredCapabilities) == 0 || req.EngineID == LegacyContextEngineID {
+		return nil
 	}
-	return contains(c.ContextEngineHost, id)
+	var missing []ContextEngineHostCapability
+	for _, want := range req.RequiredCapabilities {
+		if !hasHostCapability(c.ContextEngineHost, want) {
+			missing = append(missing, want)
+		}
+	}
+	return missing
 }
 
 // AllowsDelegation reports whether pluginID may delegate execution here.
@@ -185,8 +259,9 @@ type SupportContext struct {
 	Provider string
 	Model    string
 
-	// ContextEngine is the engine id the caller wants hosted; "" means any.
-	ContextEngine string
+	// ContextEngine is what the caller's context engine requires of the
+	// harness. Nil means no requirement.
+	ContextEngine *ContextEngineRequirement
 	// PluginID is set when the call is delegated from a plugin.
 	PluginID string
 	// RequestedHarnessID pins a harness explicitly, bypassing scoring.
@@ -195,6 +270,9 @@ type SupportContext struct {
 
 // SupportResult is one harness's answer to a SupportContext. Higher Priority
 // wins; ties break on harness id so ordering never depends on map iteration.
+//
+// Supports is the single source of priority: nothing else contributes to the
+// ranking score.
 type SupportResult struct {
 	Supported bool
 	Priority  int
@@ -202,20 +280,30 @@ type SupportResult struct {
 	Reason string
 }
 
-// AutoSelectionHint is a harness's static provider allowlist.
+// AutoSelectionHint is a harness's static provider allowlist. It only ever
+// filters; it carries no priority, so a harness cannot have its score counted
+// twice.
 type AutoSelectionHint struct {
-	// Providers restricts the harness to these provider ids. Empty means any.
+	// Providers restricts the harness to these provider ids. A nil slice
+	// leaves eligibility to Supports; a non-nil empty slice marks the harness
+	// explicit-only.
 	Providers []string
-	// Priority is added to the SupportResult priority during ranking.
-	Priority int
 }
 
-// Matches reports whether the hint admits the given provider.
-func (h *AutoSelectionHint) Matches(provider string) bool {
-	if h == nil || len(h.Providers) == 0 {
+// Eligible reports whether the hint admits provider for auto selection.
+//
+// A nil hint, or a hint with a nil Providers slice, leaves the decision to
+// Supports. A non-nil but empty Providers slice marks the harness
+// explicit-only: it is never auto-selected and must be named through
+// SupportContext.RequestedHarnessID.
+func (h *AutoSelectionHint) Eligible(provider string) bool {
+	if h == nil || h.Providers == nil {
 		return true
 	}
-	return contains(h.Providers, provider)
+	if len(h.Providers) == 0 {
+		return false
+	}
+	return containsProvider(h.Providers, provider)
 }
 
 // ImageAttachment is a base64 image staged for one prompt, carrying the
@@ -288,8 +376,13 @@ type RunAttemptParams struct {
 	// TimeoutMs caps the whole attempt. Zero means no timeout.
 	TimeoutMs int
 
+	// ContextEngine is what the caller's context engine requires of the
+	// harness. RunAttemptWithLifecycle asserts it on every attempt, including
+	// the pinned path that never went through Rank. Nil means no requirement.
+	ContextEngine *ContextEngineRequirement
+
 	// LifecycleGen is stamped by RunAttemptWithLifecycle; a harness echoes it
-	// back so a superseded attempt can be detected.
+	// back so an attempt raced by a session reset can be detected.
 	LifecycleGen uint64
 
 	OnExecutionStarted func()
@@ -331,10 +424,16 @@ type AttemptResult struct {
 	Classification Classification
 	LastError      error
 
+	// HarnessID attributes the result to the harness that produced it.
+	// RunAttemptWithLifecycle stamps it on every path, including panics.
+	HarnessID string
+
 	// LifecycleGen echoes the generation the attempt started under.
 	LifecycleGen uint64
-	// Superseded is set when the session's lifecycle advanced mid-attempt,
-	// meaning a reset or a newer attempt raced this one.
+	// Superseded is set when the session was reset while the attempt ran, so
+	// the caller can drop a result that no longer describes live state.
+	// Concurrent attempts do not supersede each other: only Reset advances the
+	// generation.
 	Superseded bool
 	DurationMs int64
 }
@@ -395,9 +494,19 @@ type SettledTurnParams struct {
 	Result    *AttemptResult
 }
 
-// SettledTurnResult reports whether finalization changed anything.
+// SettledTurnResult is the single visible answer produced from a settled tool
+// transcript. Producing it is the whole point of the capability, so the
+// message and its accounting travel with the result rather than a bare flag.
 type SettledTurnResult struct {
-	Changed bool
+	AssistantText string
+	Usage         Usage
+	// TranscriptOwned marks that the harness already persisted the assistant
+	// message, so the caller must not write it again.
+	TranscriptOwned bool
+	// IdempotencyKey is the key of the harness-owned transcript row.
+	IdempotencyKey string
+	// MessageIndex correlates the final reply with the assistant stream.
+	MessageIndex int
 }
 
 // UsageSnapshotParams identifies the provider account to query.
@@ -417,6 +526,31 @@ type UsageSnapshot struct {
 func contains(list []string, want string) bool {
 	for _, v := range list {
 		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasHostCapability(list []ContextEngineHostCapability, want ContextEngineHostCapability) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeProviderID lowercases and trims a provider id so an allowlist entry
+// and a request that differ only in case or padding still match.
+func normalizeProviderID(id string) string {
+	return strings.ToLower(strings.TrimSpace(id))
+}
+
+func containsProvider(list []string, want string) bool {
+	want = normalizeProviderID(want)
+	for _, v := range list {
+		if normalizeProviderID(v) == want {
 			return true
 		}
 	}

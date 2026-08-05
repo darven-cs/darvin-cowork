@@ -1,6 +1,8 @@
 package harness
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -24,8 +26,9 @@ var registry = struct {
 // id. ownerPluginID names the plugin that supplied it; "" for built-ins.
 //
 // Registration fails when the harness declares a capability it does not
-// implement, so a mis-wired backend is rejected at startup instead of at the
-// first call that needs the capability.
+// implement, or when it reports a plugin id that disagrees with the owner.
+// Both are wiring mistakes, so they surface at startup instead of at the
+// first call that depends on them.
 func Register(h Harness, ownerPluginID string) error {
 	if h == nil {
 		return ErrHarnessRequired
@@ -37,11 +40,20 @@ func Register(h Harness, ownerPluginID string) error {
 	if err := VerifyCapabilities(h); err != nil {
 		return err
 	}
+	owner := strings.TrimSpace(ownerPluginID)
+	declared := strings.TrimSpace(h.PluginID())
+	if declared != "" && owner != "" && declared != owner {
+		return fmt.Errorf("%w: harness %q reports %q, registered by %q",
+			ErrPluginIDMismatch, id, declared, owner)
+	}
+	if owner == "" {
+		owner = declared
+	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	registry.byID[id] = &Registration{
 		Harness:       h,
-		OwnerPluginID: ownerPluginID,
+		OwnerPluginID: owner,
 		RegisteredAt:  time.Now(),
 	}
 	return nil
@@ -55,7 +67,11 @@ func Unregister(id string) {
 }
 
 // Get returns the harness registered under id. An empty id returns the
-// highest-priority healthy harness, or false when none is registered.
+// healthy harness with the lowest id.
+//
+// The empty-id form is a diagnostic and last-resort entry point only: it
+// ignores provider, context engine and delegation entirely. Real selection
+// goes through Rank or Policy.Resolve.
 func Get(id string) (Harness, bool) {
 	if trimmed := strings.TrimSpace(id); trimmed != "" {
 		reg, ok := Lookup(trimmed)
@@ -80,8 +96,9 @@ func Lookup(id string) (*Registration, bool) {
 	return reg, ok
 }
 
-// List returns every registration ordered by descending auto-selection
-// priority then ascending id, so callers never observe map iteration order.
+// List returns every registration ordered by ascending id, so callers never
+// observe map iteration order. Priority ordering belongs to Rank, which reads
+// it from Supports.
 func List() []*Registration {
 	registry.mu.RLock()
 	out := make([]*Registration, 0, len(registry.byID))
@@ -91,13 +108,34 @@ func List() []*Registration {
 	registry.mu.RUnlock()
 
 	sort.SliceStable(out, func(i, j int) bool {
-		pi, pj := autoPriority(out[i].Harness), autoPriority(out[j].Harness)
-		if pi != pj {
-			return pi > pj
-		}
 		return out[i].Harness.ID() < out[j].Harness.ID()
 	})
 	return out
+}
+
+// ResetAll calls Reset on every registered harness. One harness failing does
+// not stop the fan-out; every error is joined into the return value so a
+// partial failure is neither hidden nor fatal.
+func ResetAll(ctx context.Context, params ResetParams) error {
+	var errs []error
+	for _, reg := range List() {
+		if err := reg.Harness.Reset(ctx, params); err != nil {
+			errs = append(errs, fmt.Errorf("harness %q reset: %w", reg.Harness.ID(), err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// DisposeAll calls Dispose on every registered harness with the same fan-out
+// semantics as ResetAll. Intended for process shutdown.
+func DisposeAll(ctx context.Context) error {
+	var errs []error
+	for _, reg := range List() {
+		if err := reg.Harness.Dispose(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("harness %q dispose: %w", reg.Harness.ID(), err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // MustRegister panics when registration fails. Intended for process startup,
@@ -113,18 +151,6 @@ func ResetRegistryForTests() {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	registry.byID = map[string]*Registration{}
-}
-
-func autoPriority(h Harness) int {
-	sel, ok := h.(AutoSelector)
-	if !ok {
-		return 0
-	}
-	hint := sel.AutoSelection()
-	if hint == nil {
-		return 0
-	}
-	return hint.Priority
 }
 
 func idOf(h Harness) string {
