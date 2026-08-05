@@ -133,27 +133,27 @@
 ### 提交
 - [x] `git commit -m "feat(harness): add Selection (5-dim scoring) + Runtime Plugin"`
 
-## Phase 4 — Tool Bridge + Middleware(基于 spec 05)
+## Phase 4 — Tool Bridge + Middleware(基于 spec 05)· 已完成
 
 ### 文件创建
-- [ ] `internal/harness/tooldridge/bridge.go` — Surface interface + bridge
-- [ ] `internal/harness/tooldridge/middleware.go` — 5 个 middleware
-- [ ] `internal/harness/tooldridge/bridge_test.go` (5 case)
-- [ ] `internal/harness/tooldridge/middleware_test.go` (8 case)
+- [x] `internal/harness/tooldridge/bridge.go` — Surface interface + bridge 实现
+- [x] `internal/harness/tooldridge/middleware.go` — 5 个 middleware + Chain + DefaultMiddleware
+- [x] `internal/harness/tooldridge/bridge_test.go` (6 case)
+- [x] `internal/harness/tooldridge/middleware_test.go` (13 case)
 
 ### executor 改造(轻)
-- [ ] `internal/agents/executor/executor.go:executor.Deps` 加 `ResultTransformer func(protocol.Result) protocol.Result` 字段
-- [ ] `internal/agents/executor/executor.go:runToolsParallel` 调 ResultTransformer(若非 nil)
-- [ ] `internal/agents/agent.go:buildExecutorDeps` 填 ResultTransformer
+- [x] `internal/agents/executor/executor.go:Deps` 加 `ResultTransformer() func(protocol.Result) protocol.Result` 方法(spec 用方法而非字段,因为 Deps 是 interface)
+- [x] `internal/agents/executor/executor.go:runToolsParallel` 调 ResultTransformer(若非 nil)
+- [x] `internal/agents/agent.go` 加 `toolTransformer` 字段 + `SetToolResultTransformer` setter
 
 ### 验证
-- [ ] `go build ./...` PASS
-- [ ] 既有 13 个 executor test 0 失败
-- [ ] 13 个新 test 全 PASS
-- [ ] 集成 test:`go test ./internal/agents/executor/...` 全过
+- [x] `go build ./...` PASS
+- [x] 既有 13 个 executor test 0 失败(fakeDeps 加 zero-value transform 方法)
+- [x] 19 个新 test 全 PASS(spec 要求 ≥13,超出 6)
+- [x] 集成 test:`go test ./internal/agents/executor/...` 全过
 
 ### 提交
-- [ ] `git commit -m "feat(harness): add Tool Surface Bridge + Result Middleware"`
+- [x] `git commit -m "feat(harness): add Tool Surface Bridge + Result Middleware"`
 
 ## Phase 5 — ctx engine 启用(基于 spec 06)
 
