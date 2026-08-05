@@ -345,3 +345,27 @@ func (s *Subscription) Unsubscribe() {
 		close(s.ch)
 	})
 }
+
+// PluginLoadedEvent marks a plugin coming online. main.go publishes this
+// after plugin.Manager.Load succeeds, so the gateway can refresh selection.
+type PluginLoadedEvent struct {
+	EventBase
+	PluginID  string
+	Version   string
+	HarnessID string
+}
+
+func (PluginLoadedEvent) isAgentEvent()     {}
+func (PluginLoadedEvent) EventName() string { return "plugin_loaded" }
+
+// PluginUnloadedEvent marks a plugin going offline. Unregister happens
+// before this event is published; subscribers must tolerate a brief window
+// where the harness is already gone but the event has not landed.
+type PluginUnloadedEvent struct {
+	EventBase
+	PluginID  string
+	HarnessID string
+}
+
+func (PluginUnloadedEvent) isAgentEvent()     {}
+func (PluginUnloadedEvent) EventName() string { return "plugin_unloaded" }

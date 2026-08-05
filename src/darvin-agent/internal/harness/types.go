@@ -250,6 +250,15 @@ func (c Capabilities) AllowsDelegation(pluginID string) bool {
 	return contains(c.DelegatedExecution, pluginID)
 }
 
+// ProviderOwnership records which plugins (if any) claim ownership of a
+// provider. Selection uses it to score harness affinity for owned providers.
+type ProviderOwnership struct {
+	// Status is one of "unowned", "owned", "ambiguous".
+	Status string
+	// PluginIDs names the owning plugin(s). Empty for "unowned".
+	PluginIDs []string
+}
+
 // SupportContext is what selection knows about a session before picking a
 // harness for it.
 type SupportContext struct {
@@ -258,6 +267,14 @@ type SupportContext struct {
 
 	Provider string
 	Model    string
+
+	// RequestedRuntime is the harness id the caller's config asked for.
+	// Empty means auto. When non-empty, selection applies a priority boost
+	// to a harness whose ID matches, after hard filters.
+	RequestedRuntime string
+	// ProviderOwnership is the ownership record for the requested provider.
+	// Nil is treated as "unowned".
+	ProviderOwnership *ProviderOwnership
 
 	// ContextEngine is what the caller's context engine requires of the
 	// harness. Nil means no requirement.
