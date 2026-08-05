@@ -14,6 +14,7 @@
     "package": "electron-forge package",
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx,.vue .",
+    "pretest": "npm rebuild better-sqlite3 && rm -f node_modules/better-sqlite3/build/Release/.forge-meta",
     "test": "vitest run",
     "smoke": "bash scripts/smoke.sh"
   },
