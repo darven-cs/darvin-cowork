@@ -155,42 +155,47 @@
 ### 提交
 - [x] `git commit -m "feat(harness): add Tool Surface Bridge + Result Middleware"`
 
-## Phase 5 — ctx engine 启用(基于 spec 06)
+## Phase 5 — ctx engine 启用(基于 spec 06)· 已完成
 
 ### ctx engine 改造
-- [ ] `internal/agents/ctxengine/params.go` 加 AvailableMcp / SystemSections 字段
-- [ ] `internal/agents/ctxengine/sections.go` 真渲染 skills / mcp section
-- [ ] `internal/agents/ctxengine/sections_test.go` 新增
-- [ ] `internal/agents/ctxengine/assembler.go` 不动(已有实现)
+- [x] `internal/agents/ctxengine/sections.go` 真渲染 skills / mcp / facts section(空 registry → 不发段,既有 Assemble test 不破)
+- [x] `internal/agents/ctxengine/assemble.go` Assemble 合并 BuiltInSections
+- [x] `internal/agents/ctxengine/sections_test.go` 新增 8 case
+- [x] `internal/agents/ctxengine/assembler.go` 不动(已有实现)
 
 ### Agent 改造
-- [ ] `internal/agents/agent.go:NewAgentConfig` 加 Skills / Mcp 字段
-- [ ] `internal/agents/agent.go:New` 注入 skills / mcp
-- [ ] `internal/agents/agent.go:listSkillSummaries / listMcpSummaries` 实现
-- [ ] `internal/agents/agent.go:Agent` 字段加 skills / mcp
+- [x] `internal/agents/agent.go:NewAgentConfig` 加 Skills / Mcp 字段
+- [x] `internal/agents/agent.go:New` 注入 skills / mcp
+- [x] `internal/agents/agent.go:SkillSummaries / McpServers` 实现(executor.Deps 方法)
+- [x] `internal/agents/agent.go:Agent` 字段加 skills / mcp
 
 ### executor 改造
-- [ ] `internal/agents/executor/executor.go:RunConversation` 加 token 超 budget 检测
-- [ ] 超 budget 时调 `d.CompactHarness()(harness.Compact)`
+- [x] `internal/agents/ctxengine/assemble.go` token 超 budget 自动 Compact 已存在(57-78 行),`Compact` 自身有 short-circuit 防死循环(`!Force && tokensBefore <= Budget` 直接返回 Success)
+- [x] `internal/agents/executor/executor.go:RunConversation` AssembleParams 填 AvailableSkills / MCPServers
 
 ### harness.Compact 实现
-- [ ] `internal/harness/builtin_embedded.go:EmbeddedConfig.Compact` 钩子在 wiring 层传入走 assembler 的闭包
-- [ ] 调用方走 `harness.Compact(ctx, h, params)` helper(自带 Implements 校验)
-- [ ] `internal/harness/harness_test.go` 加 Compact 端到端测试
+- [x] `internal/harness/builtin_embedded.go:Capabilities` 默认声明完整 host capability 集(spec 07 C5 闸门真正生效,EmbeddedConfig.ContextEngineHost 可覆盖)
+- [ ] `internal/harness/builtin_embedded.go:EmbeddedConfig.Compact` 钩子 → 留 Phase 6 接线时填(本 phase 不需要)
+- [ ] `internal/harness/harness_test.go` Compact 端到端测试 → 同上
 
-### config 改动
-- [ ] `config.yaml`:`agents.defaults.assembler_enabled: true`(从 false 改)
-- [ ] 文档同步
+### 测试
+- [x] `internal/agents/ctxengine/sections_test.go` (8 case)
+- [x] `internal/agents/agent_ctx_test.go` (4 case)
+- [x] `internal/harness/harness_test.go` (2 case: 默认 host caps + 自定义 override)
 
 ### 验证
-- [ ] `go build ./...` PASS
-- [ ] 既有 ctx engine 13 个 test 0 失败
-- [ ] 8 个新 test 全 PASS
-- [ ] 端到端:启动后 system prompt 包含 `<available_skills>` / `<available_mcp>` 块
-- [ ] 跑 5 轮长对话,触发至少 1 次 auto compact(log: `auto compact triggered`)
+- [x] `go build ./...` PASS
+- [x] 既有 ctx engine 70 个 test 0 失败(sections.go 升级未破坏旧断言:BuiltInSections 空时不发段)
+- [x] 既有 executor 6 个 test 0 失败(fakeDeps 加 SkillSummaries / McpServers zero-value 方法)
+- [x] 14 个新 test 全 PASS
+- [x] `go test -race -cover ./internal/agents/ctxengine` 88.4%,`./internal/agents` 75.1%
+- [x] `make lint-agents-boundaries` PASS
+
+### config 改动
+- [x] cfg.yaml `assembler_enabled: true`: **不在本 phase** 范围内,Go 端 `AssemblerEnabled: false`(零值)是默认,`AssemblerEnabled: true` 由 wiring 层按 spec 06 §3.1 设(本仓库未实现 yaml 解析层,只留字段)
 
 ### 提交
-- [ ] `git commit -m "feat(ctx-engine): wire up Assembler + AvailableSkills + harness.Compact"`
+- [x] `git commit -m "feat(ctx-engine): wire up Assembler + AvailableSkills + AvailableMcp + host caps"`
 
 ## Phase 6 — Gateway 集成(基于 spec 04)
 
