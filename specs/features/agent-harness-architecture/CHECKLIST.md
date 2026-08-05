@@ -44,7 +44,7 @@
 ### 提交
 - [x] `git commit -m "feat(harness): add Harness interface + Registry + Lifecycle skeleton"`
 
-## Phase 1.5 — Harness 核心修正(基于 spec 07)· **Phase 3 之前必须完成 P0**
+## Phase 1.5 — Harness 核心修正(基于 spec 07)· 已完成
 
 > 对照 OpenClaw 源码复核 Phase 1 产出后发现的 13 处偏移。
 > `internal/harness/` 目前零 import 方,改动成本此刻最低。
