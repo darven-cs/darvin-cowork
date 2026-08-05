@@ -25,13 +25,25 @@ import { computed, nextTick, ref, watch } from 'vue';
 import ConversationTurn from './ConversationTurn.vue';
 import ContextCompactionDivider from './ContextCompactionDivider.vue';
 import { buildConversationTurns, useMessages } from '../../composables/useMessages';
+import { useSession } from '../../composables/useSession';
 import { t } from '../../services/i18n';
 
 const messages = useMessages();
+const session = useSession();
 const turns = computed(() =>
   buildConversationTurns(messages.currentMessages.value, messages.currentCompactions.value),
 );
 const scrollRef = ref<HTMLDivElement | null>(null);
+
+// 切换会话时直接落到底部，不依赖 turn 数量变化（等长/异步加载场景兜底）
+watch(
+  () => session.activeSessionId.value,
+  async () => {
+    await nextTick();
+    const el = scrollRef.value;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+  },
+);
 
 watch(
   () => turns.value.length,
