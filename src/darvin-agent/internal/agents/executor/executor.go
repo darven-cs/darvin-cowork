@@ -117,6 +117,11 @@ type Deps interface {
 	// ApprovePath grants the sandbox one-shot access to a path the user
 	// allowed via the modal, so the tool can actually open it.
 	ApprovePath(path string)
+	// ResultTransformer normalises a tool result before the executor
+	// forwards it to the LLM. nil means no transformation. The hook exists
+	// for the harness's tooldridge middleware chain; it is intentionally
+	// optional so the executor does not depend on harness.
+	ResultTransformer() func(protocol.Result) protocol.Result
 }
 
 // Executor runs one "user message -> possibly many turns -> natural stop"
@@ -342,6 +347,9 @@ func (e *defaultExecutor) runToolsParallel(ctx context.Context, d Deps, ec func(
 			// ctx = parent run ctx (permission wait is NOT capped by the tool
 			// timeout — the modal needs up to its own 60s), tctx = tool timeout.
 			results[i] = executeOneTool(ctx, tctx, d, c)
+			if transform := d.ResultTransformer(); transform != nil {
+				results[i] = transform(results[i])
+			}
 			d.Emit(event.ToolEndEvent{
 				EventBase:   event.EventBase{EventCommon: ec()},
 				CallID:      c.ID,

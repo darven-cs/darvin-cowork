@@ -81,6 +81,10 @@ type fakeDeps struct {
 	// runID is read via CurrentRunID; tests inject one to assert the
 	// executor tags every emitted event with the right RunID.
 	runID string
+
+	// transform is the optional tool result normaliser. Default nil so
+	// existing tests follow the legacy behaviour.
+	transform func(protocol.Result) protocol.Result
 }
 
 // injectAssembler wires a non-nil ContextEngine into the fakeDeps so the
@@ -117,6 +121,9 @@ func (f *fakeDeps) RequestPermission(_ context.Context, _ PermissionRequest) (Pe
 func (f *fakeDeps) HasPermissionRule(_, _, _ string) bool { return false }
 func (f *fakeDeps) AddPermissionRule(_, _, _ string)      {}
 func (f *fakeDeps) ApprovePath(_ string)                  {}
+func (f *fakeDeps) ResultTransformer() func(protocol.Result) protocol.Result {
+	return f.transform
+}
 
 func newFakeDeps(t *testing.T, provider llm.ModelProvider, regs []tool.Tool) *fakeDeps {
 	t.Helper()

@@ -139,6 +139,14 @@ type Agent struct {
 
 	assembler        ctxengine.ContextEngine
 	assemblerEnabled bool
+
+	// toolTransformer normalises a tool result before the executor forwards
+	// it to the LLM. The harness's tooldridge middleware chain sets this
+	// through SetToolResultTransformer; the executor reads it via
+	// Deps.ResultTransformer. nil means "no transformation", which is the
+	// default so the embedded runtime behaves identically when no harness
+	// is wired.
+	toolTransformer func(protocol.Result) protocol.Result
 }
 
 // agentState / stateIdle / stateRunning are kept as local aliases used by
@@ -401,4 +409,19 @@ func (a *Agent) HasPermissionRule(toolName, level, reason string) bool {
 // AddPermissionRule satisfies executor.Deps — records an auto-allow rule.
 func (a *Agent) AddPermissionRule(toolName, level, reason string) {
 	a.perm.AddRule(toolName, level, reason)
+}
+
+// ResultTransformer satisfies executor.Deps — returns the harness's tool
+// result normaliser, or nil when no harness is wired.
+func (a *Agent) ResultTransformer() func(protocol.Result) protocol.Result {
+	return a.toolTransformer
+}
+
+// SetToolResultTransformer installs the tool-result normaliser the
+// executor will call after every tool call. Intended for the wiring
+// layer: the harness feeds a tooldridge.Surface.ApplyMiddleware closure
+// in here, and the embedded runtime's output is normalised consistently
+// with future CLI / plugin backends.
+func (a *Agent) SetToolResultTransformer(t func(protocol.Result) protocol.Result) {
+	a.toolTransformer = t
 }
