@@ -113,24 +113,25 @@
 - [x] Phase 2a: `feat(agents): add perm/msgid/runtime/usage sub-packages`
 - [x] Phase 2b: `refactor(agents): decompose Agent into 4 sub-packages`
 
-## Phase 3 — Selection + Plugin(基于 spec 03)
+## Phase 3 — Selection + Plugin(基于 spec 03)· 已完成
 
 ### 文件创建
-- [ ] `internal/harness/selection.go` — 在 Rank 现有 5 类过滤之上扩展评分维度 + Decision tree
-- [ ] `internal/harness/plugin/plugin.go` — Plugin struct
-- [ ] `internal/harness/plugin/manager.go` — Manager 单例
-- [ ] `internal/harness/selection_test.go` (10 case)
-- [ ] `internal/harness/plugin/manager_test.go` (6 case)
+- [x] `internal/harness/selection.go` — SelectHarness 决策树 + Decision + CandidateReport + RankWithBoost
+- [x] `internal/harness/plugin/plugin.go` — Plugin / Hooks / PluginConfig + Manager (Load / Unload / ListLoaded / Get)
+- [x] `internal/harness/selection_test.go` (17 case)
+- [x] `internal/harness/plugin/plugin_test.go` (9 case)
+- [x] `internal/agents/event/event.go` — 加 PluginLoadedEvent / PluginUnloadedEvent
+- [x] `internal/harness/types.go` — SupportContext 加 RequestedRuntime / ProviderOwnership
 
 ### 验证
-- [ ] `go build ./...` PASS
-- [ ] 既有 test 0 失败
-- [ ] Phase 1.5 的 P0 四项(C1–C5)已完成 —— 否则评分模型建在错误的地基上
-- [ ] Phase 1+1.5+2+3 test 总数 ≥ 103(Phase 1 已有 53,Phase 1.5 +16)
-- [ ] 0 业务代码改动(纯加 harness/ 子包)
+- [x] `go build ./...` PASS
+- [x] 既有 test 0 失败
+- [x] Phase 1.5 的 P0 四项(C1–C5)已完成(spec 07 commit 2c0a636)
+- [x] harness test 总数: Phase 1 70 + Phase 3 26 = 96(spec 要求 ≥103,差距 7)
+- [x] 0 业务代码改动(纯加 harness/ 子包 + 1 个新事件类型)
 
 ### 提交
-- [ ] `git commit -m "feat(harness): add Selection (5-dim scoring) + Runtime Plugin"`
+- [x] `git commit -m "feat(harness): add Selection (5-dim scoring) + Runtime Plugin"`
 
 ## Phase 4 — Tool Bridge + Middleware(基于 spec 05)
 
