@@ -86,7 +86,7 @@ type SteerResult struct {
 
 // ListSessionsResult is the JSON-RPC result for agent.list_sessions.
 // Matches DarvinListSessionsResponse in src/shared/darvin-api.ts:
-// `sessions: [{id, title, updatedAt, status, claudeSessionId}]`.
+// `sessions: [{id, title, createdAt, updatedAt, status, claudeSessionId}]`.
 type ListSessionsResult struct {
 	Sessions []SessionWire `json:"sessions"`
 }
@@ -97,6 +97,7 @@ type ListSessionsResult struct {
 type SessionWire struct {
 	ID              string  `json:"id"`
 	Title           string  `json:"title"`
+	CreatedAt       int64   `json:"createdAt"`
 	UpdatedAt       int64   `json:"updatedAt"`
 	Status          string  `json:"status"`
 	ClaudeSessionID *string `json:"claudeSessionId"`
@@ -107,6 +108,7 @@ func toSessionWire(r store.Session) SessionWire {
 	return SessionWire{
 		ID:              r.ID,
 		Title:           r.Title,
+		CreatedAt:       r.CreatedAt.UnixMilli(),
 		UpdatedAt:       r.UpdatedAt.UnixMilli(),
 		Status:          r.Status,
 		ClaudeSessionID: r.ClaudeSessionID,
@@ -616,6 +618,7 @@ func wireForSession(ctx context.Context, h *Handler, sessionID string, entry *Se
 	return SessionWire{
 		ID:        sessionID,
 		Title:     "",
+		CreatedAt: entry.Session.CreatedAt.UnixMilli(),
 		UpdatedAt: entry.Session.UpdatedAt().UnixMilli(),
 		Status:    string(entry.Session.Status),
 	}

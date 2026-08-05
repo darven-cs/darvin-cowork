@@ -36,6 +36,7 @@ export type DarvinSessionStatus = 'active' | 'archived';
 export interface DarvinSession {
   id: string;
   title: string;
+  createdAt: number;
   updatedAt: number;
   status?: DarvinSessionStatus;
   claudeSessionId?: string | null;

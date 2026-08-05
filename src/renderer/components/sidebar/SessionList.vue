@@ -41,10 +41,11 @@ const unreadSessionIds = computed(() => messages.unreadSessionIds.value);
 const pinnedIds = computed(() => session.pinnedSessionIds.value);
 const statusBySession = computed(() => messages.sessionStatusBySessionId.value);
 
-/** pinned 置顶；其余按主进程返回顺序。 */
+/** 置顶前置；其余按创建时间倒序。 */
 const orderedSessions = computed(() => {
-  const pinned = props.sessions.filter((s) => pinnedIds.value.has(s.id));
-  const rest = props.sessions.filter((s) => !pinnedIds.value.has(s.id));
+  const sorted = [...props.sessions].sort((a, b) => b.createdAt - a.createdAt);
+  const pinned = sorted.filter((s) => pinnedIds.value.has(s.id));
+  const rest = sorted.filter((s) => !pinnedIds.value.has(s.id));
   return [...pinned, ...rest];
 });
 
