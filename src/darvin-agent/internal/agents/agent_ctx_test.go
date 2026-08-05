@@ -116,13 +116,13 @@ func TestSkillSummariesNotCoupledToCtxengine(t *testing.T) {
 // real tool set.
 type toolRegistryShim struct{}
 
-func (*toolRegistryShim) Get(string) protocol.Tool                          { return nil }
-func (*toolRegistryShim) GetEntry(string) (*protocol.Entry, bool)          { return nil, false }
-func (*toolRegistryShim) Specs() []protocol.ToolSpec                        { return nil }
-func (*toolRegistryShim) Names() []string                                  { return nil }
-func (*toolRegistryShim) List() []*protocol.Entry                          { return nil }
-func (*toolRegistryShim) SetGrantedReads([]string)                         {}
-func (*toolRegistryShim) ApprovePath(string)                                {}
+func (*toolRegistryShim) Get(string) protocol.Tool                { return nil }
+func (*toolRegistryShim) GetEntry(string) (*protocol.Entry, bool) { return nil, false }
+func (*toolRegistryShim) Specs() []protocol.ToolSpec              { return nil }
+func (*toolRegistryShim) Names() []string                         { return nil }
+func (*toolRegistryShim) List() []*protocol.Entry                 { return nil }
+func (*toolRegistryShim) SetGrantedReads([]string)                {}
+func (*toolRegistryShim) ApprovePath(string)                      {}
 func (*toolRegistryShim) EvaluatePermission(string, map[string]any) protocol.PermissionEval {
 	return protocol.PermissionEval{}
 }

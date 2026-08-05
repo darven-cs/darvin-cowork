@@ -46,10 +46,10 @@ type stubHarness struct {
 	pluginID string
 }
 
-func (s *stubHarness) ID() string                           { return s.id }
-func (s *stubHarness) Label() string                        { return s.id }
-func (s *stubHarness) PluginID() string                     { return s.pluginID }
-func (s *stubHarness) Capabilities() harness.Capabilities   { return harness.Capabilities{Healthy: true} }
+func (s *stubHarness) ID() string                         { return s.id }
+func (s *stubHarness) Label() string                      { return s.id }
+func (s *stubHarness) PluginID() string                   { return s.pluginID }
+func (s *stubHarness) Capabilities() harness.Capabilities { return harness.Capabilities{Healthy: true} }
 func (s *stubHarness) Supports(harness.SupportContext) harness.SupportResult {
 	return harness.SupportResult{Supported: true, Priority: 1}
 }

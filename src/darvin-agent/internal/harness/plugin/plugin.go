@@ -42,11 +42,11 @@ type HarnessFactory func() (harness.Harness, error)
 
 // Plugin is the wiring-layer shape of one runtime extension.
 type Plugin struct {
-	ID            string
-	Version       string
+	ID             string
+	Version        string
 	HarnessFactory HarnessFactory
-	Hooks         *Hooks
-	Config        PluginConfig
+	Hooks          *Hooks
+	Config         PluginConfig
 }
 
 // loadedPlugin is the manager's internal record. It exists separately from

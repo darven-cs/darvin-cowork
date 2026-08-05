@@ -19,6 +19,7 @@ import (
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/skills"
 	"darvin-cowork/backend/internal/tools"
@@ -27,6 +28,10 @@ import (
 // newTestHandler wires factory + SessionManager + SteerControl so handlers
 // run against production code paths. prompt 路径走 factory 懒建 AcpSession,
 // steer 路径接一个仅供 SteerControl 持有的 steerAgent(spec §1.3 非目标)。
+//
+// spec 04 added harness resolution; tests inject a Selector that returns
+// a no-op embedded harness so the prompt path can drive a stub run
+// closure without dragging the full harness registry into every test.
 func newTestHandler(t *testing.T) (*Handler, *client) {
 	t.Helper()
 	prov := &blockingProvider{}
@@ -36,6 +41,9 @@ func newTestHandler(t *testing.T) (*Handler, *client) {
 		Tools:    tool.NewRegistry(),
 		Store:    store,
 		Logger:   zap.NewNop(),
+		Selector: func(a *agent.Agent, _ *acp.AgentFactory) (harness.Harness, error) {
+			return acp.NewEmbeddedTestHarness(a), nil
+		},
 	}
 	steerAgent, err := agent.New(agent.NewAgentConfig{
 		Session:  session.NewSession("steer-placeholder"),
@@ -74,6 +82,9 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 		Tools:    tool.NewRegistry(),
 		Store:    memStore,
 		Logger:   zap.NewNop(),
+		Selector: func(a *agent.Agent, _ *acp.AgentFactory) (harness.Harness, error) {
+			return acp.NewEmbeddedTestHarness(a), nil
+		},
 	}
 	steerAgent, err := agent.New(agent.NewAgentConfig{
 		Session:  session.NewSession("steer-placeholder"),
@@ -1243,6 +1254,9 @@ func newTestHandlerWithPlugins(t *testing.T, plugins []tool.Plugin) (*Handler, *
 		Store:    store,
 		Logger:   zap.NewNop(),
 		Plugins:  plugins,
+		Selector: func(a *agent.Agent, _ *acp.AgentFactory) (harness.Harness, error) {
+			return acp.NewEmbeddedTestHarness(a), nil
+		},
 	}
 	steerAgent, err := agent.New(agent.NewAgentConfig{
 		Session:  session.NewSession("steer-placeholder"),

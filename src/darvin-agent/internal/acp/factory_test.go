@@ -7,6 +7,7 @@ import (
 
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
 	"go.uber.org/zap"
 )
@@ -22,7 +23,7 @@ func (nopProvider) Stream(_ context.Context, _ *llm.CompletionRequest) (*llm.Str
 }
 
 func newTestFactory() *AgentFactory {
-	return &AgentFactory{
+	f := &AgentFactory{
 		Name:         "test-agent",
 		Instructions: "test",
 		Model:        agent.ModelRef{},
@@ -30,6 +31,10 @@ func newTestFactory() *AgentFactory {
 		Store:        store.NewMemoryStore(),
 		Logger:       zap.NewNop(),
 	}
+	f.Selector = func(*agent.Agent, *AgentFactory) (harness.Harness, error) {
+		return HarnessForTest, nil
+	}
+	return f
 }
 
 func TestFactory_BuildAttachesLoopAndSources(t *testing.T) {

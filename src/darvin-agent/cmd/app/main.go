@@ -19,6 +19,7 @@ import (
 	"darvin-cowork/backend/internal/config"
 	"darvin-cowork/backend/internal/database"
 	"darvin-cowork/backend/internal/gateway"
+	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/logger"
 	"darvin-cowork/backend/internal/mcp"
@@ -193,6 +194,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Register the in-process harness so spec 04's resolveHarness can find
+	// it. The Run closure drives the per-session agent the factory builds;
+	// the harness itself never imports internal/agents.
+	harness.MustRegister(harness.NewEmbedded(harness.EmbeddedConfig{
+		Run: func(ctx context.Context, p harness.RunAttemptParams) (*harness.AttemptResult, error) {
+			// The factory Selector (below) is what actually maps a session
+			// to its agent; the registry entry here is a fallback target for
+			// selection scoring. Runtime prompt execution goes through the
+			// factory's per-agent harness closure.
+			return nil, harness.ErrNotImplemented
+		},
+	}), "")
+
 	factory := &acp.AgentFactory{
 		Name:             cfg.App.Name + "-agent",
 		Instructions:     cfg.Agent.Instructions,
@@ -204,6 +218,17 @@ func main() {
 		Config:           agentCfg,
 		Tools:            toolsReg,
 		AssemblerEnabled: cfg.Agent.AssemblerEnabled,
+		Selector: func(a *agent.Agent, _ *acp.AgentFactory) (harness.Harness, error) {
+			return harness.NewEmbedded(harness.EmbeddedConfig{
+				Run: func(ctx context.Context, p harness.RunAttemptParams) (*harness.AttemptResult, error) {
+					if err := a.Prompt(ctx, p.Prompt, nil, p.Attachments); err != nil {
+						return nil, err
+					}
+					_ = a.Run(ctx)
+					return &harness.AttemptResult{Status: harness.AttemptOK}, nil
+				},
+			}), nil
+		},
 	}
 
 	// Bootstrap skills registry + runner. The runner resolves skill
@@ -308,6 +333,13 @@ func main() {
 
 	if err := gs.Shutdown(shutdownCtx); err != nil {
 		log.Error("gateway shutdown", zap.Error(err))
+	}
+
+	// spec 07 C8: dispose every registered harness so a plugin harness's
+	// process-level resources are released. One harness failing does not
+	// block the others.
+	if err := harness.DisposeAll(shutdownCtx); err != nil {
+		log.Warn("harness dispose", zap.Error(err))
 	}
 
 	if err := sqliteStore.Close(); err != nil {

@@ -15,6 +15,7 @@ import (
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/queue"
+	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/tools"
 )
 
@@ -91,8 +92,15 @@ type activeRunState struct {
 // Submit appends to followUpQueue; Steer appends to steerQueue and
 // cancels the in-flight turn so its content is what runs next. Requests
 // within one queue keep submission order.
+//
+// The harness field is spec 04's introduction: the prompt path now goes
+// through harness.RunAttemptWithLifecycle rather than directly calling
+// agent.Prompt + agent.Run. The agent reference is retained for skill
+// turns (transient state lives on the agent) and for the messageID
+// bridge the agent's executor / dispatcher depend on.
 type Loop struct {
-	agent *agent.Agent
+	agent   *agent.Agent
+	harness harness.Harness
 
 	// wake tells the run goroutine that a queue grew. Capacity 1 collapses
 	// bursts: the goroutine drains both queues under the lock anyway, so a
@@ -121,15 +129,19 @@ type Loop struct {
 // The Loop context is background-rooted on purpose: a handler returning
 // or a WS client disconnecting must not cancel a run other subscribers
 // are still watching. Cancellation goes through Stop / Abort / Close.
-func NewLoop(a *agent.Agent) *Loop {
+//
+// h is the harness the prompt path will drive; nil is allowed (skill
+// turns still work; prompts surface an error to the renderer).
+func NewLoop(a *agent.Agent, h harness.Harness) *Loop {
 	ctx, stop := context.WithCancel(context.Background())
 	l := &Loop{
-		agent: a,
-		wake:  make(chan struct{}, 1),
-		idGen: nanoid.MustCustomASCII(messageAlphabet, messageIDLen),
-		ctx:   ctx,
-		stop:  stop,
-		done:  make(chan struct{}),
+		agent:   a,
+		harness: h,
+		wake:    make(chan struct{}, 1),
+		idGen:   nanoid.MustCustomASCII(messageAlphabet, messageIDLen),
+		ctx:     ctx,
+		stop:    stop,
+		done:    make(chan struct{}),
 	}
 	go l.run()
 	return l
@@ -361,18 +373,35 @@ func (l *Loop) executeTurn(req promptReq) {
 		return
 	}
 
-	if err := l.agent.Prompt(runCtx, req.content, req.images, req.attachments); err != nil {
-		// The Agent rejected the enqueue, so no run will emit an error
-		// for this messageID. Surface it here or the renderer's bubble
-		// stays stuck in a streaming state.
+	if l.harness == nil {
+		// Spec 04 §4.2: every AcpSession is built with a Harness (factory
+		// resolveHarness picks one). A nil here is a wiring bug; surface it
+		// the same way the agent would have.
 		l.agent.Emit(event.AgentErrorEvent{
 			EventBase: event.EventBase{EventCommon: event.EventCommon{
 				SessionID: l.agent.Session().ID,
 				MessageID: req.msgID,
 			}},
-			Err: err,
+			Err: errNoHarness,
 		})
 		return
 	}
-	_ = l.agent.Run(runCtx)
+
+	params := harness.RunAttemptParams{
+		SessionID:     l.agent.Session().ID,
+		Prompt:        req.content,
+		Images:        attachmentsToImages(req.images),
+		Attachments:   req.attachments,
+		Provider:      extractProviderName(l.agent),
+		Model:         l.agent.ModelName(),
+		RunID:         req.runID,
+		MessageID:     req.msgID,
+		UserMessageID: req.userMsgID,
+	}
+
+	// RunAttemptWithLifecycle is synchronous; it returns when the attempt
+	// settles or ctx is cancelled. Errors carry the harness / runner's
+	// verdict; the agent's event bus already saw every LLM / tool event
+	// the harness emitted, so the renderer has a complete picture.
+	_, _ = harness.RunAttemptWithLifecycle(runCtx, l.harness, params)
 }

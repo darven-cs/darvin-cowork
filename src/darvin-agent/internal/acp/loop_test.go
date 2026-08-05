@@ -57,7 +57,9 @@ func (p *blockingProvider) Stream(ctx context.Context, _ *llm.CompletionRequest)
 
 // newLoopForTest builds an Agent bound to session "default" plus the Loop
 // wrapping it, with AttachMessageIDSrc wired exactly like main.go so the
-// emitted events carry EventCommon.MessageID.
+// emitted events carry EventCommon.MessageID. The harness is a thin
+// forwarder that calls Agent.Prompt + Agent.Run, mirroring what the
+// embedded harness's Run closure would do in production.
 func newLoopForTest(t *testing.T, p llm.ModelProvider) (*agent.Agent, *Loop) {
 	t.Helper()
 	a, err := agent.New(agent.NewAgentConfig{
@@ -69,7 +71,7 @@ func newLoopForTest(t *testing.T, p llm.ModelProvider) (*agent.Agent, *Loop) {
 	if err != nil {
 		t.Fatalf("agent.New: %v", err)
 	}
-	loop := NewLoop(a)
+	loop := NewLoop(a, NewEmbeddedTestHarness(a))
 	a.AttachMessageIDSrc(loop.CurrentMessageID)
 	return a, loop
 }
@@ -193,7 +195,7 @@ func TestLoopPersistsUserAndAssistantWithDistinctIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agent.New: %v", err)
 	}
-	loop := NewLoop(a)
+	loop := NewLoop(a, NewEmbeddedTestHarness(a))
 	a.AttachMessageIDSrc(loop.CurrentMessageID)
 	a.AttachRunIDSrc(loop.CurrentRunID)
 	a.AttachUserMessageIDSrc(loop.CurrentUserMessageID)

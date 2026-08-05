@@ -15,8 +15,32 @@ import (
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/tools"
 )
+
+// newTestAgentFactoryForSessionMgr builds the factory used by the
+// sessionmgr tests. Spec 04 added harness resolution; we wire the no-op
+// test harness so resolveHarness passes without the production registry.
+// newTestAgentFactoryForSessionMgr builds the factory used by the
+// sessionmgr tests. Spec 04 added harness resolution; we wire the no-op
+// test harness so resolveHarness passes without the production registry.
+//
+// Tests that need the prompt path to actually start a turn (e.g.
+// stoppedUntil / evict tests that observe Acp.Agent.IsRunning) need an
+// embedded harness that drives Agent.Prompt + Agent.Run. The selector here
+// returns the no-op harness because attachAcp in this file uses
+// installRunningAcp to side-step the factory path and keep the turn
+// observable.
+func newTestAgentFactoryForSessionMgr() *acp.AgentFactory {
+	return &acp.AgentFactory{
+		Provider: &blockingProvider{},
+		Tools:    tool.NewRegistry(),
+		Store:    store.NewMemoryStore(),
+		Logger:   zap.NewNop(),
+		Selector: func(*agent.Agent, *acp.AgentFactory) (harness.Harness, error) { return acp.HarnessForTest, nil },
+	}
+}
 
 var idRe = regexp.MustCompile(`^[A-Za-z0-9]{21}$`)
 
@@ -76,11 +100,11 @@ func waitForCondition(t *testing.T, cond func() bool) {
 // 靠 poll Submit 拿 ErrLoopClosed 验证 Loop 确实被关掉。
 func installRunningAcp(t *testing.T, m *SessionManager, id, runID string) *acp.AcpSession {
 	t.Helper()
-	factory := &acp.AgentFactory{
-		Provider: &blockingProvider{},
-		Tools:    tool.NewRegistry(),
-		Store:    store.NewMemoryStore(),
-		Logger:   zap.NewNop(),
+	// The factory's selector runs after Build, so it can wire a harness
+	// whose Run closure drives the freshly-built agent.
+	factory := newTestAgentFactoryForSessionMgr()
+	factory.Selector = func(a *agent.Agent, _ *acp.AgentFactory) (harness.Harness, error) {
+		return acp.NewEmbeddedTestHarness(a), nil
 	}
 	sess, err := factory.NewAcpSession(id)
 	if err != nil {
@@ -422,6 +446,7 @@ func TestSessionManager_LazyBuildPerSession(t *testing.T) {
 		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 		Logger:   zap.NewNop(),
+		Selector: func(*agent.Agent, *acp.AgentFactory) (harness.Harness, error) { return acp.HarnessForTest, nil },
 	}
 	m := NewSessionManager(WithAgentFactory(factory))
 	a, err := m.GetOrCreateEntry("a")
@@ -516,6 +541,7 @@ func TestSessionManager_PromptUpgradesEntryCreatedBySubscribe(t *testing.T) {
 		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 		Logger:   zap.NewNop(),
+		Selector: func(*agent.Agent, *acp.AgentFactory) (harness.Harness, error) { return acp.HarnessForTest, nil },
 	}
 	m := NewSessionManager(WithAgentFactory(factory))
 

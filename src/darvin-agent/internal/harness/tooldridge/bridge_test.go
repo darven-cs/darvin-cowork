@@ -7,22 +7,22 @@ import (
 )
 
 type stubRegistry struct {
-	specs  []protocol.ToolSpec
-	names  []string
-	entry  *protocol.Entry
+	specs []protocol.ToolSpec
+	names []string
+	entry *protocol.Entry
 }
 
-func (s *stubRegistry) Get(name string) protocol.Tool                  { return nil }
-func (s *stubRegistry) GetEntry(name string) (*protocol.Entry, bool)   { return s.entry, s.entry != nil }
-func (s *stubRegistry) Specs() []protocol.ToolSpec                     { return s.specs }
-func (s *stubRegistry) Names() []string                                { return s.names }
-func (s *stubRegistry) List() []*protocol.Entry                        { return nil }
-func (s *stubRegistry) SetGrantedReads([]string)                       {}
-func (s *stubRegistry) ApprovePath(string)                             {}
+func (s *stubRegistry) Get(name string) protocol.Tool                { return nil }
+func (s *stubRegistry) GetEntry(name string) (*protocol.Entry, bool) { return s.entry, s.entry != nil }
+func (s *stubRegistry) Specs() []protocol.ToolSpec                   { return s.specs }
+func (s *stubRegistry) Names() []string                              { return s.names }
+func (s *stubRegistry) List() []*protocol.Entry                      { return nil }
+func (s *stubRegistry) SetGrantedReads([]string)                     {}
+func (s *stubRegistry) ApprovePath(string)                           {}
 func (s *stubRegistry) EvaluatePermission(string, map[string]any) protocol.PermissionEval {
 	return protocol.PermissionEval{}
 }
-func (s *stubRegistry) ScopedForSkill([]string) protocol.ToolRegistry  { return s }
+func (s *stubRegistry) ScopedForSkill([]string) protocol.ToolRegistry { return s }
 
 func TestNewBridgeSpecs(t *testing.T) {
 	reg := &stubRegistry{specs: []protocol.ToolSpec{{Name: "echo"}, {Name: "read"}}}

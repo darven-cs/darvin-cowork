@@ -1,6 +1,8 @@
 package acp
 
 import (
+	"fmt"
+
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agents"
@@ -8,6 +10,7 @@ import (
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/tools"
 )
@@ -37,6 +40,76 @@ type AgentFactory struct {
 	// 决定是否构造默认 Assembler,前者决定 executor 是否走 assembler
 	// 路径。factory 不替调用方合并这两条,各自由调用方决定。
 	AssemblerEnabled bool
+
+	// HarnessID pins a specific harness by id (spec 04 §4.1). An empty
+	// value defers to harness.SelectHarness at NewAcpSession time.
+	HarnessID string
+
+	// Selector is the factory's harness selector. nil falls back to a
+	// built-in helper that uses harness.SelectHarness with the factory's
+	// provider / model / explicit-id state. Production wiring uses the
+	// default; tests inject a fake to keep the registry deterministic.
+	Selector HarnessSelector
+}
+
+// HarnessSelector chooses a harness for a given session. The default
+// implementation goes through harness.SelectHarness.
+type HarnessSelector func(a *agent.Agent, f *AgentFactory) (harness.Harness, error)
+
+// NewAcpSession 一次构造 Agent + Harness + Loop,并把 Loop 的 CurrentMessageID /
+// CurrentRunID 挂到 Agent 上,确保事件带的 messageID / runID 与 Loop 当前
+// 状态一致。顺序必须先建 Loop 再 AttachMessageIDSrc,否则 executor
+// Deps.Current* 解析时会拿到空字符串。
+//
+// MessageStore 注入时同时挂 TextDeltaHook(streaming 落库,spec FR-4);
+// hook 的订阅由 AcpSession.Close 在 evict 时清理。
+func (f *AgentFactory) NewAcpSession(sessionID string) (*AcpSession, error) {
+	a, err := f.Build(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	h, err := f.resolveHarnessFor(a)
+	if err != nil {
+		return nil, err
+	}
+	l := NewLoop(a, h)
+	a.AttachMessageIDSrc(l.CurrentMessageID)
+	a.AttachRunIDSrc(l.CurrentRunID)
+	a.AttachUserMessageIDSrc(l.CurrentUserMessageID)
+	deltaHook := agent.NewTextDeltaHook(f.MessageStore, f.Logger)
+	deltaHook.Attach(a)
+	return &AcpSession{
+		SessionID: sessionID,
+		Agent:     a,
+		Harness:   h,
+		Loop:      l,
+		DeltaHook: deltaHook,
+	}, nil
+}
+
+// resolveHarnessFor picks a harness. If the Selector accepts the just-built
+// agent, it can wire its closures to drive that exact instance. The default
+// Selector path does not need an agent — it goes through harness.SelectHarness
+// which only looks at provider / model facts.
+func (f *AgentFactory) resolveHarnessFor(a *agent.Agent) (harness.Harness, error) {
+	if id := f.HarnessID; id != "" {
+		h, ok := harness.Get(id)
+		if !ok {
+			return nil, fmt.Errorf("acp: harness %q not registered", id)
+		}
+		return h, nil
+	}
+	if f.Selector != nil {
+		return f.Selector(a, f)
+	}
+	decision, err := harness.SelectHarness(harness.SelectionParams{
+		Provider: extractProviderName(a),
+		Model:    f.Model.Model,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("acp: harness selection: %w", err)
+	}
+	return decision.Harness, nil
 }
 
 // Build 用传入的 sessionID 构造一个全新的 *agent.Agent。Agent 自己的
@@ -76,30 +149,4 @@ func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
 		}
 	}
 	return a, nil
-}
-
-// NewAcpSession 一次构造 Agent + Loop,并把 Loop 的 CurrentMessageID /
-// CurrentRunID 挂到 Agent 上,确保事件带的 messageID / runID 与 Loop 当前
-// 状态一致。顺序必须先建 Loop 再 AttachMessageIDSrc,否则 executor
-// Deps.Current* 解析时会拿到空字符串。
-//
-// MessageStore 注入时同时挂 TextDeltaHook(streaming 落库,spec FR-4);
-// hook 的订阅由 AcpSession.Close 在 evict 时清理。
-func (f *AgentFactory) NewAcpSession(sessionID string) (*AcpSession, error) {
-	a, err := f.Build(sessionID)
-	if err != nil {
-		return nil, err
-	}
-	l := NewLoop(a)
-	a.AttachMessageIDSrc(l.CurrentMessageID)
-	a.AttachRunIDSrc(l.CurrentRunID)
-	a.AttachUserMessageIDSrc(l.CurrentUserMessageID)
-	deltaHook := agent.NewTextDeltaHook(f.MessageStore, f.Logger)
-	deltaHook.Attach(a)
-	return &AcpSession{
-		SessionID: sessionID,
-		Agent:     a,
-		Loop:      l,
-		DeltaHook: deltaHook,
-	}, nil
 }

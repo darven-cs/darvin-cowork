@@ -163,9 +163,9 @@ func TestEvaluatePermissionAndHelpers(t *testing.T) {
 
 	called := false
 	tools := &fakeTools{
-		grant:    func([]string) { called = true },
-		approve:  func(string) { called = true },
-		eval:     func(string, map[string]any) protocol.PermissionEval { return protocol.PermissionEval{Authorized: true} },
+		grant:   func([]string) { called = true },
+		approve: func(string) { called = true },
+		eval:    func(string, map[string]any) protocol.PermissionEval { return protocol.PermissionEval{Authorized: true} },
 	}
 	g.SetGrantedReads([]string{"/tmp"}, tools)
 	if !called {
