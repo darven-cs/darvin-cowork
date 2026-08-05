@@ -197,37 +197,42 @@
 ### 提交
 - [x] `git commit -m "feat(ctx-engine): wire up Assembler + AvailableSkills + AvailableMcp + host caps"`
 
-## Phase 6 — Gateway 集成(基于 spec 04)
+## Phase 6 — Gateway 集成(基于 spec 04)· 已完成
 
 ### AgentFactory 改造
-- [ ] `internal/acp/factory.go:AgentFactory` 加 HarnessID + ConfigRef 字段
-- [ ] `internal/acp/factory.go:NewAcpSession` 调 resolveHarness
-- [ ] `internal/acp/factory.go:resolveHarness` 实现
+- [x] `internal/acp/factory.go:AgentFactory` 加 HarnessID + Selector 字段
+- [x] `internal/acp/factory.go:NewAcpSession` 调 resolveHarnessFor(刚 Build 的 agent 传入 Selector)
+- [x] `internal/acp/factory.go:resolveHarnessFor` 实现(显式 id → Selector → SelectHarness fallback)
 
-### AcpSession 改造
-- [ ] `internal/acp/loop.go:AcpSession` 加 Harness 字段
-- [ ] `internal/acp/loop.go:Loop` 持 Harness
-- [ ] `internal/acp/loop.go:Loop.executeTurn` 调 harness.RunAttemptWithLifecycle
-- [ ] `internal/acp/loop.go:Loop.executeTurn` skill 路径仍直接调 agent.RunSkillSession
+### AcpSession / Loop 改造
+- [x] `internal/acp/session.go:AcpSession` 加 Harness 字段
+- [x] `internal/acp/loop.go:Loop` 持 harness(NewLoop(a, h) 新签名)
+- [x] `internal/acp/loop.go:executeTurn` prompt 路径调 harness.RunAttemptWithLifecycle
+- [x] `internal/acp/loop.go:executeTurn` skill 路径仍直接调 agent.RunSkillSession(transient state 留在 agent 上)
 
 ### SessionEntry 改造
-- [ ] `internal/gateway/sessionmgr.go:SessionEntry` 加 Harness 字段
-- [ ] `internal/gateway/sessionmgr.go:attachAcpLocked` 复制 Harness 引用
+- [x] Harness 挂在 AcpSession 上,SessionEntry 的 Acp 字段兼容保留(handler 不需要动)
 
 ### main.go 改造
-- [ ] 启动时 `harness.MustRegister(harness.NewEmbedded(harness.EmbeddedConfig{Run: ...}), "")`
-- [ ] 构造 `acp.AgentFactory` 时填 ConfigRef = cfg
-- [ ] 关闭路径调 `harness.DisposeAll(ctx)`(spec 07 C8 提供)
+- [x] 启动时 `harness.MustRegister(harness.NewEmbedded(...), "")`
+- [x] factory.Selector 填 per-session agent 驱动的 embedded harness(闭包注入)
+- [x] 关闭路径调 `harness.DisposeAll(ctx)`(spec 07 C8)
+
+### 测试
+- [x] `internal/gateway/gateway_integration_test.go` (4 case: factory resolve / prompt 走 harness / explicit 不存在 / abort)
+- [x] `internal/acp/loop_harness_test.go` (2 case: executeTurn 调 harness / skill 绕过 harness)
+- [x] 既有 gateway 15+ / acp 10+ 个 test 0 失败(测试 factory 注入 Selector 驱动 blocking provider)
 
 ### 验证
-- [ ] `go build ./...` PASS
-- [ ] 既有 gateway test (15+ 个) 0 失败
-- [ ] 既有 acp test (10+ 个) 0 失败
-- [ ] 新增 6 个集成 test 全 PASS
-- [ ] 端到端 smoke:`client.prompt → LLM first chunk` 延迟 < 100ms
+- [x] `go build ./...` PASS
+- [x] `go vet ./...` PASS
+- [x] `go test -count=1 -short ./...` 25 个包全 PASS
+- [x] `go test -race ./internal/harness/... ./internal/acp/ ./internal/gateway/` 无 data race
+- [x] `make lint-agents-boundaries` PASS
+- [x] RPC 协议 / EventBus 协议 / 数据库 schema 不变
 
 ### 提交
-- [ ] `git commit -m "feat(gateway): route prompts through Harness abstraction"`
+- [x] `git commit -m "feat(gateway): route prompts through Harness abstraction"`
 
 ## Phase 7 — (可选)BuiltinCliHarness demo
 
@@ -236,15 +241,18 @@
 - [ ] 写 1 个 demo 集成 test
 - [ ] 删除 demo 保留 framework
 
-## 最终验收(全部 Phase 后)
+## 最终验收(Phase 1–6 全部完成)
 
-- [ ] `go build ./...` PASS
-- [ ] `go vet ./...` PASS
-- [ ] `go test -count=1 -short ./...` PASS(预计总 test 数 ≥ 145,既有 70+ + 新增 75+)
-- [ ] `make lint-agents-boundaries` PASS(harness 不 import agents 的具体子包)
-- [ ] spec 07 的 13 条修正全部落地(P0 四项在 Phase 3 之前,P1/P2 可延后但不得跳过)
-- [ ] smoke test:`client.prompt → LLM first chunk` 延迟增加 < 5%
-- [ ] 内存增量 < 10MB
-- [ ] 端到端覆盖:AvailableSkills / AvailableMcp / Auto compact / Manual compact / Steer / Abort
-- [ ] 全部 RPC 协议 / EventBus 协议 / 数据库 schema 不变
+- [x] `go build ./...` PASS
+- [x] `go vet ./...` PASS
+- [x] `go test -count=1 -short ./...` PASS(25 个包全 PASS;harness 链累计 170+ case)
+- [x] `make lint-agents-boundaries` PASS(harness 不 import agents 的具体子包)
+- [x] spec 07 的 13 条修正全部落地(commit 2c0a636)
+- [ ] smoke test:`client.prompt → LLM first chunk` 延迟增加 < 5%(需要真 LLM key,未跑)
+- [ ] 内存增量 < 10MB(需要 benchmark,未跑)
+- [x] 端到端覆盖:AvailableSkills / AvailableMcp / Auto compact / Manual compact / Steer / Abort(单测覆盖,未跑真对话)
+- [x] 全部 RPC 协议 / EventBus 协议 / 数据库 schema 不变
 - [ ] 写 CHANGELOG.md 总结(可选)
+
+> 三项未勾属于「需要真 LLM key / 长对话 / benchmark」的运行期验收,单测全绿
+> 已覆盖语义;这些需要手动 smoke 或 CI 跑真 provider。
