@@ -58,10 +58,7 @@ func TestPromptBusy(t *testing.T) {
 	// wait until the run is actually in progress
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		a.runMu.Lock()
-		busy := a.state == stateRunning
-		a.runMu.Unlock()
-		if busy {
+		if a.IsRunning() {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -88,10 +85,7 @@ func TestSteerInterrupts(t *testing.T) {
 	// wait until the run is actually in progress
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		a.runMu.Lock()
-		busy := a.state == stateRunning
-		a.runMu.Unlock()
-		if busy {
+		if a.IsRunning() {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)

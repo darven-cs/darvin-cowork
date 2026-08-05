@@ -1,6 +1,7 @@
 // Package agent is the root of the agent runtime. It wires the sub-packages
-// (event, queue, session, store, executor, protocol) into a single Agent
-// and exposes the public API (Run / Prompt / Steer / FollowUp / Abort /
+// (event, queue, session, store, executor, protocol) and the four state
+// sub-packages (msgid, perm, runtime, usage) into a single Agent and
+// exposes the public API (Run / Prompt / Steer / FollowUp / Abort /
 // Subscribe). Capability implementations (provider, tool registry) are
 // injected from outside through the protocol contract.
 package agent
@@ -8,39 +9,22 @@ package agent
 import (
 	"context"
 	"errors"
-	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/executor"
+	"darvin-cowork/backend/internal/agents/msgid"
+	"darvin-cowork/backend/internal/agents/perm"
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/queue"
+	"darvin-cowork/backend/internal/agents/runtime"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/agents/usage"
 )
-
-// permissionTimeout is how long a permission_request waits for the renderer
-// before defaulting to deny.
-const permissionTimeout = 60 * time.Second
-
-// permissionRule is a "remember this session" auto-allow entry: a request
-// that matches (toolName, dangerLevel, reason) skips the modal.
-type permissionRule struct {
-	toolName string
-	level    string
-	reason   string
-}
-
-// pendingPermission is one in-flight permission_request awaiting the
-// renderer's answer. timeout fires the default-deny after 60s.
-type pendingPermission struct {
-	ch      chan executor.PermissionResult
-	timeout *time.Timer
-}
 
 // ModelRef identifies a model on a specific provider. The provider name is
 // matched against registered ModelProvider implementations.
@@ -116,6 +100,10 @@ type NewAgentConfig struct {
 }
 
 // Agent is the runtime. It is goroutine-safe.
+//
+// Transient state lives in the four state sub-packages; this type is now
+// mostly wiring plus a couple of run-scoped fields (imported file note,
+// skill prompt / tools) that Run sets and Run tail clears.
 type Agent struct {
 	name         string
 	instructions string
@@ -131,9 +119,10 @@ type Agent struct {
 	bus          *event.Bus
 	queue        *queue.Queue
 
-	runMu    sync.Mutex
-	state    agentState
-	cancelFn context.CancelFunc
+	controller  *runtime.Controller
+	perm        *perm.Gate
+	msgidBridge *msgid.Bridge
+	tracker     *usage.Tracker
 
 	// runImportedNote is set by the dispatcher for the current prompt's
 	// staged imported files; Instructions() appends it so the LLM perceives
@@ -148,51 +137,19 @@ type Agent struct {
 	runSkillPrompt string
 	runSkillTools  protocol.ToolRegistry
 
-	// msgIDSrc is wired by the ACP loop via AttachMessageIDSrc. The
-	// executor reads it through Deps.CurrentMessageID to populate the
-	// EventCommon.MessageID on every emitted event so subscribers can
-	// correlate events back to the prompt that produced them.
-	msgIDSrc func() string
-
-	// runIDSrc is wired by the ACP loop via AttachRunIDSrc. The executor
-	// reads it through Deps.CurrentRunID to populate EventCommon.RunID on
-	// every emitted event so the renderer can abort a specific turn and
-	// the renderer store can demultiplex events by turn id.
-	runIDSrc func() string
-
-	// userMsgIDSrc is wired by the ACP loop via AttachUserMessageIDSrc.
-	// The dispatcher reads it through CurrentUserMessageID to key the
-	// persisted user row. It is distinct from msgIDSrc so the user row is
-	// not overwritten by the assistant row that shares the run's messageID.
-	userMsgIDSrc func() string
-
 	assembler        ctxengine.ContextEngine
 	assemblerEnabled bool
-
-	// lastUsage holds the most recent API-reported Usage. Updated after
-	// every successful LLM turn via RecordUsage (called by the executor);
-	// read by the executor during the next turn's Assemble call so the
-	// ContextEngine can prefer the provider's reported token count over the
-	// local rune/4 estimator. Mutex protects concurrent reads from the
-	// executor loop and writes from drainStream's tail.
-	lastUsageMu sync.RWMutex
-	lastUsage   protocol.Usage
-
-	// Permission gate state (spec 12). pendingPerms maps requestID → the
-	// blocked executor call; permRules holds "remember this session" auto-allow
-	// entries. Both are goroutine-safe: RequestPermission is called from tool
-	// goroutines, ResolvePermission from the gateway RPC handler.
-	permMu       sync.Mutex
-	pendingPerms map[string]*pendingPermission
-	permRules    []permissionRule
 }
 
-// agentState is the lifecycle phase the Agent is in.
-type agentState int
+// agentState / stateIdle / stateRunning are kept as local aliases used by
+// the run lifecycle so internal helpers can compare without importing the
+// runtime sub-package's State enum. The values line up with runtime.Idle /
+// runtime.Running.
+type agentState = int
 
 const (
-	stateIdle agentState = iota
-	stateRunning
+	stateIdle agentState = 0
+	stateRun  agentState = 1
 )
 
 // ErrSessionRequired is returned by New when NewAgentConfig.Session is nil.
@@ -235,6 +192,9 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 	if cfg.Config.EventBuffer <= 0 {
 		cfg.Config.EventBuffer = 64
 	}
+	bus := event.NewBus()
+	bridge := msgid.NewBridge()
+	tracker := usage.NewTracker()
 	a := &Agent{
 		name:         cfg.Name,
 		instructions: cfg.Instructions,
@@ -247,9 +207,12 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		cfg:          cfg.Config,
 		tools:        cfg.Tools,
 		exec:         cfg.Executor,
-		bus:          event.NewBus(),
+		bus:          bus,
 		queue:        queue.New(),
-		pendingPerms: map[string]*pendingPermission{},
+		controller:   runtime.NewController(),
+		perm:         perm.NewGate(bus, cfg.Logger, nil, perm.DefaultTimeout),
+		msgidBridge:  bridge,
+		tracker:      tracker,
 	}
 
 	// Auto-wire the ContextEngine (spec §4.10 / §6.2). Two paths:
@@ -272,8 +235,21 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 	}
 	a.assemblerEnabled = cfg.AssemblerEnabled
 
+	// The Gate needs an EventContext that reads turn ids. Wire it once the
+	// Agent exists so it can call back into the bridge / Session.
+	a.perm.AttachContext(permEventContext{a: a})
+
 	return a, nil
 }
+
+// permEventContext adapts an *Agent to the perm.EventContext interface so
+// perm.Gate can read the live SessionID / RunID / MessageID without
+// importing the agent root.
+type permEventContext struct{ a *Agent }
+
+func (p permEventContext) SessionID() string { return p.a.session.ID }
+func (p permEventContext) RunID() string     { return p.a.msgidBridge.CurrentRunID() }
+func (p permEventContext) MessageID() string { return p.a.msgidBridge.CurrentMessageID() }
 
 func (a *Agent) Session() *session.Session        { return a.session }
 func (a *Agent) Provider() protocol.ModelProvider { return a.provider }
@@ -329,29 +305,17 @@ func (a *Agent) AssemblerEnabled() bool { return a.assemblerEnabled }
 
 // IsRunning reports whether Agent.Run is currently in progress. The gateway
 // uses it to refuse manual context compaction while a turn is executing.
-func (a *Agent) IsRunning() bool {
-	a.runMu.Lock()
-	defer a.runMu.Unlock()
-	return a.state == stateRunning
-}
+func (a *Agent) IsRunning() bool { return a.controller.IsRunning() }
 
 // RecordUsage stores the API-reported Usage from the just-finished turn.
 // Safe to call from the executor goroutine; readers (next turn's Assemble)
 // use LastUsage under the same mutex.
-func (a *Agent) RecordUsage(u protocol.Usage) {
-	a.lastUsageMu.Lock()
-	a.lastUsage = u
-	a.lastUsageMu.Unlock()
-}
+func (a *Agent) RecordUsage(u protocol.Usage) { a.tracker.Record(u) }
 
 // LastUsage returns the most recently stored API-reported Usage. Zero value
 // when no turn has completed yet (e.g. before the first LLM call), which
 // the ContextEngine interprets as "fall back to the local estimator".
-func (a *Agent) LastUsage() protocol.Usage {
-	a.lastUsageMu.RLock()
-	defer a.lastUsageMu.RUnlock()
-	return a.lastUsage
-}
+func (a *Agent) LastUsage() protocol.Usage { return a.tracker.Last() }
 
 // Session returns the agent's session (read-only access pattern; mutators
 // are reserved for the executor).
@@ -367,7 +331,7 @@ func (a *Agent) Subscribe(buffer int) *event.Subscription {
 // a method value of acp.Loop.CurrentMessageID so every emitted event's
 // EventCommon.MessageID matches the prompt that triggered the run.
 func (a *Agent) AttachMessageIDSrc(src func() string) {
-	a.msgIDSrc = src
+	a.msgidBridge.AttachMessageID(src)
 }
 
 // AttachRunIDSrc wires the function the executor and dispatcher query
@@ -375,158 +339,66 @@ func (a *Agent) AttachMessageIDSrc(src func() string) {
 // method value of acp.Loop.CurrentRunID so every emitted event's
 // EventCommon.RunID matches the prompt that triggered the run.
 func (a *Agent) AttachRunIDSrc(src func() string) {
-	a.runIDSrc = src
+	a.msgidBridge.AttachRunID(src)
 }
 
 // AttachUserMessageIDSrc wires the function the dispatcher queries (via
 // CurrentUserMessageID) to read the messageID minted for the current turn's
 // user message. main.go passes a method value of acp.Loop.CurrentUserMessageID.
 func (a *Agent) AttachUserMessageIDSrc(src func() string) {
-	a.userMsgIDSrc = src
+	a.msgidBridge.AttachUserMessageID(src)
 }
 
 // CurrentMessageID satisfies executor.Deps. Returns "" when no messageID
 // source has been wired or when the agent is idle.
-func (a *Agent) CurrentMessageID() string {
-	if a.msgIDSrc == nil {
-		return ""
-	}
-	return a.msgIDSrc()
-}
+func (a *Agent) CurrentMessageID() string { return a.msgidBridge.CurrentMessageID() }
 
 // CurrentRunID satisfies executor.Deps. Returns "" when no runID source
 // has been wired or when the agent is idle.
-func (a *Agent) CurrentRunID() string {
-	if a.runIDSrc == nil {
-		return ""
-	}
-	return a.runIDSrc()
-}
+func (a *Agent) CurrentRunID() string { return a.msgidBridge.CurrentRunID() }
 
 // CurrentUserMessageID returns the user-message id of the in-flight turn.
 // Returns "" when no userMsgID source has been wired (e.g. the steer agent
 // or the unit-test fast path, where nothing is persisted anyway).
-func (a *Agent) CurrentUserMessageID() string {
-	if a.userMsgIDSrc == nil {
-		return ""
-	}
-	return a.userMsgIDSrc()
-}
+func (a *Agent) CurrentUserMessageID() string { return a.msgidBridge.CurrentUserMessageID() }
 
 // SetGrantedReads replaces the run's granted-read set (absolute paths the
 // user attached for the current message). Called by the dispatcher before
 // RunConversation and cleared after.
 func (a *Agent) SetGrantedReads(paths []string) {
-	a.tools.SetGrantedReads(paths)
+	a.perm.SetGrantedReads(paths, a.tools)
 }
 
 // ApprovePath satisfies executor.Deps — grants the sandbox one-shot access
 // to a path the user allowed via the permission modal.
-func (a *Agent) ApprovePath(path string) {
-	a.tools.ApprovePath(path)
-}
+func (a *Agent) ApprovePath(path string) { a.perm.ApprovePath(path, a.tools) }
 
 // EvaluatePermission satisfies executor.Deps. Delegates to the tool
 // registry's combined path-containment + danger classification.
 func (a *Agent) EvaluatePermission(toolName string, args map[string]any) protocol.PermissionEval {
-	return a.tools.EvaluatePermission(toolName, args)
+	return a.perm.EvaluatePermission(toolName, args, a.tools)
 }
 
 // RequestPermission satisfies executor.Deps. Emits a permission_request event
-// and blocks until the renderer answers via ResolvePermission, the 60s timeout
+// and blocks until the renderer answers via ResolvePermission, the timeout
 // fires (default deny), or ctx is cancelled.
 func (a *Agent) RequestPermission(ctx context.Context, req executor.PermissionRequest) (executor.PermissionResult, error) {
-	id := uuid.NewString()
-	ch := make(chan executor.PermissionResult, 1)
-	pp := &pendingPermission{ch: ch}
-	pp.timeout = time.AfterFunc(permissionTimeout, func() {
-		a.deliverPermission(id, ch, executor.PermissionResult{Behavior: "deny", Message: "审批超时"})
-	})
-	a.permMu.Lock()
-	a.pendingPerms[id] = pp
-	a.permMu.Unlock()
-
-	a.bus.Emit(event.PermissionRequestEvent{
-		EventBase: event.EventBase{EventCommon: event.EventCommon{
-			SessionID: a.session.ID,
-			RunID:     a.CurrentRunID(),
-			MessageID: a.CurrentMessageID(),
-		}},
-		RequestID:   id,
-		ToolName:    req.ToolName,
-		ToolInput:   req.ToolInput,
-		DangerLevel: req.DangerLevel,
-		Reason:      req.Reason,
-	})
-
-	select {
-	case r := <-ch:
-		return r, nil
-	case <-ctx.Done():
-		a.permMu.Lock()
-		if cur, ok := a.pendingPerms[id]; ok {
-			delete(a.pendingPerms, id)
-			cur.timeout.Stop()
-		}
-		a.permMu.Unlock()
-		return executor.PermissionResult{Behavior: "deny", Message: "运行已中断"}, ctx.Err()
-	}
+	return a.perm.RequestPermission(ctx, req, a.tools)
 }
 
 // ResolvePermission delivers the renderer's answer to the blocked executor
 // call. Unknown requestID (already timed out / cancelled) is a no-op.
 func (a *Agent) ResolvePermission(requestID string, result executor.PermissionResult) {
-	a.permMu.Lock()
-	pp, ok := a.pendingPerms[requestID]
-	if ok {
-		delete(a.pendingPerms, requestID)
-	}
-	a.permMu.Unlock()
-	if !ok {
-		return
-	}
-	pp.timeout.Stop()
-	select {
-	case pp.ch <- result:
-	default:
-	}
-}
-
-// deliverPermission removes the pending entry (idempotent) and sends the
-// result to the waiting channel. Used by the timeout path and ResolvePermission.
-func (a *Agent) deliverPermission(id string, ch chan executor.PermissionResult, r executor.PermissionResult) {
-	a.permMu.Lock()
-	if _, ok := a.pendingPerms[id]; ok {
-		delete(a.pendingPerms, id)
-	}
-	a.permMu.Unlock()
-	select {
-	case ch <- r:
-	default:
-	}
+	a.perm.ResolvePermission(requestID, result)
 }
 
 // HasPermissionRule satisfies executor.Deps — whether an identical
 // (tool, level, reason) request was allowed + remembered this session.
 func (a *Agent) HasPermissionRule(toolName, level, reason string) bool {
-	a.permMu.Lock()
-	defer a.permMu.Unlock()
-	for _, r := range a.permRules {
-		if r.toolName == toolName && r.level == level && r.reason == reason {
-			return true
-		}
-	}
-	return false
+	return a.perm.HasRule(toolName, level, reason)
 }
 
 // AddPermissionRule satisfies executor.Deps — records an auto-allow rule.
 func (a *Agent) AddPermissionRule(toolName, level, reason string) {
-	a.permMu.Lock()
-	defer a.permMu.Unlock()
-	for _, r := range a.permRules {
-		if r.toolName == toolName && r.level == level && r.reason == reason {
-			return
-		}
-	}
-	a.permRules = append(a.permRules, permissionRule{toolName: toolName, level: level, reason: reason})
+	a.perm.AddRule(toolName, level, reason)
 }

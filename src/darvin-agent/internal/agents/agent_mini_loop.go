@@ -17,10 +17,8 @@ import (
 // the dispatcher; only a rejected enqueue (e.g. session busy) surfaces here
 // so the caller (acp.Loop) can emit an explicit error event.
 func (a *Agent) RunSkillSession(ctx context.Context, systemPrompt, userContent string, skillTools []protocol.Tool) error {
-	a.runMu.Lock()
-	running := a.state == stateRunning
-	a.runMu.Unlock()
-	if running {
+	isRunning := a.controller.IsRunning
+	if running := isRunning(); running {
 		return errors.New("agent: Run already in progress")
 	}
 

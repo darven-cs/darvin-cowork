@@ -51,12 +51,7 @@ func (a *Agent) FollowUp(_ context.Context, content string) error {
 // Abort cancels the current Run's context. It does not modify the queue.
 // Safe to call when idle (no-op).
 func (a *Agent) Abort(_ context.Context) error {
-	a.runMu.Lock()
-	cancel := a.cancelFn
-	a.runMu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
+	a.controller.Abort()
 	return nil
 }
 
@@ -68,22 +63,15 @@ func (a *Agent) Abort(_ context.Context) error {
 // Abort / ctx cancel, Run returns ErrAborted (or ctx.Err() if it fired
 // directly).
 func (a *Agent) Run(ctx context.Context) error {
-	a.runMu.Lock()
-	if a.state == stateRunning {
-		a.runMu.Unlock()
+	if !a.controller.TryStart() {
 		return errors.New("agent: Run already in progress")
 	}
 	runCtx, cancel := context.WithCancel(ctx)
-	a.state = stateRunning
-	a.cancelFn = cancel
-	a.runMu.Unlock()
+	a.controller.SetCancel(cancel)
 
 	defer func() {
-		a.runMu.Lock()
-		a.state = stateIdle
-		a.cancelFn = nil
-		a.runMu.Unlock()
 		cancel()
+		a.controller.End()
 	}()
 
 	var totalTurns int
@@ -380,10 +368,7 @@ func (a *Agent) enqueue(mode queue.Mode, content string, attachments []string, i
 	// Prompt is the only mode that requires the agent to be idle. Steer and
 	// FollowUp can both be issued while a Run is in progress: Steer cancels
 	// the current run, FollowUp queues for after it returns.
-	a.runMu.Lock()
-	running := a.state == stateRunning
-	a.runMu.Unlock()
-	if mode == queue.ModePrompt && running {
+	if mode == queue.ModePrompt && a.controller.IsRunning() {
 		return ErrAgentBusy
 	}
 	err := a.queue.Enqueue(mode, queue.Message{Content: content, Attachments: attachments, Images: images})
