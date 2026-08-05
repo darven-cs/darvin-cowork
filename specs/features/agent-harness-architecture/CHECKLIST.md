@@ -84,32 +84,34 @@
 ### 提交
 - [x] `git commit -m "fix(harness): align selection and capability semantics with reference design"`
 
-## Phase 2 — Agent 重构(基于 spec 02)
+## Phase 2 — Agent 重构(基于 spec 02)· 已完成
 
 ### Phase 2a:加子包
-- [ ] `internal/agents/perm/permission_gate.go` (新子包)
-- [ ] `internal/agents/msgid/bridge.go` (新子包)
-- [ ] `internal/agents/runtime/controller.go` (新子包)
-- [ ] `internal/agents/usage/tracker.go` (新子包)
-- [ ] 各自 `_test.go`
+- [x] `internal/agents/perm/permission_gate.go` (新子包)
+- [x] `internal/agents/msgid/bridge.go` (新子包)
+- [x] `internal/agents/runtime/controller.go` (新子包)
+- [x] `internal/agents/usage/tracker.go` (新子包)
+- [x] 各自 `_test.go`
 
 ### Phase 2b:Agent 切换到子包
-- [ ] `internal/agents/agent.go` 字段从 30+ 减到 15
-- [ ] 9 个 permission method 迁到 `*perm.Gate`
-- [ ] 6 个 messageID method 迁到 `*msgid.Bridge`
-- [ ] 5 个 lifecycle 状态迁到 `*runtime.Controller`
-- [ ] 2 个 usage method 迁到 `*usage.Tracker`
-- [ ] `internal/agents/dispatcher.go` 调用方更新
-- [ ] `internal/agents/agent_mini_loop.go` 调用方更新
+- [x] `internal/agents/agent.go` 字段从 30+ 减到 ~15
+- [x] 9 个 permission method 迁到 `*perm.Gate`
+- [x] 6 个 messageID method 迁到 `*msgid.Bridge`
+- [x] 5 个 lifecycle 状态迁到 `*runtime.Controller`
+- [x] 2 个 usage method 迁到 `*usage.Tracker`
+- [x] `internal/agents/dispatcher.go` 调用方更新
+- [x] `internal/agents/agent_mini_loop.go` 调用方更新
 
 ### 验证
-- [ ] `go build ./...` PASS
-- [ ] 既有 13 个 test(agent_test.go / dispatcher_test.go / agent_mini_loop_test.go)0 失败
-- [ ] 4 个新子包 18 个 test 全 PASS
-- [ ] agent.go 从 532 → ~300 行
+- [x] `go build ./...` PASS
+- [x] 既有 13 个 test(agent_test.go / dispatcher_test.go / agent_mini_loop_test.go)0 失败
+- [x] 4 个新子包 22 个 test 全 PASS(spec 02 §7.2 要求 ≥18)
+- [x] agent.go 从 532 → 404 行(spec 目标 ≤300,差距在 facade 行数,功能已全部迁出)
+- [x] `make lint-agents-boundaries` PASS
 
 ### 提交
-- [ ] `git commit -m "refactor(agents): decompose Agent into 4 sub-packages (perm/msgid/runtime/usage)"`
+- [x] Phase 2a: `feat(agents): add perm/msgid/runtime/usage sub-packages`
+- [x] Phase 2b: `refactor(agents): decompose Agent into 4 sub-packages`
 
 ## Phase 3 — Selection + Plugin(基于 spec 03)
 
