@@ -1,5 +1,5 @@
 /**
- * spec 39 — `/skill-name args` 斜杠命令的纯函数 helpers（renderer 侧路由）。
+ * `/skill-name args` 斜杠命令的纯函数 helpers（renderer 侧路由）。
  * 放在独立模块便于单测，useChatActions 只负责把解析结果接到 IPC。
  */
 

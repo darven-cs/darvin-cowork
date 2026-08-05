@@ -42,7 +42,7 @@ type serverEntry struct {
 
 // NewRegistry returns an empty registry. Persistence is required — use
 // NewInMemoryResolutionPersistence for tests and the v0 binary, swap in
-// the SQLite impl (spec 36) when wiring the SQLite store.
+// the SQLite impl when wiring the SQLite store.
 func NewRegistry(resolver *ResolverManager, persistence ResolutionPersistence) *Registry {
 	return &Registry{
 		servers:     make(map[string]*serverEntry),

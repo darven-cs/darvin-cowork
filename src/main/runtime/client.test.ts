@@ -84,7 +84,7 @@ describe('parseDarvinEvent', () => {
   });
 });
 
-// spec 32 — agent.skills.changed 通知路由到 skills.onChanged 监听器,
+// agent.skills.changed 通知路由到 skills.onChanged 监听器,
 // 不再走 agent.event 路径(避免和 session event 混淆)。
 function makeClient(): AgentClient {
   return new AgentClient({ logger: { warn: () => {} } });

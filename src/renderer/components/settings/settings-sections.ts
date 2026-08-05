@@ -1,5 +1,5 @@
 /**
- * 设置面板 tab 注册表（spec 07）：7 个 tab + query string 深链校验。
+ * 设置面板 tab 注册表：7 个 tab + query string 深链校验。
  */
 
 export const SettingsSections = [

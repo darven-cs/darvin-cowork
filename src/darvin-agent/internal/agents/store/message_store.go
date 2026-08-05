@@ -32,7 +32,7 @@ type MessageRecord struct {
 // MessageStore persists per-turn message rows. Implementations must be
 // safe for concurrent use from the agent's main loop and the dispatch
 // goroutines. A nil MessageStore is treated as "do not persist" by the
-// dispatcher (spec FR-2.2: hook guards with `if a.msgStore != nil`).
+// dispatcher (hook guards with `if a.msgStore != nil`).
 type MessageStore interface {
 	// Save persists one message row. Save uses INSERT … ON CONFLICT
 	// semantics — calling Save twice with the same MessageRecord.ID is

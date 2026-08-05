@@ -179,7 +179,7 @@ func TestSQLiteStoreSaveReplace(t *testing.T) {
 	}
 }
 
-// TestSessionStore_NewFieldsRoundTrip 覆盖统一数据库 spec FR-1：Title /
+// TestSessionStore_NewFieldsRoundTrip 覆盖统一数据库：Title /
 // ClaudeSessionID 写入后 GetByID 读回；且重新 Save（模拟 prompt 的元数据
 // 保存）不会把 title 清掉 —— title 归 RPC handler 管，agent 的 Save 只刷
 // metadata。

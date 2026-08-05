@@ -47,7 +47,7 @@ func (c *Client) WithReconnectFactory(f func() (transport.Transport, error)) *Cl
 }
 
 // Transport exposes the underlying transport for inspection (e.g. the
-// spec 35 launcher checks Alive() to decide if a reconnect is needed).
+// launcher checks Alive() to decide if a reconnect is needed).
 func (c *Client) Transport() transport.Transport { return c.transport }
 
 func (c *Client) Connect(ctx context.Context) error {

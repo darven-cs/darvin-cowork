@@ -1,5 +1,5 @@
 /**
- * spec 36 — main 端 MCP server 持久化。
+ * main 端 MCP server 持久化。
  *
  * 两张表：
  *   mcp_servers              server 元数据 + transport 配置（source of truth）
@@ -40,7 +40,7 @@ export interface McpLaunchResolutionRow {
 }
 
 /**
- * 打开（惰性创建）main 端 mcp.db。失败抛错——spec 36 启动期 hard requirement：
+ * 打开（惰性创建）main 端 mcp.db。失败抛错——启动期 hard requirement：
  *  mcp 表缺失会让 bootstrap 退化为空 list，main 选择 warn + 继续。
  */
 export function openMcpStoreDb(file: string): BetterSqliteDb {

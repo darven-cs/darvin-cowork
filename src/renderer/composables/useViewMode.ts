@@ -3,7 +3,7 @@
  *
  * AppShell 监听 mode 切换 component 渲染；
  * Sidebar / HomeView / ChatView 等通过 navigate() 驱动。
- * spec 06 起 scheduled / skills / mcp 也是真实导航入口（内容为占位面板）。
+ * scheduled / skills / mcp 也是真实导航入口（内容为占位面板）。
  */
 
 import { ref } from 'vue';

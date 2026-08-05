@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * spec 33 — SkillsView：3 tab（已安装 / 市场 / 设置）+ 2 modal。
+ * SkillsView：3 tab（已安装 / 市场 / 设置）+ 2 modal。
  *
  * 数据全部走 `useSkills` singleton。tab 切换只切本地 activeTab，不重拉。
  * install 走 main stub：返回 safe → 立刻 toast；medium → 弹安全报告。

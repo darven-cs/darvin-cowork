@@ -1,11 +1,11 @@
 /**
- * useImportedFiles — 当前会话待发送附件的暂存状态（spec 12 / 13）。
+ * useImportedFiles — 当前会话待发送附件的暂存状态。
  *
  * 附件走 LobsterAI 式路径引用：只记原始绝对路径（path + name + size），
  * 不复制进工作区、不入库。「附加即授权」——发送时随 prompt 带绝对路径，
  * Go agent 把本次消息的附件路径加入授权读集，read_file 可免审批读取。
  *
- * spec 13 — 图片附件单独走 base64：识别扩展名后调 `readFileAsDataUrl`
+ * 图片附件单独走 base64：识别扩展名后调 `readFileAsDataUrl`
  * 读成 dataUrl，随 prompt 发给 Go 转 image content block，模型才能真正
  * 看到图。图片路径**不**进授权读集（base64 已交付数据，避免模型 read_file
  * 读到二进制垃圾）。

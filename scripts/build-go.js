@@ -8,8 +8,8 @@ const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-// We use the host's GOOS/GOARCH (omitted) by default: spec §7 only
-// requires a local build. Cross-compilation is a separate concern; if
+// We use the host's GOOS/GOARCH (omitted) by default: only
+// a local build is required. Cross-compilation is a separate concern; if
 // it comes back, uncomment the GOOS/GOARCH overrides and the host
 // toolchain must support the target.
 const platform = process.platform; // 'darwin' | 'linux' | 'win32'

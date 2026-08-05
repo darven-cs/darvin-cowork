@@ -53,7 +53,7 @@ export const dictZh: Record<string, string> = {
   'common.save': '保存',
   'common.uninstall': '卸载',
   'common.upgrade': '升级',
-  // spec 33 — SkillsView
+  // SkillsView
   'skill.tab.installed': '已安装',
   'skill.tab.marketplace': '市场',
   'skill.tab.settings': '设置',
@@ -345,7 +345,7 @@ export const dictZh: Record<string, string> = {
   'artifact.chat.open': '打开',
   'time.justNow': '现在',
   'time.yesterday': '昨',
-  // spec 37 — McpView
+  // McpView
   'mcp.list.title': 'MCP 服务器',
   'mcp.list.add': '+ 新增 MCP server',
   'mcp.list.empty': '还没有 MCP server；点上方按钮新增',
@@ -444,7 +444,7 @@ export const dictEn: Record<string, string> = {
   'common.save': 'Save',
   'common.uninstall': 'Uninstall',
   'common.upgrade': 'Upgrade',
-  // spec 33 — SkillsView
+  // SkillsView
   'skill.tab.installed': 'Installed',
   'skill.tab.marketplace': 'Marketplace',
   'skill.tab.settings': 'Settings',
@@ -736,7 +736,7 @@ export const dictEn: Record<string, string> = {
   'artifact.chat.open': 'Open',
   'time.justNow': 'now',
   'time.yesterday': 'yest.',
-  // spec 37 — McpView
+  // McpView
   'mcp.list.title': 'MCP Servers',
   'mcp.list.add': '+ Add MCP server',
   'mcp.list.empty': 'No MCP servers yet; click above to add',

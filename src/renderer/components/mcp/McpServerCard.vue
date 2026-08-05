@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * spec 37 — 单 MCP server 卡片：name / description / transport / enabled
+ * 单 MCP server 卡片：name / description / transport / enabled
  * 开关 / connection / launch 状态 / tools 列表 / 4 按钮（test / retry /
  * edit / delete）。
  *

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Headless smoke test（spec FR-7）：
+# Headless smoke test：
 #   1. 编译 darvin-agent 二进制（如果还没 build）
 #   2. spawn → 等 stdout 端口行
 #   3. 调 ws-smoke-client.js 跑协议断言

@@ -262,7 +262,7 @@ export class AgentClient extends EventEmitter {
   }
 
   /**
-   * spec 39 — `/skill-name args` 用户显式触发。Go 端同步校验（存在 +
+   * `/skill-name args` 用户显式触发。Go 端同步校验（存在 +
    * enabled + userInvocable）失败时以 RPC error 返回，main 据此 toast；
    * 通过后异步跑 mini agent loop，事件流跟普通 prompt 一致。
    */
@@ -291,7 +291,7 @@ export class AgentClient extends EventEmitter {
   }
 
   /**
-   * spec 32 — Go 端 skills 命名空间。bootstrap 由 main 端在启动期调用一
+   * Go 端 skills 命名空间。bootstrap 由 main 端在启动期调用一
    * 次推初始 enabled 状态；list / setEnabled 既可被 main 端主动调
    * （renderer 通过 IPC 触发），也可在 setEnabled 之后由 main 写
    * SQLite → Go SetEnabled → broadcast notification 回到 main。
@@ -312,7 +312,7 @@ export class AgentClient extends EventEmitter {
   };
 
   /**
-   * spec 36 — Go 端 MCP 命名空间。bootstrap 由 main 端在启动期调用一次推
+   * Go 端 MCP 命名空间。bootstrap 由 main 端在启动期调用一次推
    * 初始 server 列表；list / register / update / unregister / setEnabled /
    * test / retryResolution 既可被 main 端主动调（renderer 通过 IPC 触发），
    * 也可由 Go 端连接状态变化时 broadcast notification 回到 main。
@@ -349,7 +349,7 @@ export class AgentClient extends EventEmitter {
   };
 
   /**
-   * spec 38 — Go 端工具面命名空间。list 返回内置 + skill + mcp 合并
+   * Go 端工具面命名空间。list 返回内置 + skill + mcp 合并
    * 视图，renderer / 调试用；skill / mcp 状态变化后 Go 端自动重注册。
    */
   tools = {
@@ -408,7 +408,7 @@ const LIFECYCLE_EVENT_TYPES = new Set([
  * 类型时旧版 Electron 不应该崩，后续合法事件仍要能继续消费。
  */
 /**
- * 从 raw 里提升 toolUseId：spec 00 把 tool_use / tool_result 加进消息 union
+ * 从 raw 里提升 toolUseId：tool_use / tool_result 加进消息 union
  * 后，事件侧的 tool_start / tool_end 仍缺 toolUseId。Go 的 CallID 注入在
  * `message.id`（eventledger.go mapEventToTS），这里提升出来；老 backend
  * 没有 message.id 时按 messageId 兜底，保持向后兼容。

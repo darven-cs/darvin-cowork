@@ -201,7 +201,7 @@ func TestReadFileSymlinkEscape(t *testing.T) {
 	r := NewRegistry()
 	r.MustRegister(&readFileTool{sb: sb})
 	res := r.Get("read_file").(Tool).Execute(context.Background(), map[string]any{"path": "leak"})
-	// spec 12 — an out-of-workspace read now surfaces as ErrNeedsPermission
+	// an out-of-workspace read now surfaces as ErrNeedsPermission
 	// ("authorized roots") instead of a bare symlink-escape; both are hard
 	// errors at the tool layer (approval gating happens in the executor).
 	if !res.IsError || !(strings.Contains(res.Content, "escapes sandbox") || strings.Contains(res.Content, "authorized roots")) {

@@ -12,8 +12,8 @@ import (
 // runtime is absent / unhealthy.
 const CLIDefaultPriority = -100
 
-// CLIHarness is a mock CLI backend used to exercise selection (spec 03) and
-// the ctx-engine host gate (spec 06) without a real subprocess.
+// CLIHarness is a mock CLI backend used to exercise selection and
+// the ctx-engine host gate without a real subprocess.
 //
 // It models a generic CLI host: it can bootstrap a session, run turns and
 // maintain state, but it cannot assemble a prompt before the model call and
@@ -48,7 +48,7 @@ func (c *cli) Label() string {
 
 // Capabilities advertises the generic-CLI host verb set. Notably it omits
 // HostAssembleBeforePrompt and HostCompact, so a demanding context engine
-// cannot run here — that is exactly what spec 06's host gate exists for.
+// cannot run here — that is exactly what the host gate exists for.
 func (c *cli) Capabilities() Capabilities {
 	return Capabilities{
 		Healthy: true,

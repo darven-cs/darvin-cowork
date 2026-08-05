@@ -17,7 +17,7 @@
  * 与 Go 侧 config.UserDataDir() 落在同一绝对路径下；config.UserConfigPath()
  * 与 agentSessionsDsnPath() 也对齐。旧的 darvin-cowork.sqlite（Electron
  * SessionStore）已随 merge-databases refactor 删除，dev 阶段由开发者人工
- * rm 清掉（spec §4.7）。
+ * rm 清掉。
  */
 import { app } from 'electron';
 import path from 'node:path';
@@ -41,7 +41,7 @@ export function agentSessionsDsnPath(): string {
 }
 
 /**
- * spec 32 — main 端独立 SQLite 文件，存 skills 的 enabled 状态。独立于
+ * main 端独立 SQLite 文件，存 skills 的 enabled 状态。独立于
  * Go 端的 sessions.db，避免 Go 重启时丢 cache，也避免让 main 端再次持有
  * 业务会话数据（merge-databases refactor 之后 main 不直接写业务数据）。
  * 文件不存在时由 better-sqlite3 触发惰性 open + schema init。
@@ -50,13 +50,13 @@ export function skillStateDbPath(): string {
   return path.join(agentDataDir(), 'skill-state.db');
 }
 
-/** spec 32 — user 装 skill 的根目录；chokidar 监听它。 */
+/** user 装 skill 的根目录；chokidar 监听它。 */
 export function getSkillsRoot(): string {
   return path.join(agentDataDir(), 'SKILLs');
 }
 
 /**
- * spec 36 — main 端独立 SQLite 文件，存 MCP server 列表 + launch
+ * main 端独立 SQLite 文件，存 MCP server 列表 + launch
  * resolution。独立于 Go 端 sessions.db 与 skill-state.db，main 端是
  * server 元数据 / resolution 的 source of truth，Go 端重启后从 main
  * 端 bootstrap 拉回。
@@ -66,7 +66,7 @@ export function mcpStoreDbPath(): string {
 }
 
 /**
- * spec 36 — Go 端 mcp-packages 根目录（用户安装 npx 类 server 时的隔离
+ * Go 端 mcp-packages 根目录（用户安装 npx 类 server 时的隔离
  * 落点）。main 端负责把 effective root 注入 Go 子进程的 env。
  */
 export function getMcpPackagesDir(): string {

@@ -232,7 +232,7 @@ llm:
 
 // TestLoadEnvVarOverrides confirms AutomaticEnv binds LLM_API_KEY to
 // llm.api_key — when the env var is set, it wins over both bundled
-// and user-overlay values (spec FR-1.3).
+// and user-overlay values.
 func TestLoadEnvVarOverrides(t *testing.T) {
 	defer resetViper()
 	dir := t.TempDir()

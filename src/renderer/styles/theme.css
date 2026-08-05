@@ -34,7 +34,7 @@
   --color-accent-hover:    var(--color-primary-hover);
   --color-accent-soft:     var(--color-primary-muted);
 
-  /* 主题色选项 swatch（spec 07 G2 外观 tab 三选一） */
+  /* 主题色选项 swatch（外观 tab 三选一） */
   --color-accent-orange:   #FF5722;
   --color-accent-blue:     #2563EB;
   --color-accent-green:    #16A34A;
@@ -174,7 +174,7 @@
     transition: background-color 200ms ease, color 200ms ease;
   }
 
-  /* 主题色（spec 07 G2）：html[data-accent] 覆盖 --color-primary 家族。
+  /* 主题色：html[data-accent] 覆盖 --color-primary 家族。
      放在 dark 块之后，light/dark 下都生效（默认橙色由 :root 提供）。 */
   html[data-accent="blue"] {
     --color-primary:       #2563EB;

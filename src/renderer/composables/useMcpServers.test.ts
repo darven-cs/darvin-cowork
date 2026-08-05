@@ -1,5 +1,5 @@
 /**
- * spec 37 — useMcpServers 纯逻辑测试。
+ * useMcpServers 纯逻辑测试。
  *
  * 不挂 Vue component，直接在 module 级 ref + 假 darvin client 上验证：
  * - refresh 把 listMcpServers() 的结果写进 servers.value

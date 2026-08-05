@@ -35,14 +35,14 @@ export interface Message {
   error?: string;
   toolLabel?: string;
   attachments?: DarvinAttachment[];
-  /** spec 13 — 本条 user 消息附带的文件路径引用（气泡上方 chip；内存态，不随 Go 持久化）。 */
+  /** 本条 user 消息附带的文件路径引用（气泡上方 chip；内存态，不随 Go 持久化）。 */
   attachmentRefs?: DarvinAttachmentRef[];
-  /** spec 13 — 本条 user 消息附带的图片（含 base64 dataUrl；气泡上方缩略图；内存态）。 */
+  /** 本条 user 消息附带的图片（含 base64 dataUrl；气泡上方缩略图；内存态）。 */
   imageRefs?: DarvinImageRef[];
   model?: string;
   usage?: DarvinUsage;
   createdAt: number;
-  // spec 02 — 工具调用条目（tool_use / tool_result）
+  // 工具调用条目（tool_use / tool_result）
   kind?: 'tool_use' | 'tool_result';
   toolUseId?: string;
   tool?: string;
@@ -50,11 +50,11 @@ export interface Message {
   input?: unknown;
   output?: unknown;
   isError?: boolean;
-  /** spec B1 — tool_use 在其 assistant 消息文本中的内容断点（live 交错渲染用）。 */
+  /** tool_use 在其 assistant 消息文本中的内容断点（live 交错渲染用）。 */
   splitOffset?: number;
-  /** spec B1 — 拆分出的后续文本段（不重复渲染 TurnMeta / thinking / artifacts）。 */
+  /** 拆分出的后续文本段（不重复渲染 TurnMeta / thinking / artifacts）。 */
   isContinuation?: boolean;
-  /** spec 11 — 本 assistant 消息产出的 artifact（按 artifact 事件 messageId 挂载）。 */
+  /** 本 assistant 消息产出的 artifact（按 artifact 事件 messageId 挂载）。 */
   artifacts?: Artifact[];
 }
 
@@ -63,7 +63,7 @@ export type AssistantTurnItem =
   | { type: 'assistant'; message: Message }
   | { type: 'tool_group'; toolUse: Message; toolResult: Message | null };
 
-/** 会话项状态（spec 06）：idle / running / completed / error。 */
+/** 会话项状态：idle / running / completed / error。 */
 export type SessionActivityStatus = 'idle' | 'running' | 'completed' | 'error';
 
 /** 一次上下文压缩的渲染标记（divider / toast 数据源）。 */
@@ -156,7 +156,7 @@ export function buildConversationTurns(
 }
 
 /**
- * spec B1 — 把 turn 的 assistantItems 展开成交错渲染序。
+ * 把 turn 的 assistantItems 展开成交错渲染序。
  *
  * live 场景下 Go 用单一 messageId 把整个 run 的文本累积进一条 assistant
  * 消息，工具条目 append 在桶尾；本函数按工具记录的 splitOffset 把文本切段，
@@ -239,7 +239,7 @@ const unreadSessionIds = ref<Set<string>>(new Set());
 const contextUsageBySessionId = ref<Record<string, DarvinContextUsage>>({});
 /** 每 session 已发生的压缩标记，来自 Go 的 `compaction` 事件。 */
 const compactionsBySessionId = ref<Record<string, CompactionMarker[]>>({});
-/** 会话项活动状态（spec 06），从事件流 + 历史消息派生。 */
+/** 会话项活动状态，从事件流 + 历史消息派生。 */
 const sessionStatusBySessionId = ref<Record<string, SessionActivityStatus>>({});
 
 const session = useSession();
@@ -315,12 +315,12 @@ interface LegacyFlatMessage {
   error?: string;
   toolLabel?: string;
   createdAt: number;
-  /** spec B1 — 持久化的 assistant 行把 toolCalls JSON 序列化在此字段。 */
+  /** 持久化的 assistant 行把 toolCalls JSON 序列化在此字段。 */
   toolCalls?: string;
 }
 
 /**
- * spec B2 — get_messages 返回的扁平行可能带 `toolCalls` JSON；展开成
+ * get_messages 返回的扁平行可能带 `toolCalls` JSON；展开成
  * [assistant 文本, tool_use…, tool_result…] 序列，reload 后按原顺序渲染。
  */
 export function toMessages(m: DarvinMessage): Message[] {
@@ -494,7 +494,7 @@ function appendToBucket(list: Message[], sid: string, ev: DarvinEvent): void {
     const msg = list.find((m) => m.id === ev.messageId);
     if (msg) {
       msg.done = true;
-      // spec 03 — done 事件带 usage（in/out/cache），TurnMeta hover 消费
+      // done 事件带 usage（in/out/cache），TurnMeta hover 消费
       if (ev.usage) msg.usage = ev.usage;
     }
   } else if (ev.type === 'error') {
@@ -506,7 +506,7 @@ function appendToBucket(list: Message[], sid: string, ev: DarvinEvent): void {
   } else if (ev.type === 'tool_start') {
     const toolUseId = ev.toolUseId ?? ev.messageId;
     if (list.some((m) => m.kind === 'tool_use' && m.toolUseId === toolUseId)) return; // 幂等
-    // spec B1 — 记录工具调用发生时 assistant 文本的长度断点，供交错渲染切段。
+    // 记录工具调用发生时 assistant 文本的长度断点，供交错渲染切段。
     // 并行工具共享同一断点（工具执行期间没有新 text），顺序工具断点递增。
     const ass = ev.messageId ? list.find((m) => m.id === ev.messageId && m.role === 'assistant') : undefined;
     list.push({
@@ -665,7 +665,7 @@ export function useMessages() {
     const active = session.activeSessionId.value;
     const isCurrent = sid === active;
 
-    // 会话活动状态（spec 06）：流式/工具执行 → running，done → completed，
+    // 会话活动状态：流式/工具执行 → running，done → completed，
     // error → error，agent_end → 收尾（若非 error 则 completed）。
     const setStatus = (s: SessionActivityStatus) => {
       sessionStatusBySessionId.value = { ...sessionStatusBySessionId.value, [sid]: s };

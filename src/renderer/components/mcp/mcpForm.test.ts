@@ -1,8 +1,8 @@
 /**
- * spec 37 — McpServerFormModal 的纯文本解析 helpers 测试。
+ * McpServerFormModal 的纯文本解析 helpers 测试。
  *
- * vitest 仅 include *.test.ts，Vue 组件不挂测试；spec 33 SkillCard.test.ts
- * 也是同样处理。这里测 formModal 的纯函数（args / env / headers 解析）。
+ * vitest 仅 include *.test.ts，Vue 组件不挂测试。这里测 formModal 的
+ * 纯函数（args / env / headers 解析）。
  */
 
 import { describe, expect, it } from 'vitest';

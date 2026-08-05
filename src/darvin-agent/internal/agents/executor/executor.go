@@ -34,7 +34,7 @@ const maxToolResultStoreBytes = 64 * 1024
 const toolResultTruncatedSuffix = "\n…[已截断]"
 
 // PermissionRequest is a tool call the executor wants user approval for
-// before running (spec 12). RequestID is minted by the Agent.
+// before running. RequestID is minted by the Agent.
 type PermissionRequest struct {
 	ToolName    string
 	ToolInput   map[string]any
@@ -82,7 +82,7 @@ type Deps interface {
 	Instructions() string
 	Emit(event.Event)
 	Config() Config
-	// ContextEngine seam (spec §4.10 — agent-context-engine). May return
+	// ContextEngine seam. May return
 	// nil / false to opt out of assembler-driven prompt construction and
 	// fall back to the legacy d.Session().Messages() path.
 	Assembler() ctxengine.ContextEngine
@@ -167,7 +167,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 
 		// 1. assemble messages via the ContextEngine (fallback to the legacy
 		//    d.Session().Messages() path when the assembler is not wired or
-		//    explicitly disabled — see spec §4.11).
+		//    explicitly disabled).
 		var messages []protocol.Message
 		assemblerEnabled := d.Assembler() != nil && d.AssemblerEnabled()
 		if !assemblerEnabled {

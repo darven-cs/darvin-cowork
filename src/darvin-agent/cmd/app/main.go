@@ -53,7 +53,7 @@ func configPath() string {
 }
 
 func main() {
-	// spec 36 — bundled filesystem MCP subcommand。`darvin-agent
+	// bundled filesystem MCP subcommand。`darvin-agent
 	// mcp-filesystem` 走 stdio 充当一个 JSON-RPC 2.0 MCP server,暴露
 	// list_directory / read_file / write_file 三个 tool。Root 由
 	// DARVIN_MCP_FS_ROOT 决定;缺省 cwd。launcher.go 把它当 stdio server
@@ -173,7 +173,7 @@ func main() {
 		toolsReg = tool.NewRegistry()
 	}
 
-	// Steer 仍接单例 Agent(本期不迁,见 spec §1.3 非目标)。这个 steerAgent
+	// Steer 仍接单例 Agent(本期不迁)。这个 steerAgent
 	// 仅给 agentloop.NewSteerControl 持有,不会被任何 Loop 驱动、也不会订阅事件
 	// —— UI 本期不发 steer message,实际不影响行为。
 	steerAgent, err := agent.New(agent.NewAgentConfig{
@@ -194,7 +194,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Register the in-process harness so spec 04's resolveHarness can find
+	// Register the in-process harness so resolveHarness can find
 	// it. The Run closure drives the per-session agent the factory builds;
 	// the harness itself never imports internal/agents.
 	harness.MustRegister(harness.NewEmbedded(harness.EmbeddedConfig{
@@ -259,9 +259,9 @@ func main() {
 		}
 	}
 
-	// MCP registry: spec 35/36 落地。注册 bundled filesystem (走自身二进制
+	// MCP registry: 注册 bundled filesystem (走自身二进制
 	// 的 mcp-filesystem subcommand) + 启动期 LoadStaleResolutions 扫上
-	// 次卡 installing 状态。SQLite 持久化在 spec 36 由 main 端接管,
+	// 次卡 installing 状态。SQLite 持久化由 main 端接管,
 	// Go 端目前用 in-memory + main 端 push resolution_changed 落库。
 	mcpRoot := filepath.Join(effectiveWorkdir, "mcp-packages")
 	if err := os.MkdirAll(mcpRoot, 0o755); err != nil {
@@ -336,7 +336,7 @@ func main() {
 		log.Error("gateway shutdown", zap.Error(err))
 	}
 
-	// spec 07 C8: dispose every registered harness so a plugin harness's
+	// dispose every registered harness so a plugin harness's
 	// process-level resources are released. One harness failing does not
 	// block the others.
 	if err := harness.DisposeAll(shutdownCtx); err != nil {

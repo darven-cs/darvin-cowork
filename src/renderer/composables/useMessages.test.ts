@@ -108,7 +108,7 @@ describe('useMessages tool event pairing', () => {
   });
 });
 
-describe('useMessages context usage (spec 03)', () => {
+describe('useMessages context usage', () => {
   it('records context_usage event into contextUsageBySessionId', () => {
     messages.appendEvent({
       type: 'context_usage',
@@ -265,7 +265,7 @@ describe('useMessages compaction events', () => {
   });
 });
 
-describe('useMessages artifact events (spec 05)', () => {
+describe('useMessages artifact events', () => {
   it('routes artifact event into useArtifacts, not the message bucket', () => {
     messages.appendEvent({
       type: 'artifact',
@@ -363,7 +363,7 @@ describe('buildConversationTurns compaction dividers', () => {
   });
 });
 
-describe('session activity status (spec 06)', () => {
+describe('session activity status', () => {
   it('derives completed/error/idle from loaded messages', () => {
     const done: Message = { id: 'a1', sessionId: 's1', role: 'assistant', content: 'ok', done: true, createdAt: 1 };
     expect(deriveSessionStatusFromMessages([done])).toBe('completed');
@@ -395,7 +395,7 @@ describe('session activity status (spec 06)', () => {
   });
 });
 
-describe('interleaveToolSegments (spec B1)', () => {
+describe('interleaveToolSegments', () => {
   const baseMsg = (over: Partial<Message> = {}): Message => ({
     id: 'm1', sessionId: 's1', role: 'assistant', content: '', done: true, createdAt: 0, ...over,
   });
@@ -462,7 +462,7 @@ describe('interleaveToolSegments (spec B1)', () => {
   });
 });
 
-describe('toMessages reload expansion (spec B2)', () => {
+describe('toMessages reload expansion', () => {
   it('expands a persisted assistant row with toolCalls into text + tool_use + tool_result', () => {
     const row = {
       id: 'run-1',

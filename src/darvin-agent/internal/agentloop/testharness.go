@@ -13,7 +13,7 @@ import (
 // gateway / acp tests can reuse it without depending on harness internals.
 //
 // The harness id is fixed at "embedded" so a registry lookup returns it
-// (and so handlers can use it as a synthetic target when spec 04's
+// (and so handlers can use it as a synthetic target when
 // resolveHarness is exercised end-to-end).
 func NewEmbeddedTestHarness(a *agent.Agent) harness.Harness {
 	return harness.NewEmbedded(harness.EmbeddedConfig{

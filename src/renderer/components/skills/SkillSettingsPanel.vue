@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * spec 33 — SkillsView 设置 tab：bundled skill 列表 + 启停。
+ * SkillsView 设置 tab：bundled skill 列表 + 启停。
  *
  * 跟「已安装」tab 共用 SkillCard，区别在于设置 tab 只显示 bundled，
  * 不显示 [卸载] 按钮（bundled 不能卸）。

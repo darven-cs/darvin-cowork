@@ -40,7 +40,7 @@ export function useChatActions() {
 
   async function send(content: string, busyRef: { value: boolean }): Promise<void> {
     if (!content.trim()) return;
-    // spec 39 — `/` 前缀路由。`//` 转义：去掉首字符 `/` 走普通 prompt（不触发 skill）。
+    // `/` 前缀路由。`//` 转义：去掉首字符 `/` 走普通 prompt（不触发 skill）。
     const escaped = content.startsWith('//');
     const routeContent = escaped ? content.slice(1) : content;
     const slash = escaped ? null : parseSlashCommand(content);
@@ -123,7 +123,7 @@ export function useChatActions() {
   async function regenerate(messageId: string): Promise<void> {
     const target = findTurnUserMessage(messageId);
     if (!target) return;
-    // spec 39 — 重新生成 `/skill args` 的 turn 时再次触发 skill；`//` 转义保留原样走普通 prompt。
+    // 重新生成 `/skill args` 的 turn 时再次触发 skill；`//` 转义保留原样走普通 prompt。
     const escaped = target.content.startsWith('//');
     const routeContent = escaped ? target.content.slice(1) : target.content;
     const slash = escaped ? null : parseSlashCommand(target.content);

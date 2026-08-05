@@ -93,7 +93,7 @@ type activeRunState struct {
 // cancels the in-flight turn so its content is what runs next. Requests
 // within one queue keep submission order.
 //
-// The harness field is spec 04's introduction: the prompt path now goes
+// The harness field is the prompt path going
 // through harness.RunAttemptWithLifecycle rather than directly calling
 // agent.Prompt + agent.Run. The agent reference is retained for skill
 // turns (transient state lives on the agent) and for the messageID
@@ -263,7 +263,7 @@ func (l *Loop) CurrentMessageID() string {
 // CurrentUserMessageID returns the messageID minted for the current turn's
 // user message, or of the last one that ran when the session is idle. It is
 // distinct from CurrentMessageID so the persisted user row survives the
-// assistant row that shares CurrentMessageID (spec FR-4).
+// assistant row that shares CurrentMessageID.
 func (l *Loop) CurrentUserMessageID() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()

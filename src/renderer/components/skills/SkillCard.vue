@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * spec 33 — 单 skill 卡片：name / description / version / switch / 风险徽章 / 详情。
+ * 单 skill 卡片：name / description / version / switch / 风险徽章 / 详情。
  *
- * FR-3：从 useSkills 拿 skill 引用 + 透传 toggle / details 事件。
+ * 从 useSkills 拿 skill 引用 + 透传 toggle / details 事件。
  * 父组件 SkillsView 接到事件后调 useSkills.setEnabled 或 openDetails。
  */
 import { computed } from 'vue';

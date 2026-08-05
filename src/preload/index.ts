@@ -225,9 +225,8 @@ const api: DarvinApi = {
     };
   },
 
-  // spec 33 — install / uninstall / upgrade / getDetails 的 main 端目前是占位
-  // （另一个 spec 才真接 scanner + 物理 install），renderer 走 IPC 路径已经
-  // 跑通，落地后只需把 main 端 handler 实现替换为真接 scanner 即可。
+  // install / uninstall / upgrade / getDetails 的 main 端目前是占位，
+  // renderer 走 IPC 路径已经跑通。
   async installSkill(req): Promise<{ skill: DarvinSkillSummary; riskLevel: 'safe' | 'low' | 'medium' | 'high' | 'critical' }> {
     return ipcRenderer.invoke('darvin:install_skill', req);
   },
@@ -241,7 +240,7 @@ const api: DarvinApi = {
     return ipcRenderer.invoke('darvin:get_skill_details', req);
   },
 
-  // spec 36 — MCP server 命名空间。renderer 不直接持有 server 状态,
+  // MCP server 命名空间。renderer 不直接持有 server 状态,
   // 走 IPC 调 main 端 mcpManager,后者是 SQLite + Go RPC 的中转。
   async listMcpServers(): Promise<{ servers: DarvinMcpServer[] }> {
     return ipcRenderer.invoke('mcp:list');
@@ -279,7 +278,7 @@ const api: DarvinApi = {
     };
   },
 
-  // spec 38 — 工具面合并视图（内置 + skill + mcp），直连 Go RPC。
+  // 工具面合并视图（内置 + skill + mcp），直连 Go RPC。
   async listTools(): Promise<DarvinListToolsResponse> {
     return ipcRenderer.invoke('tools:list');
   },

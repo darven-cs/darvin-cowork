@@ -1,5 +1,5 @@
 /**
- * usePermissions — Go 权限审批请求的队列 + 响应（spec 12）。
+ * usePermissions — Go 权限审批请求的队列 + 响应。
  *
  * 监听 `permission_request` 事件入队；一次只展示一个（PermissionModal
  * 消费 current）。用户 allow / deny 后调 window.darvin.respondPermission

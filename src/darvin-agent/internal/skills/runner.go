@@ -84,7 +84,7 @@ func (r *SkillRunner) toolsForSkill(entry *SkillEntry) []tool.Tool {
 	if entry.DisableModelInvocation {
 		return nil
 	}
-	// spec 38 will define skill tool filtering; until then surface all
+	// 后续会定义 skill tool filtering；目前 surface all
 	// currently registered tools to the execution context.
 	return r.toolReg.ToolsForSkill(entry.ID)
 }

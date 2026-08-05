@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * spec 37 — resolver 优化后的 launch 状态徽章。
+ * resolver 优化后的 launch 状态徽章。
  *
  * 5 个状态：pending / installing / ready / failed / unsupported。
  * ready 状态不渲染（运行时已就绪，徽章冗余；card 用 connection 徽章代表运行态）。

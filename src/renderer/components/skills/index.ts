@@ -1,5 +1,5 @@
 /**
- * spec 33 — skills 组件 barrel。
+ * skills 组件 barrel。
  */
 export { default as SkillCard } from './SkillCard.vue';
 export { default as SkillMarketplace } from './SkillMarketplace.vue';

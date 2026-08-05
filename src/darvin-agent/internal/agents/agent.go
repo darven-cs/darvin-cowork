@@ -54,7 +54,7 @@ type Config struct {
 	ShellAllowlist []string
 	EventBuffer    int
 
-	// ContextEngine knobs (mirrors ctxengine.Config subset — spec §FR-12).
+	// ContextEngine knobs (mirrors ctxengine.Config subset).
 	// Populated from the YAML front-end (cfg.yaml `agent:` section) and
 	// forwarded to ctxengine.NewDefaultAssembler at construction.
 	TokenBudget          int
@@ -265,7 +265,7 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		tracker:      tracker,
 	}
 
-	// Auto-wire the ContextEngine (spec §4.10 / §6.2). Two paths:
+	// Auto-wire the ContextEngine. Two paths:
 	//   1. caller-supplied Assembler → use as-is
 	//   2. nil → construct a DefaultAssembler from the Config.* fields
 	// Either way the assembler is always wired so callers can flip

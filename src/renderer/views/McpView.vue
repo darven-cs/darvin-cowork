@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * spec 37 — MCP 服务器管理视图。
+ * MCP 服务器管理视图。
  *
  * 顶部 [+ 新增] → 打开 FormModal（editing=null 走 create）。
  * 卡片 [编辑] → 打开 FormModal（editing=server 走 update）。

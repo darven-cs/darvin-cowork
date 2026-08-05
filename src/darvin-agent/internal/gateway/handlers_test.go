@@ -27,9 +27,9 @@ import (
 
 // newTestHandler wires factory + SessionManager + SteerControl so handlers
 // run against production code paths. prompt 路径走 factory 懒建 AgentLoopSession,
-// steer 路径接一个仅供 SteerControl 持有的 steerAgent(spec §1.3 非目标)。
+// steer 路径接一个仅供 SteerControl 持有的 steerAgent。
 //
-// spec 04 added harness resolution; tests inject a Selector that returns
+// harness resolution 由 tests inject a Selector that returns
 // a no-op embedded harness so the prompt path can drive a stub run
 // closure without dragging the full harness registry into every test.
 func newTestHandler(t *testing.T) (*Handler, *client) {

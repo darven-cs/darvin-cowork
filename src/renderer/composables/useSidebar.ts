@@ -3,7 +3,7 @@ import { ref, watch } from 'vue';
 const KEY_COLLAPSED = 'darvin.sidebar.collapsed';
 const KEY_WIDTH = 'darvin.sidebar.width';
 
-/** 侧栏宽度边界与紧凑态宽度（spec 06）。 */
+/** 侧栏宽度边界与紧凑态宽度。 */
 export const MIN_SIDEBAR_WIDTH = 220;
 export const MAX_SIDEBAR_WIDTH = 420;
 export const DEFAULT_SIDEBAR_WIDTH = 244;

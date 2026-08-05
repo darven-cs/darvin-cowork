@@ -27,7 +27,7 @@ const actions = useChatActions();
 
 const model = computed(() => props.message.model);
 
-// spec 03 — 单条 assistant 消息的 token 三元组（in / out / cache），
+// 单条 assistant 消息的 token 三元组（in / out / cache），
 // done 事件带 usage 时展示；cache 缺省则只显示 in/out。
 const usageLine = computed(() => {
   const u = props.message.usage;

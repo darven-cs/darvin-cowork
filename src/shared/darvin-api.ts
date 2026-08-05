@@ -47,7 +47,7 @@ export type DarvinToolKind =
   | 'web_search' | 'web_fetch' | 'image_gen' | 'video_gen'
   | (string & { __brand?: never });
 
-/** artifact 渲染种类（spec 05 artifact-panel 的 10 种渲染器）。 */
+/** artifact 渲染种类（10 种渲染器）。 */
 export type DarvinArtifactKind =
   | 'html' | 'svg' | 'image' | 'video' | 'mermaid'
   | 'code' | 'markdown' | 'text' | 'document' | 'local-service'
@@ -65,7 +65,7 @@ export interface DarvinAttachment {
   src: string;
 }
 
-/** spec 12 — 附件路径引用：只记原始绝对路径，不复制进工作区。 */
+/** 附件路径引用：只记原始绝对路径，不复制进工作区。 */
 export interface DarvinAttachmentRef {
   path: string;
   name: string;
@@ -73,7 +73,7 @@ export interface DarvinAttachmentRef {
 }
 
 /**
- * spec 13 — 图片附件：路径 + base64 dataUrl。渲染层读为 dataUrl 后随 prompt
+ * 图片附件：路径 + base64 dataUrl。渲染层读为 dataUrl 后随 prompt
  * 发给 Go，由 Go 转 image content block 供模型真正看到图。
  */
 export interface DarvinImageRef {
@@ -83,7 +83,7 @@ export interface DarvinImageRef {
   dataUrl: string;
 }
 
-/** spec 13 — main 把本地文件读为 base64 dataUrl 的结果（>10MB 返回 error）。 */
+/** main 把本地文件读为 base64 dataUrl 的结果（>10MB 返回 error）。 */
 export interface DarvinReadFileDataUrlResponse {
   success: boolean;
   dataUrl?: string;
@@ -92,7 +92,7 @@ export interface DarvinReadFileDataUrlResponse {
 
 export type DarvinDangerLevel = 'safe' | 'caution' | 'destructive';
 
-/** spec 12 — Go → renderer 的权限审批事件 payload。 */
+/** Go → renderer 的权限审批事件 payload。 */
 export interface DarvinPermissionRequest {
   requestId: string;
   toolName: string;
@@ -103,7 +103,7 @@ export interface DarvinPermissionRequest {
 
 export type DarvinPermissionBehavior = 'allow' | 'deny';
 
-/** spec 12 — renderer → Go 的审批响应。 */
+/** renderer → Go 的审批响应。 */
 export interface DarvinPermissionResponse {
   sessionId: string;
   requestId: string;
@@ -183,13 +183,13 @@ export interface DarvinUsage {
   totalTokens: number;
 }
 
-/** 上下文占用 5 态（spec 03 / 04 的圆环 + 压缩联动）。 */
+/** 上下文占用 5 态（圆环 + 压缩联动）。 */
 export type DarvinContextUsageStatus =
   | 'unknown' | 'normal' | 'warning' | 'danger' | 'compacting';
 
 /**
  * 单 session 的上下文用量快照。main / Go 按 session 推送，renderer 以
- * contextUsageBySessionId 维护（spec 03）。
+ * contextUsageBySessionId 维护。
  */
 export interface DarvinContextUsage {
   sessionId: string;
@@ -306,9 +306,9 @@ export type DarvinEvent =
 export interface DarvinPromptRequest {
   content: string;
   model?: DarvinModelId;
-  /** spec 12 — 本条消息暂存的附件（绝对路径）：「附加即授权」，agent 可免审批读取。 */
+  /** 本条消息暂存的附件（绝对路径）：「附加即授权」，agent 可免审批读取。 */
   attachments?: string[];
-  /** spec 13 — 本条消息的图片附件（base64 dataUrl），Go 转 image content block。 */
+  /** 本条消息的图片附件（base64 dataUrl），Go 转 image content block。 */
   images?: DarvinImageRef[];
 }
 
@@ -321,7 +321,7 @@ export interface DarvinPromptResponse {
   queued?: boolean;
 }
 
-/** spec 39 — `/skill-name args` 用户显式触发 skill。 */
+/** `/skill-name args` 用户显式触发 skill。 */
 export interface DarvinInvokeSkillRequest {
   sessionId: string;
   skillId: string;
@@ -331,7 +331,7 @@ export interface DarvinInvokeSkillRequest {
   content?: string;
 }
 
-/** spec 39 — agent.skill.invoke_user 的返回；shape 对齐 DarvinPromptResponse 以便 renderer 起 assistant bubble。 */
+/** agent.skill.invoke_user 的返回；shape 对齐 DarvinPromptResponse 以便 renderer 起 assistant bubble。 */
 export interface DarvinInvokeSkillResponse {
   ok: boolean;
   sessionId: string;
@@ -501,7 +501,7 @@ export interface DarvinWorkspaceInfoResponse {
   label?: string;
 }
 
-/** spec 12 — 设置会话工作目录的结果。canceled=true 表示用户取消或路径无效。 */
+/** 设置会话工作目录的结果。canceled=true 表示用户取消或路径无效。 */
 export interface DarvinSetWorkspaceResult {
   canceled: boolean;
   rootPath?: string;
@@ -509,20 +509,20 @@ export interface DarvinSetWorkspaceResult {
   error?: string;
 }
 
-/** spec 12 — 当前会话工作目录（renderer 只读视图；绝对路径本地下发给 FolderPicker 展示）。 */
+/** 当前会话工作目录（renderer 只读视图；绝对路径本地下发给 FolderPicker 展示）。 */
 export interface DarvinWorkspaceRootResult {
   rootPath: string | null;
   label: string | null;
 }
 
-/** spec 32 — 单 skill 的 renderer 视图。`path` 仅 main 用，renderer 不展示。 */
+/** 单 skill 的 renderer 视图。`path` 仅 main 用，renderer 不展示。 */
 export interface DarvinSkillSummary {
   id: string;
   name: string;
   description: string;
   version?: string;
   enabled: boolean;
-  /** spec 39 — 是否可被 `/skill-name` 显式触发（SKILL.md invocation.userInvocable）。 */
+  /** 是否可被 `/skill-name` 显式触发（SKILL.md invocation.userInvocable）。 */
   userInvocable: boolean;
   isOfficial: boolean;
   isBuiltIn: boolean;
@@ -616,28 +616,28 @@ export interface DarvinGetSkillDetailsResponse {
   scripts?: Array<{ path: string; content: string }>;
 }
 
-/** spec 36 — MCP transport 种类。stdio 走子进程 + Content-Length,
+/** MCP transport 种类。stdio 走子进程 + Content-Length,
  * sse/http 走 streamable-HTTP。 */
 export type DarvinMcpTransportType = 'stdio' | 'sse' | 'http';
 
-/** spec 36 — resolver 优化后的 launch 状态。strings 对齐 Go 端
+/** resolver 优化后的 launch 状态。strings 对齐 Go 端
  * ResolutionStatus(IPC 协议字段)。 */
 export type DarvinMcpLaunchStatus =
   | 'pending' | 'installing' | 'ready' | 'failed' | 'unsupported';
 
-/** spec 36 — 实际 MCP 连接状态。connecting / connected / error 由
+/** 实际 MCP 连接状态。connecting / connected / error 由
  * Go 端 registry 推 connection_changed;main 端只做转发。 */
 export type DarvinMcpConnectionStatus =
   | 'disconnected' | 'connecting' | 'connected' | 'error';
 
-/** spec 36 — 单个 tool 暴露给 agent / renderer 的视图。 */
+/** 单个 tool 暴露给 agent / renderer 的视图。 */
 export interface DarvinMcpServerExposedTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
 }
 
-/** spec 36 — 单 MCP server 的 renderer 视图;spec / status 合一。 */
+/** 单 MCP server 的 renderer 视图;spec / status 合一。 */
 export interface DarvinMcpServer {
   id: string;
   name: string;
@@ -734,7 +734,7 @@ export interface DarvinMcpConnectionChangedEvent {
   error?: string;
 }
 
-/** spec 36 — Go → main 的 resolution 推送。`updatedAt` 是 unix ms。 */
+/** Go → main 的 resolution 推送。`updatedAt` 是 unix ms。 */
 export interface DarvinMcpLaunchResolution {
   serverId: string;
   resolverKind: 'npx' | 'uvx' | 'go' | 'raw';
@@ -758,7 +758,7 @@ export interface DarvinMcpResolutionChangedEvent {
   resolution: DarvinMcpLaunchResolution;
 }
 
-/** spec 12 — 选取待附加文件（只记路径，不复制）。 */
+/** 选取待附加文件（只记路径，不复制）。 */
 export interface DarvinPickAttachmentsResponse {
   attachments: DarvinAttachmentRef[];
 }
@@ -814,7 +814,7 @@ export interface DarvinApi {
   getMessages(sessionId: string): Promise<DarvinGetMessagesResponse>;
 
   prompt(req: DarvinPromptRequest): Promise<DarvinPromptResponse>;
-  /** spec 39 — `/skill-name args` 显式触发 skill；校验失败以 RPC error 返回。 */
+  /** `/skill-name args` 显式触发 skill；校验失败以 RPC error 返回。 */
   invokeSkill(req: DarvinInvokeSkillRequest): Promise<DarvinInvokeSkillResponse>;
   abort(): Promise<DarvinAbortResponse>;
 
@@ -870,59 +870,59 @@ export interface DarvinApi {
   /** 销毁本地预览会话（renderer 卸载 iframe 时调用）。 */
   destroyArtifactPreviewSession(sessionId: string): Promise<DarvinDestroyArtifactPreviewSessionResponse>;
 
-  /** spec 12 — 响应 Go 的权限审批请求（allow / deny）。 */
+  /** 响应 Go 的权限审批请求（allow / deny）。 */
   respondPermission(r: DarvinPermissionResponse): Promise<void>;
-  /** spec 12 — 弹文件选择框选取待附加文件（只记路径，不复制进工作区）。 */
+  /** 弹文件选择框选取待附加文件（只记路径，不复制进工作区）。 */
   pickAttachments(): Promise<DarvinPickAttachmentsResponse>;
-  /** spec 13 — 读本地文件为 base64 dataUrl（>10MB 返回 error）。 */
+  /** 读本地文件为 base64 dataUrl（>10MB 返回 error）。 */
   readFileAsDataUrl(path: string): Promise<DarvinReadFileDataUrlResponse>;
-  /** spec 12 — 弹目录选择框设置当前会话工作目录。 */
+  /** 弹目录选择框设置当前会话工作目录。 */
   setWorkspaceRoot(): Promise<DarvinSetWorkspaceResult>;
-  /** spec 12 — 把当前会话工作目录设为指定路径（最近目录 / 测试）。 */
+  /** 把当前会话工作目录设为指定路径（最近目录 / 测试）。 */
   setWorkspaceRootTo(path: string): Promise<DarvinSetWorkspaceResult>;
-  /** spec 12 — 读取当前会话工作目录（绝对路径 + basename）。 */
+  /** 读取当前会话工作目录（绝对路径 + basename）。 */
   getWorkspaceRoot(): Promise<DarvinWorkspaceRootResult>;
 
-  /** spec 32 — 列出当前已知 skill（bundled + user，enabled 状态来自 main 端 SQLite）。 */
+  /** 列出当前已知 skill（bundled + user，enabled 状态来自 main 端 SQLite）。 */
   listSkills(): Promise<DarvinListSkillsResponse>;
-  /** spec 32 — 切换 skill 启用状态。main 写 SQLite 后通过 agent.skills.set_enabled 同步到 Go。 */
+  /** 切换 skill 启用状态。main 写 SQLite 后通过 agent.skills.set_enabled 同步到 Go。 */
   setSkillEnabled(req: DarvinSetSkillEnabledRequest): Promise<DarvinSetSkillEnabledResponse>;
-  /** spec 32 — 订阅 skills 列表变更（bootstrap 完成、fs watcher 触发、Go 端 emit changed）。 */
+  /** 订阅 skills 列表变更（bootstrap 完成、fs watcher 触发、Go 端 emit changed）。 */
   onSkillsChanged(handler: (skills: DarvinSkillSummary[]) => void): () => void;
 
-  /** spec 33 — 装一个 skill（本地 SKILL.md 或 GitHub URL）。main 端做安全扫描后
+  /** 装一个 skill（本地 SKILL.md 或 GitHub URL）。main 端做安全扫描后
    *  返回 riskLevel；medium 时 renderer 弹安全报告 modal 让用户确认。v0 main 端
    *  该方法为占位（另一个 spec 才真接 scanner），本方法目前由 main stub 返回
    *  「规划中」语义——renderer 按 riskLevel='safe' 直接装即可。 */
   installSkill(req: DarvinInstallSkillRequest): Promise<DarvinInstallSkillResponse>;
-  /** spec 33 — 卸载一个 user skill。bundled skill 由 main 端拒绝。 */
+  /** 卸载一个 user skill。bundled skill 由 main 端拒绝。 */
   uninstallSkill(req: DarvinUninstallSkillRequest): Promise<DarvinUninstallSkillResponse>;
-  /** spec 33 — 升级一个 user skill 到新版本（GitHub 源；v0 stub）。 */
+  /** 升级一个 user skill 到新版本（GitHub 源；v0 stub）。 */
   upgradeSkill(req: DarvinUpgradeSkillRequest): Promise<DarvinUpgradeSkillResponse>;
-  /** spec 33 — 拉取 skill 详情（SKILL.md body + 同目录脚本），用于详情 modal。 */
+  /** 拉取 skill 详情（SKILL.md body + 同目录脚本），用于详情 modal。 */
   getSkillDetails(req: DarvinGetSkillDetailsRequest): Promise<DarvinGetSkillDetailsResponse>;
 
-  /** spec 36 — 列所有 MCP server（含 bundled filesystem + user 配置）。 */
+  /** 列所有 MCP server（含 bundled filesystem + user 配置）。 */
   listMcpServers(): Promise<DarvinListMcpServersResponse>;
-  /** spec 36 — 新增一个 user MCP server；main 写 SQLite + 调 Go 端 register。 */
+  /** 新增一个 user MCP server；main 写 SQLite + 调 Go 端 register。 */
   createMcpServer(req: DarvinMcpServerCreate): Promise<DarvinCreateMcpServerResponse>;
-  /** spec 36 — 改任意字段（不含 launchStatus / connectionStatus，这两个由 Go 端推）。 */
+  /** 改任意字段（不含 launchStatus / connectionStatus，这两个由 Go 端推）。 */
   updateMcpServer(req: { id: string; patch: DarvinMcpServerPatch }): Promise<DarvinUpdateMcpServerResponse>;
-  /** spec 36 — 删除一个 MCP server；cascade 清 launch resolution。 */
+  /** 删除一个 MCP server；cascade 清 launch resolution。 */
   deleteMcpServer(req: { id: string }): Promise<DarvinDeleteMcpServerResponse>;
-  /** spec 36 — 切换启用 / 禁用；Go 端关 client / 重连。 */
+  /** 切换启用 / 禁用；Go 端关 client / 重连。 */
   setMcpServerEnabled(req: DarvinSetMcpServerEnabledRequest): Promise<DarvinSetMcpServerEnabledResponse>;
-  /** spec 36 — 测试当前连接；返回 {ok, error?, tools?}。 */
+  /** 测试当前连接；返回 {ok, error?, tools?}。 */
   testMcpConnection(req: DarvinTestMcpConnectionRequest): Promise<DarvinTestMcpConnectionResponse>;
-  /** spec 36 — 重新跑 resolver（适用 npx install 失败后人工点重试）。 */
+  /** 重新跑 resolver（适用 npx install 失败后人工点重试）。 */
   retryMcpLaunchResolution(req: DarvinRetryMcpLaunchResolutionRequest): Promise<DarvinRetryMcpLaunchResolutionResponse>;
-  /** spec 36 — 订阅 server 列表变更（create/update/delete/setEnabled 之后 main 推）。 */
+  /** 订阅 server 列表变更（create/update/delete/setEnabled 之后 main 推）。 */
   onMcpServersChanged(handler: (servers: DarvinMcpServer[]) => void): () => void;
-  /** spec 36 — 订阅单 server 连接状态变更（Go → main → renderer push）。 */
+  /** 订阅单 server 连接状态变更（Go → main → renderer push）。 */
   onMcpConnectionChanged(handler: (e: DarvinMcpConnectionChangedEvent) => void): () => void;
-  /** spec 36 — 订阅 resolver 输出（npx 装包进度 / 失败原因），main 端落 SQLite。 */
+  /** 订阅 resolver 输出（npx 装包进度 / 失败原因），main 端落 SQLite。 */
   onMcpResolutionChanged(handler: (e: DarvinMcpResolutionChangedEvent) => void): () => void;
 
-  /** spec 38 — 列合并后的工具面（内置 + skill + mcp），renderer / 调试用。 */
+  /** 列合并后的工具面（内置 + skill + mcp），renderer / 调试用。 */
   listTools(): Promise<DarvinListToolsResponse>;
 }

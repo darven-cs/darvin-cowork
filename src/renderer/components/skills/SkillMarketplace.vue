@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * spec 33 — SkillsView 市场 tab。
+ * SkillsView 市场 tab。
  *
- * FR-5：本地 SKILL.md 选择器（v0 不接 dialog，弹系统文件选择框走
+ * 本地 SKILL.md 选择器（v0 不接 dialog，弹系统文件选择框走
  * window.darvin.pickAttachments 复用）+ GitHub URL 输入框。
  * 装按钮触发父组件 install 流程。
  */

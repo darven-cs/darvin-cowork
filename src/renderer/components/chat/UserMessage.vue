@@ -1,7 +1,6 @@
 <template>
   <div class="flex w-full animate-fade-in justify-end">
     <div class="max-w-[85%]">
-      <!-- spec 13 — 图片附件缩略图（base64 dataUrl，内存态） -->
       <div v-if="imageRefs.length" class="mb-1.5 flex flex-wrap justify-end gap-1.5" :aria-label="t('chat.attachments.images')">
         <img
           v-for="img in imageRefs"
@@ -11,7 +10,6 @@
           class="h-14 w-14 rounded-md border border-border object-cover"
         />
       </div>
-      <!-- spec 13 — 非图片附件文件 chip（路径引用，内存态） -->
       <div v-if="fileRefs.length" class="mb-1.5 flex flex-wrap justify-end gap-1.5">
         <span
           v-for="f in fileRefs"

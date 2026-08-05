@@ -10,7 +10,7 @@ import (
 )
 
 // TextDeltaHook 订阅 Agent bus 上的 text_delta 事件，把 delta 实时追加到
-// messages.content（spec FR-4）。这让 streaming 内容在 Go 进程崩溃时也能
+// messages.content。这让 streaming 内容在 Go 进程崩溃时也能
 // 留下部分结果，而不是等到整轮结束的 persistAssistantMessages 才落库。
 //
 // Session 维度过滤：EventCommon.SessionID 必须等于本 Agent 的

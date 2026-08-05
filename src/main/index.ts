@@ -107,10 +107,10 @@ if (!app.isPackaged) {
 
 const mgr = new RuntimeMgr();
 const client = new AgentClient({ logger: console });
-// spec 32 — main 端 skills 状态管理器。启动期调 bootstrap()，restart 路径
+// main 端 skills 状态管理器。启动期调 bootstrap()，restart 路径
 // 通过 restartGoSubprocess 重置后再 bootstrap。
 const skillManager = new SkillManager({ client, logger: console });
-// spec 36 — main 端 mcp 状态管理器。SQLite 独立，bundled filesystem
+// main 端 mcp 状态管理器。SQLite 独立，bundled filesystem
 // 启动期幂等插入；list 走本地缓存（source of truth），增 / 删 / 改 /
 // 启停走 SQLite + Go RPC；connection / resolution 变更由 Go → main 推回。
 const mcpStore = new McpStore();
@@ -626,7 +626,7 @@ ipcMain.handle('darvin:get_workspace_root', async (): Promise<DarvinWorkspaceRoo
   return { rootPath: workspaceLoc.rootPath, label: path.basename(workspaceLoc.rootPath) };
 });
 
-// spec 32 — skills 命名空间。list 走本地缓存（SkillManager 已经是
+// skills 命名空间。list 走本地缓存（SkillManager 已经是
 // source of truth 的视图），set_enabled 写 SQLite + 调 Go 端
 // set_enabled。失败时不回退本地缓存——main 端是 source of truth。
 ipcMain.handle('darvin:list_skills', async (): Promise<DarvinListSkillsResponse> => {
@@ -643,11 +643,8 @@ ipcMain.handle(
   },
 );
 
-// spec 33 — install / uninstall / upgrade / getDetails 全部是 v0 stub。
-// 真正的「扫描 SKILL.md + 复制进 userData/darvin-agent/SKILLs + 走 fs
-// watcher reload」是另一个 spec 的范围；这里只暴露 IPC 通道让 renderer
-// 流程跑通，UI 上提示「未实现」。这样 SkillsView 的 install / upgrade /
-// 详情 modal 可以完整联调，等 main 端真接 scanner 时只换 handler 体。
+// install / uninstall / upgrade / getDetails 全部是 v0 stub。
+// 这里只暴露 IPC 通道让 renderer 流程跑通，UI 上提示「未实现」。
 ipcMain.handle(
   'darvin:install_skill',
   async (_e, req: { source: string }): Promise<DarvinInstallSkillResponse> => {
@@ -701,7 +698,7 @@ ipcMain.handle(
   },
 );
 
-// spec 36 — mcp 命名空间。list 走本地 mcpManager 缓存（SQLite + Go
+// mcp 命名空间。list 走本地 mcpManager 缓存（SQLite + Go
 // runtime 状态合并），其它写操作先落 SQLite 再调 Go 端对应 RPC。
 // 失败不阻塞本地状态——mcpManager 内部容错,IPC 总是返回结构化响应
 // 而不是 throw(便于 renderer catch 后给用户 toast)。
@@ -709,7 +706,7 @@ ipcMain.handle('mcp:list', async (): Promise<DarvinListMcpServersResponse> => {
   return { servers: mcpManager.list() };
 });
 
-// spec 38 — 工具面合并视图（内置 + skill + mcp）。直连 Go RPC，无本地缓存；
+// 工具面合并视图（内置 + skill + mcp）。直连 Go RPC，无本地缓存；
 // renderer 拿到的是当前 session 懒建后的实时工具列表。
 ipcMain.handle('tools:list', async (): Promise<DarvinListToolsResponse> => {
   return client.tools.list();
@@ -784,7 +781,7 @@ ipcMain.handle(
   },
 );
 
-// spec 13 — 图片附件 base64 读取上限（对齐 LobsterAI 的 10MB 阈值）。
+// 图片附件 base64 读取上限（10MB 阈值）。
 const MAX_READ_AS_DATA_URL_BYTES = 10 * 1024 * 1024;
 
 /** 扩展名 → MIME；未知类型回落 application/octet-stream。 */
@@ -1154,11 +1151,11 @@ app.whenReady().then(async () => {
     } else {
       eventRouter.start();
     }
-    // spec 32 — 启动期推 skills bootstrap。restartGoSubprocess 已幂等,
+    // 启动期推 skills bootstrap。restartGoSubprocess 已幂等,
     // 此处调用是首次启动路径(空 skillManager)，与 restart 路径不重复
     // 执行(SkillManager.bootstrap 内置幂等守卫)。
     void skillManager.bootstrap();
-    // spec 36 — 启动期推 mcp bootstrap：bundled filesystem 幂等 upsert
+    // 启动期推 mcp bootstrap：bundled filesystem 幂等 upsert
     // + 全部 server 推 Go。restart 路径在 restartGoSubprocess 内也调一次。
     void mcpManager.bootstrap();
   } catch (e) {

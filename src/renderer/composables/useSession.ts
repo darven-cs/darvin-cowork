@@ -28,7 +28,7 @@ function readStoredPinned(): Set<string> {
 
 const sessions = ref<DarvinSession[]>([]);
 const activeSessionId = ref<string | null>(null);
-/** 置顶会话 id 集合（localStorage 持久化；spec 06 会话项 pinned 状态）。 */
+/** 置顶会话 id 集合（localStorage 持久化；会话项 pinned 状态）。 */
 const pinnedSessionIds = ref<Set<string>>(readStoredPinned());
 
 watch(pinnedSessionIds, (v) => {

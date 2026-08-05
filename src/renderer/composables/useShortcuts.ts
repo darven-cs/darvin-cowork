@@ -1,5 +1,5 @@
 /**
- * useShortcuts — Cmd/Ctrl+1-5 切换侧栏导航（spec 06 G3）。
+ * useShortcuts — Cmd/Ctrl+1-5 切换侧栏导航。
  *
  * 统一在 AppShell 挂载时注册一次；键盘映射与 SidebarNav 的 6 个 nav 项对齐，
  * settings 用 ⌘, 不占 1-5。可编辑元素聚焦时跳过，避免打断输入。

@@ -1,5 +1,5 @@
 /**
- * Headless 端到端 smoke test（spec FR-7）。
+ * Headless 端到端 smoke test。
  *
  * 不依赖 Electron、不依赖 Anthropic key：直接 spawn darvin-agent 二进制，
  * 解析端口，WS 连上去，跑一遍 JSON-RPC 协议栈：

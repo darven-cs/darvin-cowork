@@ -1,5 +1,5 @@
 /**
- * 会话工作目录映射持久化（spec 12）。
+ * 会话工作目录映射持久化。
  *
  * sessionId → 用户自选工作目录绝对路径。落在
  * `<userData>/darvin-agent/workspace-mapping.json`，与 Go 侧

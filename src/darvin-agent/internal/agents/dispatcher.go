@@ -82,7 +82,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	var runMsgID string
 	// runUserMsgID mirrors runMsgID but carries the user message's own id
 	// (minted by the Loop), so persistUserMessage's row is not overwritten
-	// by the assistant row keyed by runMsgID (spec FR-4).
+	// by the assistant row keyed by runMsgID.
 	var runUserMsgID string
 	defer func() {
 		a.bus.Emit(event.AgentEndEvent{
@@ -132,7 +132,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		// Hook 1 of 3: persist the user message before the LLM call so a
 		// crash mid-Run still leaves the question in sessions.db. The row is
 		// keyed by runUserMsgID (not runMsgID) so persistAssistantMessages
-		// cannot overwrite it with the assistant content (spec FR-4).
+		// cannot overwrite it with the assistant content.
 		a.persistUserMessage(runCtx, runUserMsgID, msg.Content)
 
 		turnsBefore := a.session.Len()
@@ -246,7 +246,7 @@ func (a *Agent) emitContextUsage() {
 	})
 }
 
-// persistUserMessage is hook 1 of 3 (spec FR-2.2). It records the
+// persistUserMessage is hook 1 of 3. It records the
 // just-appended user prompt to the messages table so a crash mid-Run
 // still leaves the question on disk. No-op when MessageStore is nil
 // (the unit-test / fast-path default) or when the message lacks a

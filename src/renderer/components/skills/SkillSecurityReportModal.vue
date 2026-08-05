@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * spec 33 — 安装时弹出的安全报告 modal。
+ * 安装时弹出的安全报告 modal。
  *
- * FR-4：标题 + 风险等级 + 风险分 + findings 列表 + [取消] [仍然安装]。
+ * 标题 + 风险等级 + 风险分 + findings 列表 + [取消] [仍然安装]。
  * 父组件 SkillsView 持有 report ref；null = 关。
  */
 import { computed } from 'vue';

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * spec 37 — MCP server 新增 / 编辑 modal。
+ * MCP server 新增 / 编辑 modal。
  *
  * 按 transportType 切字段：stdio(command + args + env) / http(url + headers)。
- * args / env / headers 用文本框输入（CLI 风格；spec §4.3.2 决策）：
+ * args / env / headers 用文本框输入（CLI 风格）：
  *   args      空格分隔 → 数组（不带引号 split，按空格 split，简化处理）
  *   env       一行一个 KEY=val
  *   headers   一行一个 KEY=val

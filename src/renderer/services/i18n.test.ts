@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { assertSameKeys, dictEn, dictZh, formatDate, formatNumber, formatRelativeTime, getLang, setLang, t } from './i18n';
 
-describe('t() interpolation (spec 08 G1)', () => {
+describe('t() interpolation', () => {
   beforeEach(() => setLang('zh'));
 
   it('replaces a single {name} placeholder', () => {
@@ -23,7 +23,7 @@ describe('t() interpolation (spec 08 G1)', () => {
   });
 });
 
-describe('t() missing-key guard (spec 08 G7)', () => {
+describe('t() missing-key guard', () => {
   beforeEach(() => setLang('zh'));
 
   it('returns the key and warns once for a missing key in dev', () => {
@@ -42,7 +42,7 @@ describe('t() missing-key guard (spec 08 G7)', () => {
   });
 });
 
-describe('formatRelativeTime (spec 08 G5)', () => {
+describe('formatRelativeTime', () => {
   beforeEach(() => setLang('zh'));
   const now = Date.now();
 
@@ -75,7 +75,7 @@ describe('formatRelativeTime (spec 08 G5)', () => {
   });
 });
 
-describe('formatNumber / formatDate (spec 08 G5)', () => {
+describe('formatNumber / formatDate', () => {
   beforeEach(() => setLang('zh'));
 
   it('groups numbers per locale', () => {
@@ -93,7 +93,7 @@ describe('formatNumber / formatDate (spec 08 G5)', () => {
   });
 });
 
-describe('dict key parity (spec 08 G6)', () => {
+describe('dict key parity', () => {
   it('assertSameKeys passes for zh and en', () => {
     expect(() => assertSameKeys(dictZh, dictEn)).not.toThrow();
   });

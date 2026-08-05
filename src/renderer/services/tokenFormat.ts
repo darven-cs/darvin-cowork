@@ -1,5 +1,5 @@
 /**
- * Token 数字格式化 + 上下文状态派生（spec 03）。
+ * Token 数字格式化 + 上下文状态派生。
  *
  * 纯函数，无 Vue 依赖，方便单测：TurnMeta 的 token 三元组、
  * ContextUsageIndicator 的圆环/tooltip 都从这里取值。
@@ -21,7 +21,7 @@ export function formatTokenCount(tokens: number): string {
 /**
  * 5 态上下文状态：事件显式给的 status 优先（如 compacting / normal），
  * 只有 unknown/缺失时按 percent 阈值派生 —— normal <60%，warning 60-85%，
- * danger >85%（spec §4.3）。
+ * danger >85%。
  */
 export function deriveContextStatus(
   status: DarvinContextUsageStatus | undefined,

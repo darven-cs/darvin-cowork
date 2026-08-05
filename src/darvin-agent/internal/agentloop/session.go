@@ -8,7 +8,7 @@ import (
 // AgentLoopSession 捆绑一个 session id 下的 Agent + Harness + Loop。
 // SessionManager 在首次 prompt 懒建,在 evict 时拆掉。
 //
-// Harness 是 spec 04 引入的新字段:Loop.executeTurn 通过它走
+// Harness 是新引入的字段:Loop.executeTurn 通过它走
 // harness.RunAttemptWithLifecycle 驱动 prompt 路径,而不是直接调
 // Agent.Prompt + Agent.Run。skill 路径仍然直接调 Agent,因为 skill
 // 需要 Agent 持有的 transient state(RunSkillPrompt / RunSkillTools)。
@@ -17,8 +17,8 @@ type AgentLoopSession struct {
 	Agent     *agent.Agent
 	Harness   harness.Harness
 	Loop      *Loop
-	// DeltaHook 订阅 Agent bus 的 text_delta 做 streaming 落库
-	// (spec FR-4)。可能为 nil(测试 / 未注入 MessageStore 的 factory)。
+	// DeltaHook 订阅 Agent bus 的 text_delta 做 streaming 落库。
+	// 可能为 nil(测试 / 未注入 MessageStore 的 factory)。
 	DeltaHook *agent.TextDeltaHook
 }
 

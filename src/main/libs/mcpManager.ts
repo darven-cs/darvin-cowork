@@ -1,5 +1,5 @@
 /**
- * spec 36 — main 端 MCP 状态管理器。
+ * main 端 MCP 状态管理器。
  *
  * 职责：
  * 1. 启动期：ensure bundled filesystem → 读 SQLite servers → 推 Go

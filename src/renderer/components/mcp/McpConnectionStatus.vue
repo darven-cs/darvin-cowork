@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * spec 37 — 单 MCP server 的运行时连接状态徽章。
+ * 单 MCP server 的运行时连接状态徽章。
  *
  * 4 个状态：disconnected / connecting / connected / error。disconnected 不
  * 渲染（卡片 toggle off 时让 toggle 自带视觉反馈；徽章冗余）。

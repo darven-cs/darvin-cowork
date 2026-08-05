@@ -11,7 +11,7 @@ import "encoding/json"
 // JSONRPCVersion is the only "jsonrpc" value this server accepts or emits.
 const JSONRPCVersion = "2.0"
 
-// JSON-RPC 2.0 reserved error codes (spec §5.1). Application-defined codes
+// JSON-RPC 2.0 reserved error codes. Application-defined codes
 // live in the -32000..-32099 range.
 const (
 	CodeParseError     = -32700

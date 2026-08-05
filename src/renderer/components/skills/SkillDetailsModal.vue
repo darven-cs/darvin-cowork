@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * spec 33 — Skill 详情 modal：body + scripts 列表 + 升级 / 卸载 按钮。
+ * Skill 详情 modal：body + scripts 列表 + 升级 / 卸载 按钮。
  *
  * bunded skill：卸载按钮 disabled；非 bundled：卸载需二次确认（用 confirm()）。
  */

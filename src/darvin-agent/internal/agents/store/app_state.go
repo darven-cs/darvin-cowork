@@ -9,7 +9,7 @@ import (
 
 // AppStateStore reads / writes the app_state key-value table. It backs
 // the `active_session_id` persistence so the current session survives a
-// process restart (spec FR-3 / FR-9).
+// process restart.
 type AppStateStore struct {
 	db *gorm.DB
 }

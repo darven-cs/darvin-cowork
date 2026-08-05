@@ -162,7 +162,7 @@ func ResolveSessionsDSN(dsn string) (string, error) {
 }
 
 // Load reads the bundled config first, then merges any user-level
-// overlay on top (spec FR-1.2 / FR-5.3). The order is critical: the
+// overlay on top. The order is critical: the
 // overlay must win so the Settings UI can override a placeholder
 // bundled api_key without editing the source tree.
 //
@@ -222,7 +222,7 @@ func Get() *Config {
 // WriteUserConfig serialises llm.api_key + llm.provider + llm.base_url
 // to the user-level config path, creating the parent directory if
 // missing. Called from the Settings UI flow when the user saves an
-// LLM provider config (spec FR-5.2). The renderer / Electron side
+// LLM provider config. The renderer / Electron side
 // writes the file directly through its own yaml helper; this Go
 // helper exists so the round-trip is exercised by Go-level tests.
 //

@@ -8,7 +8,7 @@ import (
 
 // TestServerSpecRoundTrip: the wire contract (main -> Go) is camelCase.
 // Marshal a spec, unmarshal it back, and assert Transport survives. This
-// is the regression test for the spec 36 bug where the registry saw an
+// is the regression test for the bug where the registry saw an
 // empty transport and reported "unsupported transport \"\"".
 func TestServerSpecRoundTrip(t *testing.T) {
 	in := ServerSpec{

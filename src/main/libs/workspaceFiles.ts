@@ -1,5 +1,5 @@
 /**
- * workspace 目录遍历 / 文件读取（main 侧，spec 11 FileListView 数据源）。
+ * workspace 目录遍历 / 文件读取（main 侧）。
  *
  * 不依赖 Go agent：直接走 Node fs，Go 离线时文件列表恒可用。路径安全：
  * 只从 readdir 迭代目录树（无路径拼接），读/定位/打开走 `resolveWorkspacePath`

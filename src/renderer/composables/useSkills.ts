@@ -1,5 +1,5 @@
 /**
- * spec 33 — skills 列表的 renderer 状态。
+ * skills 列表的 renderer 状态。
  *
  * 数据所有权：main 端是 source of truth（SQLite enabled + chokidar fs）。
  * renderer 这层只做：
@@ -38,7 +38,7 @@ async function refresh(): Promise<void> {
 
 /**
  * 乐观更新：立刻翻本地缓存的 enabled，调 main 端 setEnabled。
- * 失败时回滚并 toast——按 spec §5 「更新失败」语义。
+ * 失败时回滚并 toast。
  */
 async function setEnabled(skillId: string, enabled: boolean): Promise<void> {
   const idx = skills.value.findIndex((s) => s.id === skillId);

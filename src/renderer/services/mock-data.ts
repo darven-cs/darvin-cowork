@@ -1,6 +1,6 @@
 /**
  * Mock 数据：模型 / 专家套件 Agent。会话列表 / 历史消息走 Go agent
- * 持久化，本文件不再提供 session / message mock 种子（spec FR-2.4）。
+ * 持久化，本文件不再提供 session / message mock 种子。
  */
 
 import type { DarvinModelId } from '../../shared/darvin-api';

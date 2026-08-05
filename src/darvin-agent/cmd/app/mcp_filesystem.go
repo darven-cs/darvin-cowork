@@ -1,10 +1,10 @@
-// spec 36 — bundled filesystem MCP server。
+// bundled filesystem MCP server。
 //
 // 作为 darvin-agent 二进制的 subcommand 启动: `darvin-agent mcp-filesystem`。
 // 走 stdio + JSON-RPC 2.0,暴露 3 个 tool(list_directory / read_file /
 // write_file)。Root 目录由 `DARVIN_MCP_FS_ROOT` env 决定,缺省 cwd。
 //
-// 协议:严格遵循 spec 36 与 MCP 2024-11-05 Initialize 协议;request 与
+// 协议:严格遵循 MCP 2024-11-05 Initialize 协议;request 与
 // response 都走 LSP 风格 `Content-Length: N\r\n\r\n` 帧(与 registry 的
 // StdioTransport 一致)。tool result 走 MCP `content` 数组(text 单元素)。
 // 所有路径在执行前 realpath 校验,必须在 root 内,避免 path traversal。

@@ -41,7 +41,7 @@ type AgentFactory struct {
 	// 路径。factory 不替调用方合并这两条,各自由调用方决定。
 	AssemblerEnabled bool
 
-	// HarnessID pins a specific harness by id (spec 04 §4.1). An empty
+	// HarnessID pins a specific harness by id. An empty
 	// value defers to harness.SelectHarness at NewAgentLoopSession time.
 	HarnessID string
 
@@ -61,7 +61,7 @@ type HarnessSelector func(a *agent.Agent, f *AgentFactory) (harness.Harness, err
 // 状态一致。顺序必须先建 Loop 再 AttachMessageIDSrc,否则 executor
 // Deps.Current* 解析时会拿到空字符串。
 //
-// MessageStore 注入时同时挂 TextDeltaHook(streaming 落库,spec FR-4);
+// MessageStore 注入时同时挂 TextDeltaHook(streaming 落库);
 // hook 的订阅由 AgentLoopSession.Close 在 evict 时清理。
 func (f *AgentFactory) NewAgentLoopSession(sessionID string) (*AgentLoopSession, error) {
 	a, err := f.Build(sessionID)

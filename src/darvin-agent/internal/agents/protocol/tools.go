@@ -77,7 +77,7 @@ type ToolRegistry interface {
 }
 
 // PermissionEval is the outcome of evaluating whether a tool call needs user
-// approval before execution (spec 12 — permission gate).
+// approval before execution (permission gate).
 type PermissionEval struct {
 	// Authorized is true when the tool's path arguments stay within the
 	// authorized roots (workspace root read+write; attached files read-only).

@@ -49,7 +49,7 @@ const ICON_BY_KIND: Record<string, string> = {
 
 const iconName = computed(() => ICON_BY_KIND[props.kind] ?? 'circle-dot');
 
-// spec §4.3 状态点 4 色：红（error）/ 绿（成功）/ 蓝脉冲（流中）/ 蓝实心（收尾无结果）
+// 状态点 4 色：红（error）/ 绿（成功）/ 蓝脉冲（流中）/ 蓝实心（收尾无结果）
 const dotClass = computed(() => {
   if (props.isError) return 'bg-red-500';
   if (props.hasResult) return 'bg-green-500';

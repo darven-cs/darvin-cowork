@@ -206,20 +206,19 @@ type SearchSessionsResult struct {
 // own write state; the read loop pulls handler into dispatchRequest.
 //
 // Loop 不再挂在 Handler 上 —— prompt 路径按 sessionID 路由到对应 entry 的
-// per-session Loop(见 handlePrompt)。Steer 仍接全局 Agent(本期不迁,见
-// spec §1.3 非目标)。
+// per-session Loop(见 handlePrompt)。Steer 仍接全局 Agent(本期不迁)。
 // HandlerOptions carries the optional workspace / imported-file wiring.
 // Kept separate from the required constructor args so existing call sites
 // (and handler tests) do not need to change.
 type HandlerOptions struct {
 	ImportedFiles *store.ImportedFileStore
 	WorkspaceRoot string
-	// Skills 是 skills registry。spec 32 落地后由 main.go 注入。
+	// Skills 是 skills registry。由 main.go 注入。
 	Skills *skills.SkillRegistry
-	// SkillRunner 支撑 agent.skill.invoke_user。spec 39 由 main.go 注入;
+	// SkillRunner 支撑 agent.skill.invoke_user。由 main.go 注入;
 	// nil 时该 handler 返回空结果(handler 测试 stub 不需要构造 runner)。
 	SkillRunner *skills.SkillRunner
-	// Mcp 是 MCP server registry。spec 35 + 36 落地后由 main.go 注入。
+	// Mcp 是 MCP server registry。由 main.go 注入。
 	Mcp *mcp.Registry
 	// Log 是 skills handler 的日志出口;nil 时 handler 不打 warn。
 	Log *zap.Logger
@@ -242,14 +241,14 @@ type Handler struct {
 	// WorkspaceRoot 是 agent 的沙箱根(env DARVIN_AGENT_WORKSPACE),
 	// import_files 用它做 sourcePaths 的 containment check。
 	WorkspaceRoot string
-	// Skills 支撑 agent.skills.list / set_enabled / bootstrap。spec 32 落地；
+	// Skills 支撑 agent.skills.list / set_enabled / bootstrap。
 	// nil 时这些 handler 返回空结果,handler 测试 stub 不需要构造 registry。
 	Skills *skills.SkillRegistry
-	// SkillRunner 支撑 agent.skill.invoke_user。spec 39 落地；nil 时该
+	// SkillRunner 支撑 agent.skill.invoke_user。nil 时该
 	// handler 返回空结果,handler 测试 stub 不需要构造 runner。
 	SkillRunner *skills.SkillRunner
 	// Mcp 支撑 agent.mcp.list / register / update / unregister /
-	// set_enabled / test / retry_resolution / bootstrap。spec 35 + 36 落地。
+	// set_enabled / test / retry_resolution / bootstrap。
 	Mcp *mcp.Registry
 	// Log 用来记录 skills handler 异常;nil 时走 zap.NewNop()。
 	Log *zap.Logger
@@ -1455,7 +1454,7 @@ func (h *Handler) broadcastSkillsChanged() {
 	h.Ledger.Broadcast("agent.skills.changed", params)
 }
 
-// --- MCP handlers (spec 35 / 36) ---
+// --- MCP handlers ---
 
 // ListMcpServersResult is the JSON-RPC result for agent.mcp.list.
 // Mirrors DarvinListMcpServersResponse in src/shared/darvin-api.ts.

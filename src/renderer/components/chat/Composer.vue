@@ -2,7 +2,7 @@
   <div class="px-6 pb-5 pt-2">
     <ImportedFilesBar class="mb-1.5" />
     <div class="relative mx-auto max-w-[760px]">
-      <!-- spec 39 — `/` 自动补全浮层 -->
+      <!-- `/` 自动补全浮层 -->
       <div
         v-if="showSlashMenu"
         class="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-border bg-surface shadow-lg"
@@ -76,7 +76,7 @@ const selectedIndex = ref(0);
 
 const canSend = computed(() => !props.busy && text.value.trim().length > 0);
 
-// spec 39 — 按 `/` 前缀过滤可手动触发的 enabled skill；`//` 转义与多行不弹。
+// 按 `/` 前缀过滤可手动触发的 enabled skill；`//` 转义与多行不弹。
 const matchedSkills = computed(() => {
   if (!showSlashMenu.value) return [];
   const filter = text.value.slice(1).split(/\s+/)[0] ?? '';

@@ -27,7 +27,7 @@ interface ShortcutItem {
   keys: string;
 }
 
-// 与 useShortcuts（spec 06）及 Composer / PromptDock / useFloatingPanel 的实际绑定对齐。
+// 与 useShortcuts 及 Composer / PromptDock / useFloatingPanel 的实际绑定对齐。
 const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 const mod = isMac ? '⌘' : 'Ctrl';
 

@@ -67,7 +67,7 @@ type fakeDeps struct {
 	cfg          Config
 	bus          *event.Bus
 
-	// ContextEngine seam (executor.Deps extension — see spec §4.10).
+	// ContextEngine seam (executor.Deps extension).
 	// The default zero values (nil / false / nil / "") reproduce the
 	// legacy behaviour: assembler disabled, fallback path taken, no API
 	// usage to share with the assembler.
@@ -553,7 +553,7 @@ func TestAssemblerActive_CalledOncePerTurn(t *testing.T) {
 	}
 }
 
-// TestEventCommonSnapshot guards spec §7.5: every event the executor emits
+// TestEventCommonSnapshot guards: every event the executor emits
 // during a turn must carry the same EventCommon as the in-flight prompt —
 // SessionID from d.Session().ID and MessageID from d.CurrentMessageID().
 // This is the property the EventLedger relies on to route notifications to

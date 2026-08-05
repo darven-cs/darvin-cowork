@@ -72,7 +72,7 @@ type ServerInfo struct {
 
 // ToolDescriptor is one tool the server exposes via `tools/list`. The
 // input schema is left as a generic map because the registry / tool
-// surface (spec 38) will turn it into a typed schema at registration time.
+// surface will turn it into a typed schema at registration time.
 type ToolDescriptor struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
@@ -81,14 +81,14 @@ type ToolDescriptor struct {
 
 // CallToolResult is the typed payload of the `tools/call` response. The
 // MCP spec allows a richer content union (text / image / audio / resource);
-// spec 35 will widen this when a real server needs more than text.
+// 后续会 widen this when a real server needs more than text.
 type CallToolResult struct {
 	Content []ToolContent `json:"content"`
 	IsError bool          `json:"isError,omitempty"`
 }
 
 // ToolContent is one block inside CallToolResult.Content. Type is a
-// discriminator the spec 38 renderer uses to pick a UI affordance.
+// discriminator the renderer uses to pick a UI affordance.
 type ToolContent struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
@@ -175,7 +175,7 @@ type LaunchResolution struct {
 	UpdatedAt         time.Time
 }
 
-// ServerStatus is the read-only snapshot the renderer (spec 37) consumes.
+// ServerStatus is the read-only snapshot the renderer consumes.
 // It bundles the spec-shaped view with the runtime state (connected,
 // tools, error) so the renderer does not have to thread two structs.
 type ServerStatus struct {

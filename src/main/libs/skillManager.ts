@@ -1,5 +1,5 @@
 /**
- * spec 32 — skills 的 main 端状态管理器。
+ * skills 的 main 端状态管理器。
  *
  * 职责：
  * 1. 启动期：扫 userData/SKILLs/**\/SKILL.md → 合并 SQLite 里的 enabled
@@ -11,12 +11,11 @@
  *    然后再把新列表推给 Go 端。
  *
  * frontmatter 解析用手写 regex（不引 js-yaml），与 `user-settings.ts`
- * 风格保持一致；main 端不参与安全扫描——扫描在 Go 端做（spec 31 scanner）。
+ * 风格保持一致；main 端不参与安全扫描——扫描在 Go 端做。
  *
  * 数据所有权：main 端 SQLite 是 enabled 状态的 source of truth；Go 端
- * registry 是 prompt 期的 source of truth（按 spec 38 落地工具路由时
- * 仍然以 Go 端为准）。两者通过 bootstrap / setEnabled / changed 三路
- * 同步。
+ * registry 是 prompt 期的 source of truth。两者通过 bootstrap /
+ * setEnabled / changed 三路同步。
  */
 
 import { app, BrowserWindow } from 'electron';

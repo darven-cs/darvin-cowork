@@ -8,8 +8,8 @@ import (
 // ResolutionPersistence is the storage contract for LaunchResolution
 // records. The registry calls SaveResolution after every successful
 // (or failed) resolve, and LoadAllResolutions on startup to recover
-// the prior session's state. The SQLite implementation lives in spec 36;
-// v0 ships with InMemoryResolutionPersistence so the registry can be
+// the prior session's state. The SQLite implementation lives in a separate
+// package; v0 ships with InMemoryResolutionPersistence so the registry can be
 // exercised in unit tests without a database.
 type ResolutionPersistence interface {
 	SaveResolution(ctx context.Context, res LaunchResolution) error
@@ -19,7 +19,7 @@ type ResolutionPersistence interface {
 
 // InMemoryResolutionPersistence is a process-local store. It exists so
 // tests and the v0 binary have a working ResolutionPersistence without
-// pulling in the SQLite dependency; spec 36 replaces it.
+// pulling in the SQLite dependency.
 type InMemoryResolutionPersistence struct {
 	mu    sync.RWMutex
 	store map[string]LaunchResolution

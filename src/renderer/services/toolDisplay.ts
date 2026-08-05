@@ -1,5 +1,5 @@
 /**
- * 工具结果展示的纯函数集（spec 02 tool-result-rendering）。
+ * 工具结果展示的纯函数集。
  *
  * 只做字符串 / 结构变换，不碰 DOM 与 i18n，保证可单测。组件层负责把
  * 返回的 preview / sizeLabel 渲染成 UI，并用 t() 补文案。

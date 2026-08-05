@@ -73,7 +73,7 @@ agent:
   model: claude-sonnet-4-5
   instructions: ""
 
-  # ContextEngine (ctxengine) — see specs/features/agent-context-engine §FR-12.
+  # ContextEngine (ctxengine) — see specs/features/agent-context-engine.
   # Defaults match ctxengine.NewDefaultAssembler's zero-value behaviour
   # except AssemblerEnabled, which is true at the YAML front-end so end
   # users get the assembler pipeline without flipping a flag.

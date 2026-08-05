@@ -13,7 +13,7 @@ import (
 
 // SQLiteStore is the GORM-backed SessionStore. Save persists only the
 // session metadata (one row in the sessions table); messages are NOT
-// persisted by this implementation — see spec §FR-6 P1-1 contract.
+// persisted by this implementation.
 type SQLiteStore struct {
 	db *gorm.DB
 }

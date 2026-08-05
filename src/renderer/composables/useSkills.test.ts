@@ -1,5 +1,5 @@
 /**
- * spec 33 — useSkills 纯逻辑测试。
+ * useSkills 纯逻辑测试。
  *
  * 不挂 Vue component，直接在 module 级 ref + 假 darvin client 上验证：
  * - refresh 把 darvin.listSkills() 的结果写进 skills.value

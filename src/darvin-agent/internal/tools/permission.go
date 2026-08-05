@@ -9,7 +9,7 @@ import (
 )
 
 // PermissionEval is the outcome of evaluating whether a tool call needs user
-// approval before execution (spec 12 — permission gate).
+// approval before execution (permission gate).
 type PermissionEval = protocol.PermissionEval
 
 var (

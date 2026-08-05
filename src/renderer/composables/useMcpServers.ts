@@ -1,10 +1,9 @@
 /**
- * spec 37 — McpView 的 renderer 状态。
+ * McpView 的 renderer 状态。
  *
  * 数据所有权：main 端 SQLite 是 server 元数据 + launch resolution 的 source
  * of truth；Go 端 registry 是运行时连接状态的 source of truth。两者通过
- * spec 36 的 push（onMcpServersChanged / onMcpConnectionChanged）向 renderer
- * 广播。
+ * onMcpServersChanged / onMcpConnectionChanged push 向 renderer 广播。
  *
  * composable 走 singleton 模式（模块级 ref）：多处 useMcpServers() 共享同一份
  * servers 数组，避免侧栏角标 / McpView 列表出现 stale 不一致。
