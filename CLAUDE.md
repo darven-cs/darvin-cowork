@@ -27,7 +27,7 @@
 
 - **桌面壳**：Electron（`@electron-forge` + `@electron-forge/plugin-vite`）。
 - **渲染层**：Vue3 + Tailwind CSS v4（`@tailwindcss/vite` 插件接入 Vite）；样式统一走 utility class，组件里不写裸 CSS。
-- **AI 产物预览沙箱 (Artifact 渲染器)**：`src/renderer/services/artifact-renderer/`，自建一个 sandboxed iframe 渲染器（参考 Claude.ai Artifacts 形态），用于隔离渲染 AI 生成的 HTML / SVG / Mermaid / React 组件 / 代码块等产物，支持交互；不要把 AI 原始产物直接塞进主页面 DOM。
+- **AI 产物预览 (Artifact 渲染器)**：`src/renderer/components/side-panel/renderers/` + `side-panel/ArtifactPanel.vue` + `side-panel/ArtifactRenderer.vue`，按产物类型分派渲染器（`Code` / `Document` / `Html` / `Image` / `LocalService` / `Markdown` / `Mermaid` / `Svg` / `Text` / `Video`），沙箱渲染避免污染主页面 DOM；不要把 AI 原始产物直接 `innerHTML` 注入主页面。
 - **Agent runtime**：Go 编写的 `darvin-agent`，作为 Electron 主进程的子进程运行（`src/main/runtime/manager.ts` → spawn `bin/darvin-agent-<platform>-<arch>`）。
 - **主进程**：仅负责 Electron 生命周期 + 启动 Go 子进程；业务逻辑（agent 循环、工具调用、记忆、skills、MCP、上下文压缩、模型切换等）全部下放到 Go 运行时。
 - **构建产物打包**：通过 `extraResources` 把 `bin/` 下当前平台的 Go 二进制随 `out/` 资源一起分发，置于 `Resources/bin/`（不进 asar，因为 spawn 需要可执行权限），由 `forge.config.ts` 的 filter 只打当前平台。
@@ -37,22 +37,20 @@
 ```
 Electron 主进程 (src/main/index.ts)
     ├─ Electron 生命周期、BrowserWindow
-    └─ RuntimeManager (src/main/runtime/manager.ts)
-         ├─ resolveAgentBinaryPath()   解析 darvin-agent 二进制位置
-         └─ startAgentRuntime()        spawn 子进程
-              │
-              ▼
+    ├─ RuntimeMgr (src/main/runtime/manager.ts)   ← EventEmitter, spawn + 抓 <port>
+    ├─ AgentClient (src/main/runtime/client.ts)   ← WebSocket JSON-RPC 2.0 客户端
+    ├─ EventRouter (src/main/store/EventRouter.ts)← 纯转发 agent.event → webContents.send
+    └─ ~70 ipcMain.handle（session/message/skill/MCP/workspace/LLM/prefs/...）
+         │
+         ▼
          darvin-agent (Go, src/darvin-agent/)   ← 子进程，IPC 协议见 src/shared/darvin-api.ts
-              │
-              ▼
-         AgentClient (src/main/runtime/client.ts)  ← IPC 客户端（S5 阶段实现）
 
 preload (src/preload/index.ts)   ← contextBridge 暴露 window.darvin
 
 renderer (src/renderer/)
     ├─ Vue3 应用 (createApp().mount('#app'))
     ├─ Tailwind CSS v4 (@tailwindcss/vite)     ← 样式统一走 utility class
-    └─ Artifact 渲染器 (services/artifact-renderer/)  ← sandboxed iframe, 隔离 AI 产物
+    └─ Artifact 渲染器 (components/side-panel/renderers/)  ← 按产物类型分派渲染器
 ```
 
 ## 命令
@@ -91,13 +89,13 @@ npm run smoke
 Go agent 相关：
 - `src/darvin-agent/` 下放置 Go agent 源码（含 `go.mod` / `main.go`）。`scripts/build-go.js` 在该目录不存在时会打印警告并 `exit 0`，不会阻塞 Electron 启动。
 - Go 模块名见 `src/darvin-agent/go.mod`。
-- 主进程侧的 IPC 客户端 (`src/main/runtime/client.ts`)：`AgentClient` 接口 + `createAgentClient()` 抛 `Not Implemented`；具体协议见 `src/shared/darvin-api.ts` 的 `DarvinApi` / `DarvinEvent` 定义。
+- 主进程侧的 IPC 客户端 (`src/main/runtime/client.ts`)：`class AgentClient`（WebSocket JSON-RPC 2.0 客户端），通过 `RuntimeMgr` 解析出的 `<port>` 拨号；具体协议见 `src/shared/darvin-api.ts` 的 `DarvinApi` / `DarvinEvent` / `DarvinMessage` 定义。
 
 ## 测试
 
 单元测试运行器已落地 Vitest：
 
-- 脚本：`package.json` 的 `test`（`vitest run`）与 `smoke`（`bash scripts/smoke.sh`）；devDependencies 含 `vitest` 与 `@vitest/coverage-v8`。
+- 脚本：`package.json` 的 `pretest`（rebuild `better-sqlite3` native binding + 清理 forge-meta）+ `test`（`vitest run`）+ `smoke`（`bash scripts/smoke.sh`，spawn 二进制、等 `<port>` 行、跑 `ws-smoke-client.js`、超时 SIGKILL 兜底）；devDependencies 含 `vitest` 与 `@vitest/coverage-v8`。
 - 配置：仓库根 `vitest.config.ts`（`environment: 'node'`，`include: ['src/**/*.test.ts']`，排除 `node_modules/` / `out/` / `.vite/build/` / `.git/`）。
 - 约定：测试文件放在被测源码旁，命名 `*.test.ts`（与被测模块同名，例如 `src/main/libs/user-paths.ts` ↔ `user-paths.test.ts`）。
 - API：从 `vitest` 导入 `describe` / `it` / `expect` / `vi` / `beforeAll` / `beforeEach`；需要 mock `electron` 时用 `vi.mock('electron', ...)` + `vi.hoisted` 维护 mock 状态（参考 `src/main/libs/user-paths.test.ts`）。
@@ -154,19 +152,23 @@ npx eslint --ext .ts,.tsx,.vue <files>
 
 `src/main/index.ts`：
 - 处理 `electron-squirrel-startup` 短路；
-- `createWindow()` 创建 `BrowserWindow`，`webPreferences.preload` 指向 `path.join(__dirname, '../preload/index.js')`（Vite 产物路径）；
-- 开发态 `loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)`，生产 `loadFile(path.join(__dirname, '../renderer/${MAIN_WINDOW_VITE_NAME}/index.html'))`；
-- DevTools 当前默认打开（`webContents.openDevTools()`）；
+- `createWindow()` 创建 `BrowserWindow`，`webPreferences.preload` 指向 Vite 产物路径；
+- 开发态 `loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)`，生产 `loadFile(...)`；
+- 持有 ~70 个 `ipcMain.handle` channel（session / message / skill / MCP / workspace / LLM / prefs / locale / runtime status / attachment / permission 等）；所有数据所有权归 Go（merge-databases refactor 后 main 端不再持有业务 SQLite，Go 离线时 main 端用进程内 in-memory 缓存兜底，保证最近一次视图可见）；
+- 维护 `RuntimeMgr`（subprocess 生命周期）+ `AgentClient`（WS JSON-RPC 客户端）+ `EventRouter`（`agent.event` → `webContents.send` 纯转发）+ `installAppMenu()` + `notifyIfHidden`（窗口隐藏时 OS 通知）；
+- DevTools 开发态默认打开 + `remote-debugging-port=9222` + `remote-allow-origins=*`；
 - `window-all-closed` 在 macOS 外退出；`activate` 时若无窗口则重建。
 
 `src/main/runtime/manager.ts`：
-- `resolveAgentBinaryPath()`：根据 `app.isPackaged` 选择 `process.resourcesPath/bin/...`（生产） 或 `__dirname` 回溯三级的 `bin/...`（开发）。不存在时返回 `undefined`，由 `startAgentRuntime()` 打 warning 而不是抛错。
-- `startAgentRuntime()`：当前仅 `console.log('[runtime] would start: ${bin}')`；TODO 是 `spawn(bin, [], { stdio: 'pipe' })` + 与 `client.ts` 配合。
+- `class RuntimeMgr extends EventEmitter`；
+- `resolveAgentBinaryPath()`：根据 `app.isPackaged` 选 `process.resourcesPath/bin/...` 或 `__dirname` 回溯三级的开发路径；缺失时打 warning 不抛错；
+- `start(workspaceRoot?)`：`spawn(bin)`，从 stdout 抓 `<port>…</port>`（5 s 超时），SIGTERM + 4 s 宽限期停止；
+- 暴露 `pid() / port() / isResolved() / resolveAgentConfigPath()`（dev only）。
 
 `src/main/runtime/client.ts`：
-- 接口占位 `AgentClient { connect; disconnect }`；
-- `createAgentClient()` 抛 `Not Implemented`；
-- 落地后需补 `request<T>(method, params): Promise<T>` / `send<T>(event, payload): void` / `on<T>(event, handler): Unsubscribe`。
+- `class AgentClient`：WebSocket JSON-RPC 2.0 客户端，连 `ws://localhost:{port}/ws`；
+- 完整方法面：`connect / disconnect / request / prompt / abort / invokeSkill / subscribeEvents / listSessions / getMessages` + 命名空间 `skills.{list,setEnabled,bootstrap,onChanged}` / `mcp.{list,register,update,unregister,setEnabled,test,retryResolution,bootstrap,onConnectionChanged,onResolutionChanged}` / `tools.list` + `onEvent / isConnected`；
+- 提供 `parseDarvinEvent` 给 union 类型判别；导出 `BACKEND_DEFAULT_SESSION_ID` 常量。
 
 ### preload
 
@@ -176,38 +178,51 @@ npx eslint --ext .ts,.tsx,.vue <files>
 
 `src/renderer/` 是 Vite root（`root: 'src/renderer'`，`base: './'` 用于生产相对路径）。当前栈：
 
-- **Vue3**：`index.ts` 已 `createApp(App).mount('#app')`，挂载点 `<div id="app">` 在 `index.html`。
+- **Vue3**：`index.ts` 已 `createApp(App).mount('#app')`，挂载点 `<div id="app">` 在 `index.html`，`<html lang="zh-CN">`。
 - **Tailwind CSS v4**：通过 `@tailwindcss/vite` 插件接入 `vite.renderer.config.mts`；`index.css` 顶部 `@import "./styles/theme.css"; @import "./styles/reset.css";`，设计 token 统一走 `styles/theme.css` 的 `@theme` 块。样式优先用 utility class；仅在跨组件复用的设计 token（颜色 / 间距 / 字号）才用 `@theme` 抽象。
-- **Artifact 渲染器**：见下文"编码风格"小节关于 `services/artifact-renderer/` 的约束。
+- **Artifact 渲染器**：见下文"编码风格"小节关于 `components/side-panel/renderers/` 的约束（按产物类型分派 Code / Document / Html / Image / LocalService / Markdown / Mermaid / Svg / Text / Video）。
 
 ### Go agent
 
-`src/darvin-agent/` 是 Go 源码落点（当前仅 README）。`scripts/build-go.js`：
+`src/darvin-agent/` 是 Go 后端实现（`go.mod` module 名 `darvin-cowork/backend`，Go 1.22）。`scripts/build-go.js`：
 
 - 输出 `<repo>/bin/darvin-agent-<platform>-<arch><.exe?>`；
 - 设置 `CGO_ENABLED=0`、`GOOS=process.platform`、`GOARCH=process.arch`；
-- `cwd: src/darvin-agent`，`go build -ldflags="-s -w" -o <out> .`；
-- 捕获 `err.message + err.status`，失败非零退出，被 `npm run make` 的 `premake` 钩子传播。
+- `cwd: src/darvin-agent`，`go build -ldflags="-s -w" -o ${out} ./cmd/app`；
+- 失败非零退出，被 `npm run make` 的 `premake` 钩子传播。
+
+模块布局（15 个 `internal/` 包）：
+
+- `cmd/app/main.go`：15 行，仅 `os.Exit(runApp(os.Args[1:]))`；`runApp` 是 var，测试可替换入口。
+- `internal/runtime/`：single assembly entry；`Build(ctx, Options) (*Runtime, error)` 加载 config + DB + LLM provider + 装配 agent factory + bootstrap skills / MCP + 启动 gateway + bootstrap active session；`Run(args)` 接 SIGINT / SIGTERM；`Shutdown(ctx)` 关闭 server / harness / SQLite。
+- `internal/gateway/`：WS server（端口由 main 端从 stdout 解析）+ JSON-RPC framing + handler dispatch + per-session manager + per-session event ledger。
+- `internal/agentloop/`：`Loop` 单一所有者，按 session 串行 turn 队列；`Submit` / `Steer`（cancel in-flight + steerQueue + wake）/ `Close`；`agent.Prompt + agent.Run` 走 `harness.BuiltinEmbeddedHarness`。
+- `internal/agents/`：`Agent.Prompt / Run / Abort / Subscribe`；`dispatcher` enqueue + runMsgID；subpackage `queue / session / store / executor / perm / ctxengine / msgid / protocol / runtime / usage`。
+- `internal/llm/`：streaming protocol + `anthropic/` 子包 + 兼容层 + registry；events 与 errors 单独文件。
+- `internal/tools/`：built-in shell / fs / sandbox + permission + registry + MCP bridge；exclusions 文件白名单。
+- `internal/skills/`：scanner / loader / frontmatter / registry / plugin / runner / wire；安装走 `skillInstall`（main 端）+ `wire`（Go 端）。
+- `internal/mcp/`：client / launcher / registry / transport (http+sse+stdio) / resolver_fingerprint / persistence。
+- `internal/database/`：GORM + `glebarez/sqlite` 单例 `globalDB`；`internal/agents/store/` 持有 session / message / app_state / imported_file / memory。
+- `internal/config / logger / harness / jsonschema`：viper 配置 + zap + lumberjack 日志 + harness 抽象 + JSON Schema 校验。
 
 `forge.config.ts` 的 `extraResources.filter` 仅保留 `darvin-agent-<platform>-<arch>(.exe)` 与 `.gitkeep`，避免 dev 机器把 darwin+linux+win 全打进去。
 
+Go 端测试：每个 internal 包同目录 `*_test.go`（vitest 只跑 TS；Go 测试走 `cd src/darvin-agent && go test ./...`）。`Makefile` 含 `lint-agents-boundaries` target，禁止 `agents/` 引入 capability 包（`llm / tools / skills / mcp`）。
+
 ## 字符串常量
 
-**目前 IPC 通道、模式名、判别值尚未落地**（主进程除 Go agent 启动外无业务逻辑）。一旦开始接入：
+IPC 通道、推送事件、流事件、消息类型已统一在 `src/shared/darvin-api.ts`：
 
-```ts
-export const AgentChannel = {
-  Connect: 'agent:connect',
-  Disconnect: 'agent:disconnect',
-  Request: 'agent:request',
-  Event: 'agent:event',
-} as const;
-export type AgentChannel = typeof AgentChannel[keyof typeof AgentChannel];
-```
+- `DarvinApi`：~70 个 request 方法的接口（session / message / skill / MCP / workspace / LLM / locale / prefs / attachment / permission / artifact 等），所有请求/响应类型同源导出；
+- `DarvinPushEvent`：常量 (`SessionsChanged / ActiveSessionChanged / SessionEvent / WorkspaceChanged / SkillsChanged / McpServersChanged / McpConnectionChanged`)；
+- `DarvinEvent`：discriminated union（`text_delta / thinking_delta / tool_start / tool_end / done / error / agent_end / compaction / context_usage / permission_request / artifact`）；
+- `DarvinMessage`：discriminated union（`user / assistant / tool_use / tool_result / system`）；
+- 提供 `parseDarvinEvent / assertNever` 帮助判别；另有 `darvinMessageRole / darvinMessageContent` 旧 shape 归一化。
 
-- 模块一源；
-- 同时导出值对象 + 类型；
-- 测试断言使用同一常量；
+约定：
+
+- 模块一源；同时导出值对象 + 类型；测试断言使用同一常量。
+- main / preload / renderer 都从 `darvin-api.ts` 导入，禁止在组件内 `any`。
 - 一次性错误消息、CSS class、HTML attribute、外部平台 ID 不用常量化。
 
 ## 国际化
@@ -258,11 +273,12 @@ renderer 侧 i18n 已落地（`src/renderer/services/i18n.ts`，平铺 `dictZh` 
 - 校验方式：在 `src/renderer/services/i18n.ts` 顶部写一段 `assertSameKeys(dictZh, dictEn)`，开发期跑一次（`process.env.NODE_ENV !== 'production'` 守卫）。
 - 翻译缺失临时态：英文 key 暂时用 `dictEn[key] = dictZh[key]`（机器/拼音回退也行）兜底，**不允许**直接 fallback 到 zh 后悄悄上生产。
 
-### 主进程侧（待建）
+### 主进程侧（暂不在范围内）
+
+i18n 目前只在 renderer 落地，主进程侧字符串（托盘 / 菜单 / 窗口标题 / 通知）保持英文。需要扩展时：
 
 - 文件位置：`src/main/i18n.ts`，**不要**复用 renderer 的 `services/i18n.ts`（主进程不能直接 `import` renderer 路径，会跨进程边界拉拽依赖）。
-- 范围：托盘 tooltip / 菜单项（`app.applicationMenu`）/ 窗口标题 / 系统通知（`Notification` body）/ 退出确认弹窗。
-- 与 renderer 共享 key：把 `dict` 抽到 `src/shared/i18n-dict.ts`，renderer / main 各包一层 runtime API（读取 + 切换 + 当前 locale）。
+- 字典可内联在 main 端或抽到 `src/shared/i18n-dict.ts`（与 renderer 同 key 集合）；当前未抽离，renderer / main 各自维护。
 - locale 持久化：跟随用户设置（`src/main/libs/user-settings.ts` 的 `locale` 字段），不要单独存一份；首次启动回落到 `app.getLocale()` 探测的 `zh-CN` / `en-US`。
 
 ### 何时升级到 vue-i18n
@@ -300,14 +316,16 @@ renderer 侧 i18n 已落地（`src/renderer/services/i18n.ts`，平铺 `dictZh` 
    - 模块级 `ref` 用 `xxxRef` 后缀（避免与局部变量混淆）：`const listRef = ref<HTMLDivElement | null>(null);`
    - 业务 `ref` 不加后缀：`const busy = ref(false);`
    - **目录约定**（`src/renderer/` 下）：
-     - `layout/` — 页面级布局壳（与 `components/` 平级），如 `AppShell.vue` / `SettingsLayout.vue`
-     - `components/` — 可复用功能组件，按 feature 子目录拆分（`sidebar/` / `chat/` / `side-panel/`）
-     - `components/common/` — 跨 feature 通用组件（`Icon` / `IconButton` / `Dropdown`）
-     - `composables/` — 所有 `useXxx.ts` 单例状态
-     - `services/` — 纯函数 / IPC 客户端 / mock 数据
+     - `layout/` — 页面级布局壳（与 `components/` 平级），如 `AppShell.vue`
+     - `views/` — 顶层路由页面（`HomeView` / `ChatView` / `SettingsView` / `SkillsView` / `McpView` / `ExpertSuiteView` / `SearchView` / `PlaceholderView`）
+     - `components/` — 可复用功能组件，按 feature 子目录拆分（`chat/` / `chat/tools/` / `sidebar/` / `side-panel/` / `side-panel/renderers/` / `home/` / `settings/` / `skills/` / `mcp/` / `expert/` / `runtime/`）
+     - `components/common/` — 跨 feature 通用组件（`Icon` / `IconButton` / `Dropdown` / `ToastHost`）
+     - `composables/` — 所有 `useXxx.ts` 单例状态（`useAppearance` / `useMessages` / `useChatActions` / `useSidebar` / `useSidePanel` / `useArtifacts` / ...）
+     - `services/` — 纯函数 / IPC 客户端 / mock 数据（`i18n` / `markdown` / `highlight` / `tokenFormat` / `toolDisplay` / `toast` / `artifactHtml` / `mock-data`）
      - `styles/` — 全局 CSS（`theme.css` + `reset.css`）
      - `assets/icons/` — SVG 图标源（自动 glob 加载）
-7. **样式约束**：组件 `<template>` 内只用 utility class（`bg-bg` / `text-text-muted` 等），颜色全走 `@theme` token；不写 `<style>` 块。
+     - `assets/agent-avatars/` — agent 头像 SVG（30 个）
+7. **样式约束**：组件 `<template>` 内只用 utility class（`bg-surface` / `text-text-muted` 等），颜色全走 `@theme` token；不写 `<style>` 块。
 8. **事件**：原生事件（click / input）走 emits 包装后冒泡；不让子组件直接调父方法或共享可变 ref。
 9. **类型导入**：所有 IPC 数据 / DarvinEvent / Message 从 `src/shared/darvin-api.ts` 导入；禁止在组件内 `any`（除非 dom 事件回调）。
 10. **严禁**：
@@ -320,48 +338,58 @@ renderer 侧 i18n 已落地（`src/renderer/services/i18n.ts`，平铺 `dictZh` 
 
 ### 设计 token（Tailwind v4 `@theme`）
 
-颜色 / 间距 / 圆角 / 字号 / 动画 token 唯一来源：`src/renderer/styles/theme.css` 的 `@theme` 块。
+颜色 / 间距 / 圆角 / 字号 / 阴影 / 动画 token 唯一来源：`src/renderer/styles/theme.css` 的 `@theme` 块。
 
-- **颜色 token**（dark default）：
-  - 基础：`bg` / `surface` / `surface-2` / `border` / `text` / `text-muted` / `text-subtle` / `accent` / `accent-hover`
-  - 语义：`user-msg` / `assistant-msg` / `danger` / `success` / `warning`
-- **浅色覆盖**：HTML 根 `<html class="light">` 触发；token 值在 `@layer base` 下被覆盖。**禁用** Tailwind `dark:` 变体（用 class 切换 + token 覆盖）。
-- **圆角 token**：`sm` (4px) / `md` (6px) / `lg` (8px) / `xl` (12px)
-- **间距 token**：`app-padding` (12px) / `section-gap` (16px)
-- **字号 token**：`xs` (11px) / `sm` (13px) / `base` (14px) / `md` (15px) / `lg` (17px) / `xl` (20px)
-- **字体**：`--font-sans` / `--font-mono`
-- **动画**：`cursor-blink` 1s step-end infinite
+- **颜色 token**（light default，dark 覆盖在 `@layer base`）：
+  - 基础：`bg` / `surface` / `surface-2` / `surface-raised` / `surface-hover` / `border` / `border-strong` / `text` / `text-muted` / `text-subtle`
+  - 品牌：`primary` (#FF5722) / `primary-hover` / `primary-muted` / `primary-soft`；`accent` 是 `primary` 的别名（向后兼容现有 IconButton / SessionItem）
+  - 主题色 swatch：`accent-orange` / `accent-blue` / `accent-green`，通过 `<html data-accent="blue|green">` 覆盖
+  - 语义：`success` / `danger` / `warning` / `thinking`
+  - 消息气泡：`user-msg` / `user-msg-bg` / `assistant-msg` / `assistant-msg-bg`
+  - 业务：`qa-{slide,data,doc,web}` / `agent-{amber,violet,blue,green,red,cyan,pink,orange,purple}` / `vendor-{anthropic,openai}`
+- **深色覆盖**：根 `<html>` 默认 light；`<html class="dark">` 触发 `@layer base` 下 dark token 覆盖。主题色覆盖用 `<html data-accent="blue|green">` 独立于 light/dark 生效。组件**不要**用 Tailwind `dark:` 变体（class 切换 + token 覆盖更稳）。
+- **圆角 token**：`sm` (4px) / `md` (6px) / `lg` (8px) / `xl` (12px) / `2xl` (16px)
+- **间距 token**：`app-padding` (16px) / `section-gap` (24px)
+- **字号 token**：`xs` (11px) / `sm` (13px) / `base` (14px) / `md` (15px) / `lg` (18px) / `xl` (24px) / `2xl` (32px) / `code` (13px)
+- **阴影 token**：`sm` / `md` / `lg` / `primary`（品牌色 glow）
+- **字体 token**：`--font-sans` / `--font-mono` / `--font-display`
+- **动画 token**：`cursor-blink` 1s step-end infinite / `fade-in` 0.5s ease-out both / `mascot-breathe` / `mascot-blink` / `mascot-wave` / `plus-menu-in`
 
 **消费规则**：
-- ✅ `bg-bg` / `text-text-muted` / `border-border` / `rounded-md` / `text-sm`
+- ✅ `bg-surface` / `text-text-muted` / `border-border` / `rounded-md` / `text-sm`
 - ❌ `bg-[#1a1a1a]` / `text-gray-300` / `bg-red-500` / `style={{ color: 'red' }}` / padding: `12px` 等 magic value
 
-新加 token：先在 `theme.css` 的 `@theme` 块加 `--color-foo` / `--spacing-bar` / `--text-foo` 等；然后 `@layer base` 下加浅色覆盖；**然后** `bg-foo` / `text-foo` utility 自动可用。
+新加 token：先在 `theme.css` 的 `@theme` 块加 `--color-foo` / `--spacing-bar` / `--text-foo` 等；深色覆盖在 `@layer base` 的 `html.dark` 块补；**然后** `bg-foo` / `text-foo` utility 自动可用。
 
 ### 图标系统
 
 **只用 SVG**，不引入 `lucide-vue-next` / `@heroicons/vue` / `naive-ui` 等图标库。
 
-- 源文件：`src/renderer/assets/icons/*.svg`，分两组：
-  - **A 组（Chat UI）**：11 个，本仓库已生成（`plus` / `sun` / `moon` / `menu` / `panel-right-close` / `panel-right-open` / `send` / `chevron-down` / `cog` / `alert-circle` / `check`）；统一 `viewBox="0 0 34 34"` + `stroke="currentColor"` + `stroke-width="2.4"` + round caps
-  - **B 组（用户中心预留）**：5 个（`invite-credits` / `logout` / `promo-subscription` / `recharge` / `usage-overview`），由用户导入，含 `stroke="black"` 硬编码；`Icon` 组件加载时一次 `replace("stroke=\"black\"", "stroke=\"currentColor\"")` 转为 currentColor
-- 加载：`src/renderer/assets/icons/index.ts` 用 `import.meta.glob('./*.svg', { eager: true, query: '?raw', import: 'default' })` 全部 inline 加载
-- 消费：`<Icon name="send" />` 全局组件（`<script setup>` 注册到 `app.component('Icon', Icon)`）
-- 命名：`kebab-case`：`<Icon name="chevron-down" />` / `<Icon name="panel-right-close" />`
-- 缺失 icon：组件警告 + 渲染空 16×16 占位（不抛错）
+- 源文件：`src/renderer/assets/icons/*.svg`（当前 ~56 个，统一 `viewBox="0 0 34 34"` + `stroke="currentColor"` + `stroke-width="2.4"` + round caps）。少量用户导入的 SVG 含 `stroke="black"` 硬编码；`index.ts` 加载时一次性 `replace(/stroke="black"/g, 'stroke="currentColor"')` 归一化。
+- 加载：`src/renderer/assets/icons/index.ts` 用 `import.meta.glob<string>('./*.svg', { eager: true, query: '?raw', import: 'default' })` 全部 inline 加载，导出 `SVG_SOURCES: Record<string, string>`（name → svg 字符串）。
+- 组件：`src/renderer/components/common/Icon.vue`，`<Icon name="..." :size="18" />`；缺失 icon 渲染空 16×16 占位（不抛错）。
+- 注册：`assets/icons/index.ts` 暴露 `registerIcons(app)` 一行注册为全局组件，main 入口调一次即可。
+- 命名：`kebab-case`：`<Icon name="chevron-down" />` / `<Icon name="panel-right-close" />`。
+- agent 头像另有 `src/renderer/assets/agent-avatars/*.svg`（30 个，artboard / books / brain / code / … / translation / travel），按业务组件按需静态引用。
 
 **新增 icon 规则**：
-- 丢到 `src/renderer/assets/icons/<name>.svg` 即可，无需 import（自动 glob）
-- **必须**用 `stroke="currentColor"`；不要写死颜色 / 用 `fill="black"` 等
-- 尺寸走 `viewBox` 不写死 `width` / `height`（除非用户明确指定）；`Icon` 组件通过 `:size` prop 注入实际渲染尺寸
+- 丢到 `src/renderer/assets/icons/<name>.svg` 即可，无需 import（自动 glob）。
+- **必须**用 `stroke="currentColor"`；不要写死颜色 / 用 `fill="black"` 等。
+- 尺寸走 `viewBox` 不写死 `width` / `height`；`Icon` 组件通过 `:size` prop 注入实际渲染尺寸。
 
 ### 字体
 
-renderer 允许从 `fonts.googleapis.com` 加载 3 套字体（Fraunces / Inter Tight / JetBrains Mono），由 `src/renderer/index.html` 的 `<link>` 引入；token 名称 `--font-display` / `--font-sans` / `--font-mono` 与 fallback 链（`ui-serif` / `-apple-system` / `ui-monospace`）写在 `src/renderer/styles/theme.css`。**禁止**引入其他 CDN 资源（图标库 / 分析脚本 / 字体 CDN 都不行）。如需离线/合规场景，应改成自托管 woff2 而不是新加 CDN。
+renderer **不下载 woff2 / 不引用 CDN**，全走系统字体栈，写在 `src/renderer/styles/theme.css` 的 `@theme`：
+
+- `--font-sans: "PingFang SC", "Inter", -apple-system, BlinkMacSystemFont, "Microsoft YaHei UI", "Segoe UI", sans-serif`
+- `--font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace`
+- `--font-display: "PingFang SC", "Inter", -apple-system, BlinkMacSystemFont, sans-serif`
+
+`src/renderer/index.html` 只放 inline SVG favicon，不挂任何 `<link>` 字体 / 图标 / 分析脚本。**禁止**引入任何 CDN（图标库 / 字体 CDN / 分析脚本都不行）。如需离线 / 合规场景，自托管 woff2 + `@font-face` 注入，而不是再添加 `<link>`。
 
 ### 注释规范
 
-源码追求「代码即文档」，靠清晰命名替代注释，注释越少越好。本规则仅约束 `.ts` / `.vue` / `.go` 等业务源代码文件；`docs/`、根目录 `AGENTS.md`、各类 spec 文档可以随意编写阶段、版本、规划内容。
+源码追求「代码即文档」，靠清晰命名替代注释，注释越少越好。本规则仅约束 `.ts` / `.vue` / `.go` 等业务源代码文件；`docs/`、各类 spec 文档、子目录 `AGENTS.md` 可以随意编写阶段、版本、规划内容。
 
 #### 一、绝对禁止编写的注释（出现即违规，必须删除）
 
@@ -409,7 +437,7 @@ renderer 允许从 `fonts.googleapis.com` 加载 3 套字体（Fraunces / Inter 
 ## 分支、提交和 PR
 
 - 分支命名：`feat/...` / `fix/...` / `chore/...` / `refactor/...`。
-- **不要主动 commit**，**不要主动 broad refactor**，**不要写 `Co-Authored-By` 尾部**（仓库根 `CLAUDE.md` 第 13 行明文规定）。
+- **不要主动 commit**，**不要主动 broad refactor**，**不要写 `Co-Authored-By` 尾部**（仓库根 `CLAUDE.md` 顶部 `## 三句话总结` 第 2 条明文规定）。
 - 提交信息遵循 Conventional Commits，英文：
 
 ```text
@@ -425,7 +453,7 @@ chore: drop stale webpack templates from .bak
 - 优先用 `rg` 搜索；`Glob` / `Grep` 工具已就绪。
 - 在动手前对照 `package.json` / `docs/系统架构.md` / 迁移 spec 验证历史叙述；老 spec 中的数字 / 路径可能在迁移后已变化。
 - 忽略与 `package.json`、`forge.config.ts`、`vite.*.config.ts`、`src/main` 冲突的过时文档。
-- **不要编辑打包产物**（`.vite/build/`、`out/`、`node_modules/`）和生成的 `bin/darvin-agent-*` 二进制，除非任务就是打包 / 运行时生成。
+- **不要编辑打包产物**（`.vite/build/`、`out/`、`node_modules/`、`bin/darvin-agent-*`）和本地调试残留（`.bak/` / `.claude/` / `.playwright-cli/` / `*.db`），除非任务就是打包 / 运行时生成。
 - 保持改动聚焦；修 bug 时不要做机会性重构。
 - 如要拆 `src/main/index.ts`（当它真的长大），先给一个聚焦的拆分方案再动手。
 - 文件里有无关的用户改动时，围着它们工作，不要还原。
