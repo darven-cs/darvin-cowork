@@ -119,9 +119,9 @@ describe('useSkills', () => {
   it('install calls darvin.installSkill and toasts success', async () => {
     const spy = vi.spyOn(await import('../services/toast'), 'showToast');
     const { install } = useSkills();
-    const r = await install('/tmp/SKILL.md');
+    const r = await install('/tmp/web-search-skill');
     expect(r?.skill.id).toBe('web-search');
-    expect(fake.installSkill).toHaveBeenCalledWith({ source: '/tmp/SKILL.md' });
+    expect(fake.installSkill).toHaveBeenCalledWith({ source: '/tmp/web-search-skill' });
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });

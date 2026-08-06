@@ -9,8 +9,6 @@ type SkillSummaryWire struct {
 	Version       string            `json:"version,omitempty"`
 	Enabled       bool              `json:"enabled"`
 	UserInvocable bool              `json:"userInvocable"`
-	IsOfficial    bool              `json:"isOfficial"`
-	IsBuiltIn     bool              `json:"isBuiltIn"`
 	Path          string            `json:"path"`
 	Source        string            `json:"source"`
 	UpdatedAt     int64             `json:"updatedAt"`
@@ -36,8 +34,6 @@ func ToSummary(e *SkillEntry) SkillSummaryWire {
 		Version:       e.Version,
 		Enabled:       e.Enabled,
 		UserInvocable: e.UserInvocable,
-		IsOfficial:    e.IsOfficial,
-		IsBuiltIn:     e.IsBuiltIn,
 		Path:          e.Path,
 		Source:        string(e.Source),
 		UpdatedAt:     e.LoadedAt.UnixMilli(),

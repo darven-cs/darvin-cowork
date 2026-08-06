@@ -1210,8 +1210,6 @@ func (s *skillsForTestSource) LoadAll(_ context.Context) ([]*skills.SkillEntry, 
 		Description: "review code",
 		Source:      skills.SkillSourceBundled,
 		Enabled:     true,
-		IsBuiltIn:   true,
-		IsOfficial:  true,
 	}}, nil
 }
 

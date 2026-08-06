@@ -580,7 +580,8 @@ export interface DarvinSkillFinding {
 }
 
 export interface DarvinInstallSkillRequest {
-  /** 本地 SKILL.md 绝对路径 或 GitHub owner/repo 或 https URL。 */
+  /** 本地 skill 目录绝对路径（含 SKILL.md，可选 references/、scripts/）
+   * 或 GitHub owner/repo 或 https URL。 */
   source: string;
 }
 
@@ -764,6 +765,13 @@ export interface DarvinPickAttachmentsResponse {
   attachments: DarvinAttachmentRef[];
 }
 
+/** 选取 skill 目录（必须含 SKILL.md，可选 references/、scripts/）。
+ * 取消或失败时 canceled=true；成功时 path 是绝对路径。 */
+export interface DarvinPickSkillFolderResponse {
+  canceled: boolean;
+  path?: string;
+}
+
 /** workspace 目录里单个文件的 renderer 视图（list_workspace_files 返回）。 */
 export interface DarvinWorkspaceFileInfo {
   /** 相对 workspace 根（`/` 分隔），绝对路径不下发。 */
@@ -875,6 +883,8 @@ export interface DarvinApi {
   respondPermission(r: DarvinPermissionResponse): Promise<void>;
   /** 弹文件选择框选取待附加文件（只记路径，不复制进工作区）。 */
   pickAttachments(): Promise<DarvinPickAttachmentsResponse>;
+  /** 弹目录选择框让用户挑一个含 SKILL.md 的 skill 文件夹。 */
+  pickSkillFolder(): Promise<DarvinPickSkillFolderResponse>;
   /** 读本地文件为 base64 dataUrl（>10MB 返回 error）。 */
   readFileAsDataUrl(path: string): Promise<DarvinReadFileDataUrlResponse>;
   /** 弹目录选择框设置当前会话工作目录。 */

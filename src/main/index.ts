@@ -21,11 +21,12 @@ import { RuntimeMgr, resolveAgentBinaryPath } from './runtime/manager';
 import { AgentClient } from './runtime/client';
 import { EventRouter } from './store/EventRouter';
 import { runImport } from './libs/importFiles';
-import { ensureWorkspaceRoot, resolveWorkspaceRoot, userDataDir, type WorkspaceLocation } from './libs/user-paths';
+import { ensureWorkspaceRoot, resolveWorkspaceRoot, getSkillsRoot, userDataDir, type WorkspaceLocation } from './libs/user-paths';
 import { readWorkspaceMap, writeWorkspaceMap } from './libs/workspace-map';
 import { readWorkspaceTextFile, resolveWorkspacePath, walkWorkspace } from './libs/workspaceFiles';
 import { artifactPreviewServer } from './services/artifact-preview-server';
 import { SkillManager } from './libs/skillManager';
+import { installSkillFromFolder, uninstallSkill } from './libs/skillInstall';
 import { McpManager } from './libs/mcpManager';
 import { McpStore } from './libs/mcpStore';
 import type {
@@ -69,6 +70,7 @@ import type {
   DarvinMessage,
   DarvinPermissionResponse,
   DarvinPickAttachmentsResponse,
+  DarvinPickSkillFolderResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
   DarvinReadFileDataUrlResponse,
@@ -643,28 +645,16 @@ ipcMain.handle(
   },
 );
 
-// install / uninstall / upgrade / getDetails 全部是 v0 stub。
-// 这里只暴露 IPC 通道让 renderer 流程跑通，UI 上提示「未实现」。
+// install: 从用户选的本地目录复制到 <UserConfigDir>/darvin-cowork/darvin-agent/skills/
+// 然后 rescan 让 chokidar + in-memory Map 一致。
 ipcMain.handle(
   'darvin:install_skill',
   async (_e, req: { source: string }): Promise<DarvinInstallSkillResponse> => {
     const source = req?.source ?? '';
-    // stub:返回一个空 skill 记录让 renderer 走完「成功」分支
-    return {
-      skill: {
-        id: `pending-${Date.now()}`,
-        name: source.split('/').pop() || 'pending',
-        description: `未实现：从 ${source} 装`,
-        enabled: true,
-        userInvocable: true,
-        isOfficial: false,
-        isBuiltIn: false,
-        path: source,
-        source: 'user',
-        updatedAt: Date.now(),
-      },
-      riskLevel: 'safe',
-    };
+    if (!source) throw new Error('source required');
+    const result = await installSkillFromFolder(source, getSkillsRoot());
+    await skillManager.rescan();
+    return result;
   },
 );
 
@@ -672,7 +662,9 @@ ipcMain.handle(
   'darvin:uninstall_skill',
   async (_e, req: { skillId: string }): Promise<DarvinUninstallSkillResponse> => {
     if (!req?.skillId) return { ok: false };
-    return { ok: true };
+    const removed = await uninstallSkill(req.skillId, getSkillsRoot());
+    if (removed) await skillManager.rescan();
+    return { ok: removed };
   },
 );
 
@@ -842,6 +834,17 @@ ipcMain.handle('darvin:pick_attachments', async (): Promise<DarvinPickAttachment
     }
   }
   return { attachments };
+});
+
+ipcMain.handle('darvin:pick_skill_folder', async (): Promise<DarvinPickSkillFolderResponse> => {
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  if (!win) return { canceled: true };
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择 skill 目录（包含 SKILL.md 的文件夹）',
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+  return { canceled: false, path: result.filePaths[0] };
 });
 
 ipcMain.handle('darvin:permission_response', async (_e, req: DarvinPermissionResponse): Promise<void> => {

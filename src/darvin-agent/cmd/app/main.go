@@ -221,8 +221,9 @@ func main() {
 	// execution contexts against toolsReg (built-ins only); per-session
 	// skill/mcp tools are added by the plugins wired onto the factory below.
 	skillsResult := skills.Bootstrap(rootCtx, log.Logger, skills.BootstrapConfig{
-		UserDataDir: effectiveWorkdir,
-		ToolReg:     toolsReg,
+		ProjectSkillsDir: effectiveWorkdir,
+		GlobalConfigDir:  skills.DefaultGlobalConfigDir(),
+		ToolReg:          toolsReg,
 	})
 
 	ledger := gateway.NewEventLedger(log.Logger)

@@ -9,7 +9,8 @@ type SkillSource string
 
 const (
 	SkillSourceBundled SkillSource = "bundled"
-	SkillSourceUser    SkillSource = "user"
+	SkillSourceProject SkillSource = "project"
+	SkillSourceGlobal  SkillSource = "global"
 	SkillSourceGitHub  SkillSource = "github"
 	SkillSourceNPM     SkillSource = "npm"
 )
@@ -38,18 +39,6 @@ type SecurityReport struct {
 	Findings []SecurityFinding
 }
 
-type SkillInvocation struct {
-	UserInvocable          bool `yaml:"userInvocable"`
-	DisableModelInvocation bool `yaml:"disableModelInvocation"`
-}
-
-type Frontmatter struct {
-	Name        string          `yaml:"name"`
-	Description string          `yaml:"description"`
-	Version     string          `yaml:"version"`
-	Invocation  SkillInvocation `yaml:"invocation"`
-}
-
 type SkillEntry struct {
 	ID                     string
 	Name                   string
@@ -59,14 +48,28 @@ type SkillEntry struct {
 	Path                   string
 	Prompt                 string
 	Enabled                bool
-	IsBuiltIn              bool
-	IsOfficial             bool
 	UserInvocable          bool
 	DisableModelInvocation bool
 	RiskLevel              SecurityRiskLevel
 	RiskScore              int
 	Findings               []SecurityFinding
 	LoadedAt               time.Time
+
+	RunAs            string
+	AllowedTools     []string
+	Model            string
+	Effort           string
+	ReadOnly         bool
+	Color            string
+	Invocation       string
+	Triggers         []string
+	NegativeTriggers []string
+	AutoUse          string
+	NeedsFreshData   bool
+	Cost             string
+	Requires         []string
+	Profiles         []string
+	InvalidProfiles  []string
 }
 
 type SkillSourceLoader interface {

@@ -39,6 +39,7 @@ import type {
   DarvinMcpServerPatch,
   DarvinPermissionResponse,
   DarvinPickAttachmentsResponse,
+  DarvinPickSkillFolderResponse,
   DarvinPromptRequest,
   DarvinPromptResponse,
   DarvinReadFileDataUrlResponse,
@@ -197,6 +198,9 @@ const api: DarvinApi = {
   },
   async pickAttachments(): Promise<DarvinPickAttachmentsResponse> {
     return ipcRenderer.invoke('darvin:pick_attachments');
+  },
+  async pickSkillFolder(): Promise<DarvinPickSkillFolderResponse> {
+    return ipcRenderer.invoke('darvin:pick_skill_folder');
   },
   async readFileAsDataUrl(filePath: string): Promise<DarvinReadFileDataUrlResponse> {
     return ipcRenderer.invoke('darvin:read_file_data_url', filePath);

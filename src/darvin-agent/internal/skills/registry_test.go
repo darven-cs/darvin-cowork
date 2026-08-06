@@ -21,7 +21,7 @@ func TestRegistryLoadAndGet(t *testing.T) {
 	r := NewSkillRegistry()
 	src := &stubSource{entries: []*SkillEntry{
 		newEntry("alpha", "bundled"),
-		newEntry("beta", "user"),
+		newEntry("beta", "project"),
 	}}
 	if err := r.Load(context.Background(), []SkillSourceLoader{src}); err != nil {
 		t.Fatal(err)
@@ -34,16 +34,16 @@ func TestRegistryLoadAndGet(t *testing.T) {
 	}
 }
 
-func TestRegistryUserOverridesBundled(t *testing.T) {
+func TestRegistryProjectOverridesBundled(t *testing.T) {
 	r := NewSkillRegistry()
 	bundled := &stubSource{entries: []*SkillEntry{newEntry("alpha", "bundled")}}
-	user := &stubSource{entries: []*SkillEntry{newEntry("alpha", "user")}}
-	if err := r.Load(context.Background(), []SkillSourceLoader{bundled, user}); err != nil {
+	project := &stubSource{entries: []*SkillEntry{newEntry("alpha", "project")}}
+	if err := r.Load(context.Background(), []SkillSourceLoader{bundled, project}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := r.Get("alpha")
-	if got.Source != SkillSourceUser {
-		t.Fatalf("Source = %q, want user", got.Source)
+	if got.Source != SkillSourceProject {
+		t.Fatalf("Source = %q, want project", got.Source)
 	}
 }
 
@@ -86,7 +86,7 @@ func TestRegistryListBySource(t *testing.T) {
 	r := NewSkillRegistry()
 	src := &stubSource{entries: []*SkillEntry{
 		newEntry("a", "bundled"),
-		newEntry("b", "user"),
+		newEntry("b", "project"),
 	}}
 	if err := r.Load(context.Background(), []SkillSourceLoader{src}); err != nil {
 		t.Fatal(err)

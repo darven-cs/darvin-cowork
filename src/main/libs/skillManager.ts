@@ -206,6 +206,13 @@ export class SkillManager {
     this.subscribeClient();
   }
 
+  /** install / uninstall 后由 main 显式触发一次重扫，让 in-memory Map 与
+   * chokidar 推送结果一致。 */
+  async rescan(): Promise<void> {
+    await this.reloadFromDisk();
+    this.broadcast();
+  }
+
   async list(): Promise<DarvinListSkillsResponse> {
     return { skills: Array.from(this.skills.values()) };
   }
