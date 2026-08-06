@@ -10,6 +10,8 @@
  */
 
 import BetterSqlite3, { type Database as BetterSqliteDb } from 'better-sqlite3';
+import fs from 'node:fs';
+import path from 'node:path';
 import type {
   DarvinMcpServer,
   DarvinMcpServerCreate,
@@ -44,6 +46,7 @@ export interface McpLaunchResolutionRow {
  *  mcp 表缺失会让 bootstrap 退化为空 list，main 选择 warn + 继续。
  */
 export function openMcpStoreDb(file: string): BetterSqliteDb {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new BetterSqlite3(file);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');

@@ -21,7 +21,8 @@
 import { app, BrowserWindow } from 'electron';
 import { watch as chokidarWatch, type FSWatcher } from 'chokidar';
 import BetterSqlite3, { type Database as BetterSqliteDb } from 'better-sqlite3';
-import fs from 'node:fs/promises';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type {
   DarvinListSkillsResponse,
@@ -57,6 +58,7 @@ const BUNDLED_SKILLS: ReadonlyArray<{
  * 是否 surface 给用户——skills bootstrap 的失败不阻塞主进程启动。
  */
 function openSkillStateDb(file: string): BetterSqliteDb {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new BetterSqlite3(file);
   db.pragma('journal_mode = WAL');
   db.exec(`
@@ -127,7 +129,7 @@ async function readUserSkills(root: string): Promise<DarvinSkillSummary[]> {
   const out: DarvinSkillSummary[] = [];
   let entries: string[];
   try {
-    entries = await fs.readdir(root);
+    entries = await fsp.readdir(root);
   } catch {
     return out;
   }
@@ -135,10 +137,10 @@ async function readUserSkills(root: string): Promise<DarvinSkillSummary[]> {
     if (sub.startsWith('.')) continue;
     const skillMd = path.join(root, sub, 'SKILL.md');
     try {
-      const raw = await fs.readFile(skillMd, 'utf8');
+      const raw = await fsp.readFile(skillMd, 'utf8');
       const fm = parseSkillFrontmatter(raw);
       if (!fm) continue;
-      const st = await fs.stat(skillMd);
+      const st = await fsp.stat(skillMd);
       out.push({
         id: fm.name,
         name: fm.name,
@@ -255,7 +257,7 @@ export class SkillManager {
   }
 
   private async ensureSkillsDir(): Promise<void> {
-    await fs.mkdir(this.root, { recursive: true });
+    await fsp.mkdir(this.root, { recursive: true });
   }
 
   private async reloadFromDisk(): Promise<void> {
