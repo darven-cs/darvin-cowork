@@ -8,13 +8,13 @@ import (
 )
 
 func TestValidateArgsRequired(t *testing.T) {
-	schema := llm.ParameterSchema{
+	schema := MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"path": {Type: "string"},
 		},
 		Required: []string{"path"},
-	}
+	})
 	if err := validateArgs("t", map[string]any{}, schema); err == nil {
 		t.Error("expected missing-required error")
 	}
@@ -24,14 +24,14 @@ func TestValidateArgsRequired(t *testing.T) {
 }
 
 func TestValidateArgsTypeMismatch(t *testing.T) {
-	schema := llm.ParameterSchema{
+	schema := MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"n":  {Type: "integer"},
 			"b":  {Type: "boolean"},
 			"xs": {Type: "array"},
 		},
-	}
+	})
 	cases := map[string]any{
 		"n":  "not a number",
 		"b":  1,
@@ -47,12 +47,12 @@ func TestValidateArgsTypeMismatch(t *testing.T) {
 }
 
 func TestValidateArgsUnknown(t *testing.T) {
-	schema := llm.ParameterSchema{
+	schema := MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"known": {Type: "string"},
 		},
-	}
+	})
 	err := validateArgs("t", map[string]any{"known": "x", "extra": 1}, schema)
 	if err == nil {
 		t.Fatal("expected unknown-arg error")
@@ -65,21 +65,21 @@ func TestValidateArgsUnknown(t *testing.T) {
 func TestValidateArgsUnknownArgsHardReject(t *testing.T) {
 	// AdditionalProperties=false is the strict mode; undeclared fields must
 	// be rejected even when the schema declares it explicitly.
-	schema := llm.ParameterSchema{
+	schema := MarshalSchema(llm.ParameterSchema{
 		Type:                 "object",
 		Properties:           map[string]llm.ParameterProperty{"known": {Type: "string"}},
 		AdditionalProperties: ptrBool(false),
-	}
+	})
 	if err := validateArgs("t", map[string]any{"known": "x", "bogus": true}, schema); err == nil {
 		t.Error("expected hard reject for undeclared arg with AdditionalProperties=false")
 	}
 }
 
 func TestValidateArgsEnum(t *testing.T) {
-	schema := llm.ParameterSchema{
+	schema := MarshalSchema(llm.ParameterSchema{
 		Type:       "object",
 		Properties: map[string]llm.ParameterProperty{"command": {Type: "string", Enum: []string{"ls", "cat"}}},
-	}
+	})
 	if err := validateArgs("shell", map[string]any{"command": "ls"}, schema); err != nil {
 		t.Errorf("valid enum value rejected: %v", err)
 	}
@@ -90,12 +90,12 @@ func TestValidateArgsEnum(t *testing.T) {
 }
 
 func TestValidateArgsRange(t *testing.T) {
-	schema := llm.ParameterSchema{
+	schema := MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"limit": {Type: "integer", Minimum: ptrFloat64(0), Maximum: ptrFloat64(100)},
 		},
-	}
+	})
 	if err := validateArgs("read_file", map[string]any{"limit": float64(50)}, schema); err != nil {
 		t.Errorf("in-range value rejected: %v", err)
 	}
@@ -108,12 +108,12 @@ func TestValidateArgsRange(t *testing.T) {
 }
 
 func TestValidateArgsMaxLength(t *testing.T) {
-	schema := llm.ParameterSchema{
+	schema := MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"content": {Type: "string", MaxLength: ptrInt(5)},
 		},
-	}
+	})
 	if err := validateArgs("write_file", map[string]any{"content": "abc"}, schema); err != nil {
 		t.Errorf("short content rejected: %v", err)
 	}
@@ -123,12 +123,12 @@ func TestValidateArgsMaxLength(t *testing.T) {
 }
 
 func TestValidateArgsPattern(t *testing.T) {
-	schema := llm.ParameterSchema{
+	schema := MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"name": {Type: "string", Pattern: "^[a-z0-9_-]+$"},
 		},
-	}
+	})
 	if err := validateArgs("t", map[string]any{"name": "good_name-1"}, schema); err != nil {
 		t.Errorf("valid pattern rejected: %v", err)
 	}
@@ -138,12 +138,12 @@ func TestValidateArgsPattern(t *testing.T) {
 }
 
 func TestValidateArgsItems(t *testing.T) {
-	schema := llm.ParameterSchema{
+	schema := MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"args": {Type: "array", Items: &llm.ParameterProperty{Type: "string"}},
 		},
-	}
+	})
 	if err := validateArgs("shell", map[string]any{"args": []any{"-la"}}, schema); err != nil {
 		t.Errorf("valid array rejected: %v", err)
 	}

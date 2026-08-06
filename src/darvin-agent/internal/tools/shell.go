@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -61,8 +62,8 @@ func (t *shellTool) Name() string { return "shell" }
 func (t *shellTool) Description() string {
 	return "Run a single shell command. The command must be in the allowlist; the working directory must be inside the workspace. Use timeout_ms to cap runtime (default 30s, max 5min)."
 }
-func (t *shellTool) Parameters() llm.ParameterSchema {
-	return llm.ParameterSchema{
+func (t *shellTool) Parameters() json.RawMessage {
+	return MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"command": {
@@ -77,7 +78,7 @@ func (t *shellTool) Parameters() llm.ParameterSchema {
 		},
 		Required:             []string{"command", "args"},
 		AdditionalProperties: ptrBool(false),
-	}
+	})
 }
 
 // allowlistSlice returns the configured allowlist as a sorted slice so the

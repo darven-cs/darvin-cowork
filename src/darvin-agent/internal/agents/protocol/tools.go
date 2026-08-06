@@ -1,6 +1,9 @@
 package protocol
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // Result is what a tool returns to the agent loop. IsError=true means the
 // tool refused / failed; the LLM will see the Content as a tool message
@@ -14,10 +17,13 @@ type Result struct {
 // Tool is the contract every tool implements. Execute must respect ctx —
 // if the caller's context is cancelled, Execute should return promptly
 // with a Result whose Content indicates cancellation.
+//
+// Parameters returns raw JSON Schema bytes so every JSON Schema construct
+// is preserved through to providers and validators.
 type Tool interface {
 	Name() string
 	Description() string
-	Parameters() ParameterSchema
+	Parameters() json.RawMessage
 	Execute(ctx context.Context, args map[string]any) Result
 }
 

@@ -19,7 +19,6 @@ import (
 	"darvin-cowork/backend/internal/agents/executor"
 	"darvin-cowork/backend/internal/agents/queue"
 	"darvin-cowork/backend/internal/agents/store"
-	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/mcp"
 	"darvin-cowork/backend/internal/skills"
 )
@@ -1267,20 +1266,19 @@ func handleListTools(id json.RawMessage, params json.RawMessage, h *Handler) *Re
 			Name:        e.Tool.Name(),
 			Kind:        string(e.Kind),
 			Description: e.Tool.Description(),
-			InputSchema: parameterSchemaToMap(e.Tool.Parameters()),
+			InputSchema: rawSchemaToMap(e.Tool.Parameters()),
 			Metadata:    e.Metadata,
 		})
 	}
 	return successResp(id, ListToolsResult{Tools: out})
 }
 
-func parameterSchemaToMap(ps llm.ParameterSchema) map[string]any {
-	b, err := json.Marshal(ps)
-	if err != nil {
-		return nil
+func rawSchemaToMap(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return map[string]any{"type": "object"}
 	}
 	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
+	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil
 	}
 	return m

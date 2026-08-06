@@ -221,13 +221,13 @@ func TestConvertTools_Shape(t *testing.T) {
 	got, err := convertTools([]llm.Tool{{
 		Name:        "f",
 		Description: "do something",
-		Parameters: llm.ParameterSchema{
+		Parameters: mustMarshal(llm.ParameterSchema{
 			Type: "object",
 			Properties: map[string]llm.ParameterProperty{
 				"x": {Type: "string"},
 			},
 			Required: []string{"x"},
-		},
+		}),
 	}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -238,6 +238,14 @@ func TestConvertTools_Shape(t *testing.T) {
 	if got[0]["input_schema"] == nil {
 		t.Errorf("input_schema missing")
 	}
+}
+
+func mustMarshal(s llm.ParameterSchema) json.RawMessage {
+	b, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
 
 func TestConvertToolChoice(t *testing.T) {
@@ -359,12 +367,12 @@ func TestBuildRequest_RoundTrip(t *testing.T) {
 		Tools: []llm.Tool{{
 			Name:        "f",
 			Description: "do x",
-			Parameters: llm.ParameterSchema{
+			Parameters: mustMarshal(llm.ParameterSchema{
 				Type: "object",
 				Properties: map[string]llm.ParameterProperty{
 					"q": {Type: "string"},
 				},
-			},
+			}),
 		}},
 		ToolChoice: llm.ToolChoice{Type: "auto"},
 	}

@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -148,8 +149,12 @@ type echoTool struct{}
 
 func (echoTool) Name() string        { return "echo" }
 func (echoTool) Description() string { return "echo args back" }
-func (echoTool) Parameters() llm.ParameterSchema {
-	return llm.ParameterSchema{Type: "object", Properties: map[string]llm.ParameterProperty{"text": {Type: "string"}}, Required: []string{"text"}}
+func (echoTool) Parameters() json.RawMessage {
+	return tool.MarshalSchema(llm.ParameterSchema{
+		Type:       "object",
+		Properties: map[string]llm.ParameterProperty{"text": {Type: "string"}},
+		Required:   []string{"text"},
+	})
 }
 func (echoTool) Execute(_ context.Context, args map[string]any) tool.Result {
 	return tool.Result{Content: "echoed:" + args["text"].(string)}

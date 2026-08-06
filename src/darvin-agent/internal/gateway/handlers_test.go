@@ -1219,8 +1219,8 @@ type stubGatewayTool struct{ name string }
 
 func (s *stubGatewayTool) Name() string        { return s.name }
 func (s *stubGatewayTool) Description() string { return "stub tool" }
-func (s *stubGatewayTool) Parameters() llm.ParameterSchema {
-	return llm.ParameterSchema{Type: "object"}
+func (s *stubGatewayTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
 }
 func (s *stubGatewayTool) Execute(_ context.Context, _ map[string]any) tool.Result {
 	return tool.Result{}

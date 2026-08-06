@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"darvin-cowork/backend/internal/llm"
@@ -65,13 +66,13 @@ func (t *SkillTool) Name() string { return skillToolName(t.skillEntry.ID) }
 func (t *SkillTool) Description() string { return t.skillEntry.Description }
 
 // Parameters declares a single free-form args string.
-func (t *SkillTool) Parameters() llm.ParameterSchema {
-	return llm.ParameterSchema{
+func (t *SkillTool) Parameters() json.RawMessage {
+	return tool.MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"args": {Type: "string", Description: "Free-form arguments passed to the skill"},
 		},
-	}
+	})
 }
 
 // Execute resolves the skill and reports the resolved context. Errors

@@ -2,17 +2,16 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
-
-	"darvin-cowork/backend/internal/llm"
 )
 
 type stubTool struct{ name string }
 
-func (s *stubTool) Name() string                    { return s.name }
-func (s *stubTool) Description() string             { return "stub" }
-func (s *stubTool) Parameters() llm.ParameterSchema { return llm.ParameterSchema{Type: "object"} }
+func (s *stubTool) Name() string                  { return s.name }
+func (s *stubTool) Description() string           { return "stub" }
+func (s *stubTool) Parameters() json.RawMessage   { return json.RawMessage(`{"type":"object"}`) }
 func (s *stubTool) Execute(_ context.Context, _ map[string]any) Result {
 	return Result{}
 }

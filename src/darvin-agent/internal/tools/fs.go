@@ -3,6 +3,7 @@ package tool
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,8 +30,8 @@ func (t *readFileTool) Name() string { return "read_file" }
 func (t *readFileTool) Description() string {
 	return "Read the contents of a UTF-8 text file. Optional limit/offset slice large files."
 }
-func (t *readFileTool) Parameters() llm.ParameterSchema {
-	return llm.ParameterSchema{
+func (t *readFileTool) Parameters() json.RawMessage {
+	return MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"path":   {Type: "string", Description: "Path relative to the workspace, or absolute within the workspace."},
@@ -39,7 +40,7 @@ func (t *readFileTool) Parameters() llm.ParameterSchema {
 		},
 		Required:             []string{"path"},
 		AdditionalProperties: ptrBool(false),
-	}
+	})
 }
 
 func (t *readFileTool) Execute(_ context.Context, args map[string]any) Result {
@@ -82,8 +83,8 @@ func (t *writeFileTool) Name() string { return "write_file" }
 func (t *writeFileTool) Description() string {
 	return "Write UTF-8 text content to a file, overwriting any existing content. Creates parent directories as needed."
 }
-func (t *writeFileTool) Parameters() llm.ParameterSchema {
-	return llm.ParameterSchema{
+func (t *writeFileTool) Parameters() json.RawMessage {
+	return MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"path":    {Type: "string", Description: "Destination path."},
@@ -91,7 +92,7 @@ func (t *writeFileTool) Parameters() llm.ParameterSchema {
 		},
 		Required:             []string{"path", "content"},
 		AdditionalProperties: ptrBool(false),
-	}
+	})
 }
 
 func (t *writeFileTool) Execute(_ context.Context, args map[string]any) Result {
@@ -122,8 +123,8 @@ func (t *editFileTool) Name() string { return "edit_file" }
 func (t *editFileTool) Description() string {
 	return "Find old_text in a file and replace it with new_text. By default replaces the first occurrence; set replace_all=true to replace every occurrence."
 }
-func (t *editFileTool) Parameters() llm.ParameterSchema {
-	return llm.ParameterSchema{
+func (t *editFileTool) Parameters() json.RawMessage {
+	return MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"path":        {Type: "string", Description: "File to edit."},
@@ -133,7 +134,7 @@ func (t *editFileTool) Parameters() llm.ParameterSchema {
 		},
 		Required:             []string{"path", "old_text", "new_text"},
 		AdditionalProperties: ptrBool(false),
-	}
+	})
 }
 
 func (t *editFileTool) Execute(_ context.Context, args map[string]any) Result {
@@ -184,8 +185,8 @@ func (t *listDirTool) Name() string { return "list_dir" }
 func (t *listDirTool) Description() string {
 	return "List immediate entries under a directory. Optional max_depth walks sub-directories up to N levels (1-based, 1 = immediate children)."
 }
-func (t *listDirTool) Parameters() llm.ParameterSchema {
-	return llm.ParameterSchema{
+func (t *listDirTool) Parameters() json.RawMessage {
+	return MarshalSchema(llm.ParameterSchema{
 		Type: "object",
 		Properties: map[string]llm.ParameterProperty{
 			"path":      {Type: "string", Description: "Directory to list."},
@@ -193,7 +194,7 @@ func (t *listDirTool) Parameters() llm.ParameterSchema {
 		},
 		Required:             []string{"path"},
 		AdditionalProperties: ptrBool(false),
-	}
+	})
 }
 
 func (t *listDirTool) Execute(_ context.Context, args map[string]any) Result {

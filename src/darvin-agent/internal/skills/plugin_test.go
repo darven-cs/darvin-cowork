@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"darvin-cowork/backend/internal/tools"
@@ -70,11 +71,16 @@ func TestSkillToolName(t *testing.T) {
 
 func TestSkillToolParameters(t *testing.T) {
 	st := &SkillTool{skillEntry: &SkillEntry{ID: "x"}}
-	ps := st.Parameters()
-	if ps.Type != "object" {
-		t.Errorf("Type = %q, want object", ps.Type)
+	raw := st.Parameters()
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("Parameters() must be valid JSON: %v (raw=%s)", err, raw)
 	}
-	if _, ok := ps.Properties["args"]; !ok {
+	if m["type"] != "object" {
+		t.Errorf("type = %q, want object", m["type"])
+	}
+	props, _ := m["properties"].(map[string]any)
+	if _, ok := props["args"]; !ok {
 		t.Error("missing args property")
 	}
 }

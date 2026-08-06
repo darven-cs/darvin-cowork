@@ -3,9 +3,10 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 
-	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/mcp"
+	"darvin-cowork/backend/internal/provider"
 )
 
 // McpToolSource is the subset of the MCP registry the plugin needs. The
@@ -31,14 +32,38 @@ func NewMcpPlugin(src McpToolSource) *McpPlugin {
 // PluginID returns the owning identifier used for UnregisterByPlugin.
 func (p *McpPlugin) PluginID() string { return p.pluginID }
 
-// Register adds one McpTool per tool of each connected server.
+// Register adds one McpTool per connected server's tool. Tools whose schemas
+// fail CanonicalizeSchema + ValidateToolSchema are silently skipped — the MCP
+// server may expose other valid tools; a single broken schema should not
+// remove the whole server from the tool surface.
 func (p *McpPlugin) Register(reg ToolRegistrar) error {
 	for _, status := range p.source.List() {
 		if !status.Connected {
 			continue
 		}
 		for _, td := range status.Tools {
-			t := &McpTool{serverID: status.ServerID, toolDesc: td, source: p.source}
+			raw, err := json.Marshal(td.InputSchema)
+			if err != nil {
+				continue
+			}
+			canon := provider.CanonicalizeSchema(raw)
+			if err := provider.ValidateToolSchema(canon); err != nil {
+				slog.Info("mcp tool schema invalid, skipped",
+					"server", status.ServerID,
+					"tool", td.Name,
+					"error", truncate(err.Error(), 200))
+				continue
+			}
+			var stored json.RawMessage = canon
+			if len(stored) == 0 {
+				stored = json.RawMessage(`{"type":"object"}`)
+			}
+			t := &McpTool{
+				serverID:     status.ServerID,
+				toolDesc:     td,
+				source:       p.source,
+				parametersRaw: stored,
+			}
 			if err := reg.RegisterTool(t, KindMcp, map[string]any{
 				"pluginID":    p.pluginID,
 				"mcpServerID": status.ServerID,
@@ -60,15 +85,18 @@ func (p *McpPlugin) Unregister(reg ToolRegistrar) error {
 // Execute forwards to the MCP source, which routes to the owning
 // server's client.
 type McpTool struct {
-	serverID string
-	toolDesc mcp.ToolDescriptor
-	source   McpToolSource
+	serverID      string
+	toolDesc      mcp.ToolDescriptor
+	source        McpToolSource
+	parametersRaw json.RawMessage // canonical+validated bytes, set at Register
 }
 
 // mcpToolName maps a server + tool to its tool name. The separator is
 // double-underscore (mcp__<server>__<tool>) so the name only contains
 // [a-zA-Z0-9_-], which Anthropic's API requires for tool names.
-func mcpToolName(serverID, toolName string) string { return "mcp__" + serverID + "__" + toolName }
+func mcpToolName(serverID, toolName string) string {
+	return "mcp__" + serverID + "__" + toolName
+}
 
 // Name returns the tool name (mcp__<server>__<tool>).
 func (t *McpTool) Name() string { return mcpToolName(t.serverID, t.toolDesc.Name) }
@@ -76,23 +104,16 @@ func (t *McpTool) Name() string { return mcpToolName(t.serverID, t.toolDesc.Name
 // Description returns the MCP tool's description for the LLM.
 func (t *McpTool) Description() string { return t.toolDesc.Description }
 
-// Parameters converts the MCP JSON schema to the provider schema. The
-// conversion is best-effort: fields that do not map onto the minimal
-// schema are dropped, and an unconvertible schema falls back to a bare
-// object so the LLM still sees the tool.
-func (t *McpTool) Parameters() protocol.ParameterSchema {
-	if len(t.toolDesc.InputSchema) == 0 {
-		return protocol.ParameterSchema{Type: "object"}
+// Parameters returns the canonical+validated JSON Schema bytes cached at
+// Register time. Tools with structurally broken schemas are filtered out
+// during Register; this method only sees valid schemas. The raw bytes
+// preserve every JSON Schema construct (anyOf, $ref, nested properties,
+// additionalProperties on items) so nothing is silently truncated.
+func (t *McpTool) Parameters() json.RawMessage {
+	if len(t.parametersRaw) == 0 {
+		return json.RawMessage(`{"type":"object"}`)
 	}
-	b, err := json.Marshal(t.toolDesc.InputSchema)
-	if err != nil {
-		return protocol.ParameterSchema{Type: "object"}
-	}
-	var ps protocol.ParameterSchema
-	if err := json.Unmarshal(b, &ps); err != nil {
-		return protocol.ParameterSchema{Type: "object"}
-	}
-	return ps
+	return t.parametersRaw
 }
 
 // Execute calls the MCP server. Transport errors surface as an IsError
@@ -107,4 +128,13 @@ func (t *McpTool) Execute(ctx context.Context, args map[string]any) Result {
 		content += c.Text
 	}
 	return Result{Content: content, IsError: res.IsError}
+}
+
+// truncate returns s truncated to maxLen runes, appending "..." if truncated.
+func truncate(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen-3]) + "..."
 }

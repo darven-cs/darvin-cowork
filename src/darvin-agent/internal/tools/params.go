@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -8,12 +9,24 @@ import (
 	"darvin-cowork/backend/internal/llm"
 )
 
+// MarshalSchema serialises a ParameterSchema to raw JSON bytes. Built-in
+// tools use this to keep the existing struct-literal authoring style while
+// feeding the byte-oriented Tool.Parameters / ToolSpec.Parameters contract.
+func MarshalSchema(s llm.ParameterSchema) json.RawMessage {
+	b, _ := json.Marshal(s)
+	return b
+}
+
 // validateArgs checks that args satisfies schema. Supports type=object with
 // property types in {string,number,integer,boolean,array,object}, a required
 // list, and per-property enum / numeric range / string length / pattern /
 // array items constraints. Unknown (undeclared) args are a hard rejection —
 // a model passing a misspelled field gets an error, not a silent ignore.
-func validateArgs(name string, args map[string]any, schema llm.ParameterSchema) error {
+func validateArgs(name string, args map[string]any, raw json.RawMessage) error {
+	var schema llm.ParameterSchema
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return fmt.Errorf("tool %q: schema unparseable: %w", name, err)
+	}
 	if schema.Type != "" && schema.Type != "object" {
 		return fmt.Errorf("tool %q: only object schemas supported, got %q", name, schema.Type)
 	}

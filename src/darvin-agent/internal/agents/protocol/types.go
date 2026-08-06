@@ -1,5 +1,7 @@
 package protocol
 
+import "encoding/json"
+
 // Role identifies the author of a Message in a conversation.
 type Role string
 
@@ -42,13 +44,16 @@ type ImageBlock struct {
 
 // ToolSpec describes a function the model is allowed to invoke.
 //
-// Parameters follows JSON Schema (Draft 2020-12 subset) and is passed
-// through to each provider with provider-specific field renames.
+// Parameters is the raw JSON Schema for the function arguments, carried
+// end-to-end so no JSON Schema construct (anyOf, $ref, nested properties,
+// additionalProperties on items, etc.) can be silently truncated by an
+// intermediate struct roundtrip. Built-in tools construct it via the
+// MarshalSchema helper; McpTool caches the canonical+validated bytes.
 type ToolSpec struct {
 	Type        string          // always "function" for now
 	Name        string          // unique within a request
 	Description string          // shown to the model for selection
-	Parameters  ParameterSchema // JSON Schema for the function arguments
+	Parameters  json.RawMessage // JSON Schema for the function arguments
 }
 
 // ParameterSchema is a minimal JSON Schema subset accepted across providers.
