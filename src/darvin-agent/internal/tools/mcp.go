@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 
+	"darvin-cowork/backend/internal/jsonschema"
 	"darvin-cowork/backend/internal/mcp"
-	"darvin-cowork/backend/internal/provider"
 )
 
 // McpToolSource is the subset of the MCP registry the plugin needs. The
@@ -46,8 +46,8 @@ func (p *McpPlugin) Register(reg ToolRegistrar) error {
 			if err != nil {
 				continue
 			}
-			canon := provider.CanonicalizeSchema(raw)
-			if err := provider.ValidateToolSchema(canon); err != nil {
+			canon := jsonschema.CanonicalizeSchema(raw)
+			if err := jsonschema.ValidateToolSchema(canon); err != nil {
 				slog.Info("mcp tool schema invalid, skipped",
 					"server", status.ServerID,
 					"tool", td.Name,
