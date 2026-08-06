@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"embed"
 	"fmt"
 	"os"
 	"os/signal"
@@ -30,9 +29,6 @@ import (
 	// with llm.NewProvider's name-based factory registry.
 	_ "darvin-cowork/backend/internal/llm/anthropic"
 )
-
-//go:embed resources/skills-bundled
-var skillsBundled embed.FS
 
 // configPath resolves config.yaml in three places, in order:
 //  1. $DARVIN_CONFIG, if set (lets Electron point at a project-local file)
@@ -225,7 +221,6 @@ func main() {
 	// execution contexts against toolsReg (built-ins only); per-session
 	// skill/mcp tools are added by the plugins wired onto the factory below.
 	skillsResult := skills.Bootstrap(rootCtx, log.Logger, skills.BootstrapConfig{
-		Bundle:      skills.Bundle{FS: skillsBundled, Dir: "resources/skills-bundled"},
 		UserDataDir: effectiveWorkdir,
 		ToolReg:     toolsReg,
 	})

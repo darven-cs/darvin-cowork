@@ -33,25 +33,21 @@ import { DarvinPushEvent } from '../../shared/darvin-api';
 import { getSkillsRoot, skillStateDbPath } from './user-paths';
 import type { AgentClient } from '../runtime/client';
 
+// Former v0 bundled-skill ids — cleaned up on first open so SQLite state
+// from old installs does not leak back into the renderer after the
+// bundled skills were dropped from the loader.
+const RETIRED_BUNDLED_SKILL_IDS = [
+  'code-review',
+  'api-design',
+  'testing',
+  'web-search',
+  'docx',
+];
+
 interface Logger {
   warn(msg: string, ...args: unknown[]): void;
   info(msg: string, ...args: unknown[]): void;
 }
-
-/** Bundled skill 的元数据；SKILL.md 正文在 Go 端 embed 解析。 */
-const BUNDLED_SKILLS: ReadonlyArray<{
-  id: string;
-  name: string;
-  description: string;
-  version: string;
-  userInvocable: boolean;
-}> = [
-  { id: 'code-review', name: 'Code Review', description: '对代码做静态审查并给出修改建议', version: '0.1.0', userInvocable: true },
-  { id: 'api-design', name: 'API Design', description: '检查 REST API 设计规范（命名 / 状态码 / 错误处理）', version: '0.1.0', userInvocable: true },
-  { id: 'testing', name: 'Testing', description: '给出单元测试覆盖建议', version: '0.1.0', userInvocable: true },
-  { id: 'web-search', name: 'Web Search', description: '联网搜索最新信息', version: '0.1.0', userInvocable: true },
-  { id: 'docx', name: 'Word Document', description: '创建 / 修改 Word 文档', version: '0.1.0', userInvocable: true },
-];
 
 /**
  * 打开（或惰性创建）main 端 skill_state 表。失败抛错，让 caller 决定
@@ -68,6 +64,10 @@ function openSkillStateDb(file: string): BetterSqliteDb {
       updated_at INTEGER NOT NULL
     );
   `);
+  if (RETIRED_BUNDLED_SKILL_IDS.length > 0) {
+    const placeholders = RETIRED_BUNDLED_SKILL_IDS.map(() => '?').join(',');
+    db.prepare(`DELETE FROM skill_state WHERE skill_id IN (${placeholders})`).run(...RETIRED_BUNDLED_SKILL_IDS);
+  }
   return db;
 }
 
@@ -162,22 +162,6 @@ async function readUserSkills(root: string): Promise<DarvinSkillSummary[]> {
   return out;
 }
 
-function bundledSummaries(): DarvinSkillSummary[] {
-  return BUNDLED_SKILLS.map((b) => ({
-    id: b.id,
-    name: b.name,
-    description: b.description,
-    version: b.version,
-    enabled: true,
-    userInvocable: b.userInvocable,
-    isOfficial: true,
-    isBuiltIn: true,
-    path: `bundled://${b.id}`,
-    source: 'bundled',
-    updatedAt: 0,
-  }));
-}
-
 export interface SkillManagerOptions {
   client: AgentClient;
   logger?: Logger;
@@ -262,9 +246,6 @@ export class SkillManager {
 
   private async reloadFromDisk(): Promise<void> {
     const next = new Map<string, DarvinSkillSummary>();
-    for (const s of bundledSummaries()) {
-      next.set(s.id, s);
-    }
     const user = await readUserSkills(this.root);
     for (const s of user) {
       // user 同 id 覆盖 bundled
