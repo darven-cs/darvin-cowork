@@ -82,6 +82,7 @@ export function openMcpStoreDb(file: string): BetterSqliteDb {
       updated_at         INTEGER NOT NULL
     );
   `);
+  db.prepare(`DELETE FROM mcp_servers WHERE is_built_in = 1`).run();
   return db;
 }
 
@@ -254,46 +255,6 @@ export class McpStore {
         now,
       );
     return { ...server, createdAt: now, updatedAt: now };
-  }
-
-  /**
-   * bundled filesystem 类固定 server 的幂等 upsert：已存在则按当前入参
-   * 覆盖（enabled / transport / config），createdAt 保留。v0 启动期
-   * 用以保证 bundled server 总在表里。
-   */
-  upsertBundledServer(
-    server: Omit<DarvinMcpServer, 'createdAt' | 'updatedAt'>,
-  ): DarvinMcpServer {
-    const existing = this.getServer(server.id);
-    if (existing) {
-      const now = Date.now();
-      const config = {
-        command: server.command,
-        args: server.args,
-        env: server.env,
-        url: server.url,
-        headers: server.headers,
-        githubUrl: server.githubUrl,
-        registryId: server.registryId,
-      };
-      this.db
-        .prepare(
-          `UPDATE mcp_servers
-           SET name = ?, description = ?, enabled = ?, transport_type = ?, config_json = ?, updated_at = ?
-           WHERE id = ?`,
-        )
-        .run(
-          server.name,
-          server.description,
-          server.enabled ? 1 : 0,
-          server.transportType,
-          JSON.stringify(config),
-          now,
-          server.id,
-        );
-      return { ...server, createdAt: existing.createdAt, updatedAt: now };
-    }
-    return this.createServer(server);
   }
 
   getServer(id: string): DarvinMcpServer | null {

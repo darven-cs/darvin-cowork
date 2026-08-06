@@ -77,13 +77,12 @@ beforeEach(() => {
 });
 
 describe('mcpManager.bootstrap', () => {
-  it('ensures bundled filesystem + pushes all servers to Go', async () => {
+  it('starts with empty server list when SQLite is fresh', async () => {
     await mgr.bootstrap();
-    const list = mgr.list();
-    expect(list.find((s) => s.id === 'filesystem')).toBeDefined();
+    expect(mgr.list()).toEqual([]);
     expect(client.mcp.bootstrap).toHaveBeenCalledOnce();
     const arg = (client.mcp.bootstrap as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(arg.servers.length).toBeGreaterThan(0);
+    expect(arg.servers).toEqual([]);
   });
 
   it('is idempotent across repeat calls', async () => {
@@ -92,11 +91,11 @@ describe('mcpManager.bootstrap', () => {
     expect(client.mcp.bootstrap).toHaveBeenCalledOnce();
   });
 
-  it('skips Go push when agent offline but still seeds bundled server', async () => {
+  it('skips Go push when agent offline', async () => {
     client.isConnected = () => false;
     await mgr.bootstrap();
     expect(client.mcp.bootstrap).not.toHaveBeenCalled();
-    expect(mgr.list().find((s) => s.id === 'filesystem')).toBeDefined();
+    expect(mgr.list()).toEqual([]);
   });
 });
 
@@ -217,7 +216,7 @@ describe('mcpManager notifications', () => {
 describe('mcpManager test / retry', () => {
   it('testConnection proxies to Go', async () => {
     await mgr.bootstrap();
-    const r = await mgr.testConnection({ id: 'filesystem' });
+    const r = await mgr.testConnection({ id: 'github' });
     expect(r.ok).toBe(true);
     expect(client.mcp.test).toHaveBeenCalled();
   });
@@ -225,14 +224,14 @@ describe('mcpManager test / retry', () => {
   it('testConnection returns ok=false when agent offline', async () => {
     await mgr.bootstrap();
     client.isConnected = () => false;
-    const r = await mgr.testConnection({ id: 'filesystem' });
+    const r = await mgr.testConnection({ id: 'github' });
     expect(r.ok).toBe(false);
     expect(r.error).toBe('agent offline');
   });
 
   it('retryResolution proxies to Go', async () => {
     await mgr.bootstrap();
-    const r = await mgr.retryResolution('filesystem');
+    const r = await mgr.retryResolution('github');
     expect(r.ok).toBe(true);
   });
 });

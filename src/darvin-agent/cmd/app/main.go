@@ -53,16 +53,6 @@ func configPath() string {
 }
 
 func main() {
-	// bundled filesystem MCP subcommand。`darvin-agent
-	// mcp-filesystem` 走 stdio 充当一个 JSON-RPC 2.0 MCP server,暴露
-	// list_directory / read_file / write_file 三个 tool。Root 由
-	// DARVIN_MCP_FS_ROOT 决定;缺省 cwd。launcher.go 把它当 stdio server
-	// 直接 spawn,不走 npx。
-	if len(os.Args) > 1 && os.Args[1] == "mcp-filesystem" {
-		runFilesystemMCP()
-		return
-	}
-
 	cfg, err := config.Load(configPath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
@@ -271,23 +261,6 @@ func main() {
 	mcpRegistry := mcp.NewRegistry(mcpResolver, mcp.NewInMemoryResolutionPersistence()).WithLogger(log.Logger)
 	if err := mcpRegistry.LoadStaleResolutions(rootCtx); err != nil {
 		log.Warn("mcp stale resolution scan failed", zap.Error(err))
-	}
-	// bundled filesystem：跟随 darvin-agent 二进制自己,永远 enabled。
-	// main 端 mcpManager.bootstrap 会幂等 upsert,这里同步注册避免 main
-	// 推 bootstrap 之前 Go 端没有 entry。
-	exe, _ := os.Executable()
-	if exe != "" {
-		_ = mcpRegistry.Register(rootCtx, mcp.ServerSpec{
-			ID:          "filesystem",
-			Name:        "Filesystem",
-			Description: "本地文件系统读写（bundled）",
-			Enabled:     true,
-			Transport:   mcp.TransportStdio,
-			Command:     exe,
-			Args:        []string{"mcp-filesystem"},
-			IsBuiltIn:   true,
-		})
-		log.Info("mcp bundled filesystem registered", zap.String("command", exe))
 	}
 
 	handler := gateway.NewHandler(sessions, ledger, steer, sqliteStore, msgStore, appState,

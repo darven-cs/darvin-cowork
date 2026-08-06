@@ -83,31 +83,21 @@ describe('mcpStore — server CRUD', () => {
     expect(store.loadAllResolutions()).toHaveLength(0);
   });
 
-  it('upsertBundledServer is idempotent and keeps createdAt', async () => {
-    const a = store.upsertBundledServer({
+  it('openMcpStoreDb drops pre-existing builtin rows on open', () => {
+    store.createServer({
       id: 'filesystem',
       name: 'Filesystem',
-      description: 'bundled',
+      description: 'legacy',
       enabled: true,
       isBuiltIn: true,
       transportType: 'stdio',
       command: 'darvin-agent',
       args: ['mcp-filesystem'],
     });
-    await new Promise((r) => setTimeout(r, 5));
-    const b = store.upsertBundledServer({
-      id: 'filesystem',
-      name: 'Filesystem',
-      description: 'bundled v2',
-      enabled: true,
-      isBuiltIn: true,
-      transportType: 'stdio',
-      command: 'darvin-agent',
-      args: ['mcp-filesystem'],
-    });
-    expect(b.createdAt).toBe(a.createdAt);
-    expect(b.updatedAt).toBeGreaterThanOrEqual(a.updatedAt);
-    expect(b.description).toBe('bundled v2');
+    expect(store.getServer('filesystem')).not.toBeNull();
+
+    const reopened = new McpStore({ dbPath: path.join(tmpDir, 'mcp.db') });
+    expect(reopened.getServer('filesystem')).toBeNull();
   });
 });
 

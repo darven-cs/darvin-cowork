@@ -35,7 +35,6 @@ import type {
 } from '../../shared/darvin-api';
 import { DarvinPushEvent } from '../../shared/darvin-api';
 import type { AgentClient } from '../runtime/client';
-import { resolveAgentBinaryPath } from '../runtime/manager';
 import { McpStore, buildServerFromCreate, type McpLaunchResolutionRow } from './mcpStore';
 
 interface Logger {
@@ -47,29 +46,6 @@ export interface McpManagerOptions {
   client: AgentClient;
   store: McpStore;
   logger?: Logger;
-}
-
-/**
- * bundled filesystem server 的固定 schema：命令指向 darvin-agent 二进制
- * 自身（resolveAgentBinaryPath），Go 端 registry spawn 它跑
- * `mcp-filesystem` subcommand。永远 enabled + isBuiltIn=true，user 不能
- * 改。id 固定 `filesystem`。
- *
- * 不能用 process.execPath —— 主进程里那是 Electron 二进制，spawn 它
- * 不会起 MCP stdio server，pipe 立即关闭导致连接失败。二进制解析不到时
- * 退回 execPath（此时 Go agent 也没在跑，反正连不上）。
- */
-function bundledFilesystemSpec(): Omit<DarvinMcpServer, 'createdAt' | 'updatedAt'> {
-  return {
-    id: 'filesystem',
-    name: 'Filesystem',
-    description: '本地文件系统读写（bundled）',
-    enabled: true,
-    transportType: 'stdio',
-    command: resolveAgentBinaryPath() ?? process.execPath,
-    args: ['mcp-filesystem'],
-    isBuiltIn: true,
-  };
 }
 
 export class McpManager {
@@ -95,7 +71,6 @@ export class McpManager {
     if (this.bootstrapped) return;
     this.bootstrapped = true;
 
-    this.store.upsertBundledServer(bundledFilesystemSpec());
     const list = this.store.listServers();
     this.servers = new Map(list.map((s) => [s.id, s]));
 
