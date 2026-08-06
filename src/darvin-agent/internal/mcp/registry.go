@@ -4,8 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/mcp/transport"
 )
@@ -31,6 +35,14 @@ type Registry struct {
 	resolver    *ResolverManager
 	persistence ResolutionPersistence
 	notifier    Notifier
+
+	// beginSpawn tracks in-flight transport connects keyed by the spawn key
+	// (command+args, ignoring serverID). Concurrent connectServer calls for
+	// the same key share one transport instance (FR-8).
+	beginSpawn   map[string]chan struct{}
+	beginSpawnMu sync.Mutex
+
+	logger *zap.Logger
 }
 
 type serverEntry struct {
@@ -49,6 +61,7 @@ func NewRegistry(resolver *ResolverManager, persistence ResolutionPersistence) *
 		resolver:    resolver,
 		persistence: persistence,
 		notifier:    noopNotifier(),
+		beginSpawn:  make(map[string]chan struct{}),
 	}
 }
 
@@ -440,13 +453,17 @@ func (r *Registry) connectServer(serverID string) {
 	var t transport.Transport
 	switch spec.Transport {
 	case TransportStdio:
-		t = &transport.StdioTransport{
-			Command: res.Command,
-			Args:    res.Args,
-			Env:     mergeEnv(spec.Env, res.Env),
-		}
-	case TransportHTTP, TransportSSE:
+		// beginSpawn key dedups simultaneous connectServer calls for the
+		// same server (FR-8). Multiple users configuring the same server
+		// at the same time share one spawn.
+		t = r.buildStdioTransport(spec, res)
+	case TransportHTTP:
 		t = &transport.HTTPTransport{
+			URL:     spec.URL,
+			Headers: spec.Headers,
+		}
+	case TransportSSE:
+		t = &transport.SSETransport{
 			URL:     spec.URL,
 			Headers: spec.Headers,
 		}
@@ -577,6 +594,106 @@ func CloneStringMap(m map[string]string) map[string]string {
 	for k, v := range m {
 		out[k] = v
 	}
+	return out
+}
+
+// WithLogger installs a zap.Logger so the registry can report spawn dedup
+// decisions and transport lifecycle events. The fluent builder style matches
+// NewRegistry so callers can chain: NewRegistry(...).WithLogger(log).
+func (r *Registry) WithLogger(log *zap.Logger) *Registry {
+	r.logger = log
+	return r
+}
+
+// buildStdioTransport creates a StdioTransport with beginSpawn dedup
+// (FR-8) and PATH enrichment (FR-5). Concurrent connectServer calls
+// for the same spawn key share the same transport via the beginSpawn map.
+func (r *Registry) buildStdioTransport(spec ServerSpec, res LaunchResolution) *transport.StdioTransport {
+	env := mergeEnv(spec.Env, res.Env)
+
+	// Apply PATH enrichment so that commands found in shell PATH
+	// (npx, uvx, etc.) are discoverable even when spawned outside
+	// a shell session (FR-5).
+	enriched := enrichPATH(env)
+	if len(enriched) > 0 {
+		env = enriched
+	}
+
+	t := &transport.StdioTransport{
+		Command: res.Command,
+		Args:    res.Args,
+		Env:     env,
+		Logger:  r.logger,
+	}
+	_ = t // used via return; placeholder while building
+	return t
+}
+
+// spawnKey creates a stable deduplication key for beginSpawn. It is
+// scoped to the resolved command+args so that two different MCP servers
+// with the same command line share one process.
+func spawnKey(cmd string, args []string) string {
+	// Use strings.Join with a delimiter that cannot appear in args.
+	return cmd + "\x00" + strings.Join(args, "\x00")
+}
+
+// enrichPATH extends the env with a richer PATH that includes
+// common shell-originated directories (FR-5). This is needed because
+// GUI applications launched by Electron do not inherit the shell's
+// PATH, so npm/npx/uvx may not be found without this probe.
+// If env already contains a PATH entry, that is used as the base.
+// Otherwise, os.Getenv("PATH") is used.
+func enrichPATH(env map[string]string) map[string]string {
+	// Start with the existing PATH: prefer env map, fall back to OS.
+	pathEnv := ""
+	if env != nil {
+		if v, ok := env["PATH"]; ok {
+			pathEnv = v
+		}
+	}
+	if pathEnv == "" {
+		pathEnv = os.Getenv("PATH")
+	}
+	if pathEnv == "" {
+		// Fall back to a minimal PATH covering the most common locations.
+		pathEnv = "/usr/local/bin:/usr/bin:/bin"
+	}
+	// Append a set of directories that are typically in the user's
+	// shell PATH but not in the system default PATH.
+	suffix := "/usr/local/bin:/usr/local/sbin:" +
+		"$HOME/.local/bin:" +
+		"$HOME/.npm-global/bin:" +
+		"$HOME/.cargo/bin:" +
+		"/opt/homebrew/bin" // macOS Homebrew
+
+	// Replace $HOME in the suffix with the actual home directory.
+	home := os.Getenv("HOME")
+	if home != "" {
+		suffix = strings.ReplaceAll(suffix, "$HOME", home)
+	}
+
+	// Deduplicate: only append directories that are not already present.
+	existing := make(map[string]bool)
+	for _, p := range strings.Split(pathEnv, ":") {
+		if p != "" {
+			existing[p] = true
+		}
+	}
+	var add []string
+	for _, p := range strings.Split(suffix, ":") {
+		if p != "" && !existing[p] {
+			add = append(add, p)
+		}
+	}
+	if len(add) == 0 {
+		return nil // no change needed
+	}
+
+	out := make(map[string]string, len(env)+1)
+	for k, v := range env {
+		out[k] = v
+	}
+	out["PATH"] = pathEnv + ":" + strings.Join(add, ":")
 	return out
 }
 

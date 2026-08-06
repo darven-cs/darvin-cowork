@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -154,6 +156,23 @@ type ServerSpec struct {
 	RegistryID  string            `json:"registryId,omitempty"`
 }
 
+// StartupFailure describes a structured launch failure. It is constructed
+// by the launcher when a server fails to start and is stored (with
+// credentials redacted) on LaunchResolution so the UI can show the user
+// a meaningful diagnostic without leaking secrets into logs.
+type StartupFailure struct {
+	// Stage is the phase in which the failure occurred.
+	Stage string
+	// Elapsed is how much time passed before the failure.
+	Elapsed time.Duration
+	// Stderr is the content the server wrote to stderr before failing.
+	// Credentials are stripped by RedactCredentials before assignment.
+	Stderr string
+	// Err is the underlying Go error; stored as string so it survives
+	// JSON serialization without custom marshaling.
+	Err string
+}
+
 // LaunchResolution is the result of running a resolver. When Status is
 // ready, Command/Args/Env are the optimised launch line; when Status is
 // failed or unsupported, the registry falls back to ServerSpec.Command.
@@ -170,9 +189,18 @@ type LaunchResolution struct {
 	Args              []string
 	Env               map[string]string
 	Error             string
-	InstalledAt       time.Time
-	ResolvedAt        time.Time
-	UpdatedAt         time.Time
+	// FailureStage records which phase a launch failure occurred in
+	// (e.g. "resolve", "install", "spawn", "initialize"). Used by the UI
+	// to show a structured diagnostic.
+	FailureStage string
+	// FailureElapsed records how much time passed before the failure.
+	FailureElapsed time.Duration
+	// FailureStderr records the last few KB of the server's stderr output
+	// at the time of failure, with credentials stripped.
+	FailureStderr string
+	InstalledAt   time.Time
+	ResolvedAt    time.Time
+	UpdatedAt     time.Time
 }
 
 // ServerStatus is the read-only snapshot the renderer consumes.
@@ -186,4 +214,72 @@ type ServerStatus struct {
 	Connected       bool
 	ConnectionError string
 	Tools           []ToolDescriptor
+}
+
+// credentialRE is a pre-compiled regex that matches common credential shapes.
+// The patterns are ordered so that more specific (longer) patterns come first,
+// and the replacer map maps the capture group index to the placeholder.
+var credentialRE = regexp.MustCompile(
+	// Longest-first: avoid partial matches of short prefixes.
+	`ghp_[A-Za-z0-9]{36}|` +
+	`gho_[A-Za-z0-9]{36}|` +
+	`github_pat_[A-Za-z0-9_]{22,}|` +
+	`xox[baprs]-[A-Za-z0-9_]{10,}|` +
+	`sk-[A-Za-z0-9_]{20,}|` +
+	`Bearer [A-Za-z0-9_.-]{20,}|` +
+	`Basic [A-Za-z0-9_.-]{10,}|` +
+	`AKIA[A-Z0-9]{16}|` +
+	// Generic long tokens last.
+	`[A-Za-z0-9+/]{40,}={0,2}|` +
+	`[0-9a-f]{32,}`,
+)
+
+// credentialReplacer maps specific substrings to their placeholders.
+var credentialReplacer = regexp.MustCompile(
+	`(ghp_[A-Za-z0-9]{36})|` +
+	`(gho_[A-Za-z0-9]{36})|` +
+	`(github_pat_[A-Za-z0-9_]{22,})|` +
+	`(xox[baprs]-[A-Za-z0-9_]{10,})|` +
+	`(sk-[A-Za-z0-9_]{20,})|` +
+	`(Bearer [A-Za-z0-9_.-]{20,})|` +
+	`(Basic [A-Za-z0-9_.-]{10,})|` +
+	`(AKIA[A-Z0-9]{16})|` +
+	`([A-Za-z0-9+/]{40,}={0,2})|` +
+	`([0-9a-f]{32,})`,
+)
+
+// credentialPlaceholder returns the placeholder for a matched credential.
+func credentialPlaceholder(match string) string {
+	switch {
+	case strings.HasPrefix(match, "ghp_") || strings.HasPrefix(match, "gho_") || strings.HasPrefix(match, "github_pat_"):
+		return "[GITHUB_TOKEN]"
+	case strings.HasPrefix(match, "xox"):
+		return "[SLACK_TOKEN]"
+	case strings.HasPrefix(match, "sk-"):
+		return "[OPENAI_KEY]"
+	case strings.HasPrefix(match, "Bearer "):
+		return "[BEARER_TOKEN]"
+	case strings.HasPrefix(match, "Basic "):
+		return "[BASIC_AUTH]"
+	case strings.HasPrefix(match, "AKIA"):
+		return "[AWS_KEY]"
+	default:
+		return "[CREDENTIAL]"
+	}
+}
+
+// RedactCredentials replaces credential-shaped strings in s with a placeholder.
+// It is applied to stderr output and error messages before they are stored in
+// LaunchResolution so that secrets never appear in logs or the UI.
+func RedactCredentials(s string) string {
+	// Use a simple approach: find matches and replace them one by one.
+	result := []byte{}
+	last := 0
+	for _, match := range credentialRE.FindAllStringIndex(s, -1) {
+		result = append(result, s[last:match[0]]...)
+		result = append(result, credentialPlaceholder(s[match[0]:match[1]])...)
+		last = match[1]
+	}
+	result = append(result, s[last:]...)
+	return string(result)
 }

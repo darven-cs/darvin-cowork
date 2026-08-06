@@ -268,7 +268,7 @@ func main() {
 		log.Warn("mcp packages dir create failed", zap.Error(err))
 	}
 	mcpResolver := mcp.NewResolverManager(mcpRoot).WithLogger(log.Logger)
-	mcpRegistry := mcp.NewRegistry(mcpResolver, mcp.NewInMemoryResolutionPersistence())
+	mcpRegistry := mcp.NewRegistry(mcpResolver, mcp.NewInMemoryResolutionPersistence()).WithLogger(log.Logger)
 	if err := mcpRegistry.LoadStaleResolutions(rootCtx); err != nil {
 		log.Warn("mcp stale resolution scan failed", zap.Error(err))
 	}

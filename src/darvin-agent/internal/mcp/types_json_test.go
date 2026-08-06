@@ -81,3 +81,56 @@ func TestServerSpecMarshalCamelCase(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactCredentials_GitHubPAT(t *testing.T) {
+	input := `npm install --registry=https://ghp.xyz/repo ghp_abcdefghijklmnopqrstuvwxyz1234567890abcdef`
+	got := RedactCredentials(input)
+	if got == input {
+		t.Fatal("GitHub PAT not redacted")
+	}
+	if strings.Contains(got, "ghp_abc") {
+		t.Fatalf("redacted string still contains token prefix: %s", got)
+	}
+	if !strings.Contains(got, "[GITHUB_TOKEN]") {
+		t.Fatalf("redacted string missing placeholder: %s", got)
+	}
+}
+
+func TestRedactCredentials_MultipleTokens(t *testing.T) {
+	input := `ghp_abcdefghijklmnopqrstuvwxyz1234567890abcdef sk-hello_world_1234567890abcdef`
+	got := RedactCredentials(input)
+	if strings.Contains(got, "ghp_") || strings.Contains(got, "sk-hel") {
+		t.Fatalf("tokens not fully redacted: %s", got)
+	}
+}
+
+func TestRedactCredentials_NoToken(t *testing.T) {
+	input := `npm install --legacy-peer-deps`
+	got := RedactCredentials(input)
+	if got != input {
+		t.Fatalf("clean string was modified: %s", got)
+	}
+}
+
+
+func TestStartupFailure_Fields(t *testing.T) {
+	sf := StartupFailure{
+		Stage:   "spawn",
+		Stderr:  "command not found: npx",
+		Err:     "exec: not found",
+	}
+	if sf.Stage != "spawn" {
+		t.Fatalf("Stage = %q, want spawn", sf.Stage)
+	}
+	if sf.Stderr != "command not found: npx" {
+		t.Fatalf("Stderr = %q", sf.Stderr)
+	}
+}
+
+func TestRedactCredentials_BearerToken(t *testing.T) {
+	input := `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U`
+	got := RedactCredentials(input)
+	if strings.Contains(got, "eyJ") {
+		t.Fatalf("JWT not redacted: %s", got)
+	}
+}
