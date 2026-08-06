@@ -22,9 +22,8 @@ import (
 type Mode string
 
 const (
-	ModePrompt   Mode = "prompt"
-	ModeSteer    Mode = "steer"
-	ModeFollowUp Mode = "followup"
+	ModePrompt Mode = "prompt"
+	ModeSteer  Mode = "steer"
 )
 
 // EventCommon is the correlation payload embedded by every concrete Event.
@@ -62,8 +61,8 @@ type ToolResult struct {
 	Metadata map[string]any
 }
 
-// PromptReceivedEvent is emitted when Agent.Prompt / Steer / FollowUp accepts
-// a message into its queue.
+// PromptReceivedEvent is emitted when Agent.Prompt accepts a message
+// into its queue.
 type PromptReceivedEvent struct {
 	EventBase
 	Content string

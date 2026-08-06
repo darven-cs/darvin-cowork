@@ -70,42 +70,6 @@ func TestPromptBusy(t *testing.T) {
 	<-done
 }
 
-func TestSteerInterrupts(t *testing.T) {
-	a := newAgentForTest(t, &blockingProvider{})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start a run that will block inside the provider stream.
-	if err := a.Prompt(ctx, "first", nil); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- a.Run(ctx) }()
-
-	// wait until the run is actually in progress
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if a.IsRunning() {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	// Steer should abort the in-flight run.
-	if err := a.Steer(ctx, "interrupt"); err != nil {
-		t.Fatal(err)
-	}
-
-	select {
-	case err := <-done:
-		if !errors.Is(err, ErrAborted) {
-			t.Errorf("Run after Steer: err = %v, want ErrAborted", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not return after Steer")
-	}
-}
-
 func TestRunNaturalStop(t *testing.T) {
 	prov := &scriptedProvider{events: []llm.StreamEvent{
 		llm.TextDeltaEvent{Delta: "hi"},
@@ -120,24 +84,6 @@ func TestRunNaturalStop(t *testing.T) {
 	}
 	if a.SessionHandle().Len() != 2 {
 		t.Errorf("session len = %d, want 2 (user + assistant)", a.SessionHandle().Len())
-	}
-}
-
-func TestFollowUpAfterRun(t *testing.T) {
-	stop := []llm.StreamEvent{
-		llm.TextDeltaEvent{Delta: "a"},
-		llm.DoneEvent{Response: llm.CompletionResponse{FinishReason: llm.FinishReasonStop}},
-	}
-	prov := &scriptedProvider{events: stop}
-	a := newAgentForTest(t, prov)
-	_ = a.FollowUp(context.Background(), "first")
-	_ = a.FollowUp(context.Background(), "second")
-	if err := a.Run(context.Background()); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	// user + assistant per followup, so 4 messages
-	if got := a.SessionHandle().Len(); got != 4 {
-		t.Errorf("session len = %d, want 4", got)
 	}
 }
 

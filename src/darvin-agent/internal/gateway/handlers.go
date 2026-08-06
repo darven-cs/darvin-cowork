@@ -72,15 +72,24 @@ type SubscribeEventsResult struct {
 	Subscribed bool `json:"subscribed"`
 }
 
-// SteerParams is the JSON-RPC params for agent.steer. Only Steer is
-// currently exposed (Redirect remains reserved).
+// SteerParams is the JSON-RPC params for agent.steer. sessionId is
+// required — steer targets a specific session's per-session Loop.
+// runId is optional; when omitted the steer lands at the head of the
+// session's steerQueue regardless of which turn is in flight.
 type SteerParams struct {
-	Content string `json:"content"`
+	SessionID string `json:"sessionId"`
+	RunID     string `json:"runId,omitempty"`
+	Content   string `json:"content"`
 }
 
-// SteerResult is the JSON-RPC result for agent.steer.
+// SteerResult is the JSON-RPC result for agent.steer. RunID /
+// MessageID / Queued mirror the RunTicket returned by Loop.Steer so
+// the renderer can correlate events the same way it does for prompt.
 type SteerResult struct {
-	Steered bool `json:"steered"`
+	Steered   bool   `json:"steered"`
+	RunID     string `json:"runId,omitempty"`
+	MessageID string `json:"messageId,omitempty"`
+	Queued    bool   `json:"queued,omitempty"`
 }
 
 // ListSessionsResult is the JSON-RPC result for agent.list_sessions.
@@ -206,11 +215,8 @@ type SearchSessionsResult struct {
 // needs. Each per-connection *client carries a reference alongside its
 // own write state; the read loop pulls handler into dispatchRequest.
 //
-// Loop 不再挂在 Handler 上 —— prompt 路径按 sessionID 路由到对应 entry 的
-// per-session Loop(见 handlePrompt)。Steer 仍接全局 Agent(本期不迁)。
-// HandlerOptions carries the optional workspace / imported-file wiring.
-// Kept separate from the required constructor args so existing call sites
-// (and handler tests) do not need to change.
+// Steer goes through h.Sessions to reach the per-session Loop; the
+// global Agent-level steer path is gone.
 type HandlerOptions struct {
 	ImportedFiles *store.ImportedFileStore
 	WorkspaceRoot string
@@ -228,7 +234,6 @@ type HandlerOptions struct {
 type Handler struct {
 	Sessions     *SessionManager
 	Ledger       *EventLedger
-	Steer        agentloop.SteerControl
 	SessionStore store.SessionStore
 	MessageStore store.MessageStore
 	// AppState 承载 active_session_id 持久化(get/set_active_session 与
@@ -255,13 +260,12 @@ type Handler struct {
 	Log *zap.Logger
 }
 
-// NewHandler wires the dependencies. main.go 注入 SessionManager /
-// EventLedger / SteerControl 与两个 store 及 AppStateStore;Loop 不再
-// 入参。opts 可选携带 ImportedFiles / WorkspaceRoot / Skills。
+// NewHandler wires the dependencies. The runtime injects SessionManager,
+// EventLedger, the two session / message stores, and AppStateStore.
+// opts carries optional workspace / imported-file / skills / mcp wiring.
 func NewHandler(
 	s *SessionManager,
 	l *EventLedger,
-	steer agentloop.SteerControl,
 	sessStore store.SessionStore,
 	msgStore store.MessageStore,
 	appState *store.AppStateStore,
@@ -274,7 +278,6 @@ func NewHandler(
 	return &Handler{
 		Sessions:      s,
 		Ledger:        l,
-		Steer:         steer,
 		SessionStore:  sessStore,
 		MessageStore:  msgStore,
 		AppState:      appState,
@@ -508,6 +511,9 @@ func handleSubscribeEvents(_ context.Context, id json.RawMessage, params json.Ra
 	return successResp(id, SubscribeEventsResult{Subscribed: true})
 }
 
+// handleSteer routes agent.steer to the target session's per-session
+// Loop. The steer lands at the head of the Loop's steerQueue and
+// cancels the in-flight turn; idle sessions behave like Submit.
 func handleSteer(ctx context.Context, id json.RawMessage, params json.RawMessage, _ *client, h *Handler) *Response {
 	if len(params) == 0 {
 		return errorResp(id, CodeInvalidParams, "params required", nil)
@@ -516,13 +522,32 @@ func handleSteer(ctx context.Context, id json.RawMessage, params json.RawMessage
 	if err := json.Unmarshal(params, &p); err != nil {
 		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
 	}
+	if p.SessionID == "" {
+		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
+	}
 	if strings.TrimSpace(p.Content) == "" {
 		return errorResp(id, CodeInvalidParams, "content is required", nil)
 	}
-	if err := h.Steer.Steer(ctx, p.Content); err != nil {
+	entry, err := h.Sessions.EnsureEntry(p.SessionID)
+	if err != nil {
+		return errorResp(id, CodeInternalError, "session lookup", err)
+	}
+	if entry.AgentLoop == nil {
+		return errorResp(id, CodeNoAgentLoopSession, "session has no agent loop", nil)
+	}
+	ticket, err := entry.AgentLoop.Loop.Steer(agentloop.PromptRequest{
+		RunID:   p.RunID,
+		Content: p.Content,
+	})
+	if err != nil {
 		return errorResp(id, CodeInternalError, "loop steer", err)
 	}
-	return successResp(id, SteerResult{Steered: true})
+	return successResp(id, SteerResult{
+		Steered:   true,
+		RunID:     ticket.RunID,
+		MessageID: ticket.MessageID,
+		Queued:    ticket.Queued,
+	})
 }
 
 // handleListSessions returns every session row (with Title) known to

@@ -10,7 +10,6 @@ import (
 
 	"darvin-cowork/backend/internal/agentloop"
 	"darvin-cowork/backend/internal/agents"
-	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/skills"
@@ -38,16 +37,6 @@ func skillTestHandler(t *testing.T) (*Handler, *client) {
 			return agentloop.HarnessForTest, nil
 		},
 	}
-	steerAgent, err := agent.New(agent.NewAgentConfig{
-		Session:  session.NewSession("steer-placeholder"),
-		Provider: prov,
-		Tools:    tool.NewRegistry(),
-		Store:    st,
-	})
-	if err != nil {
-		t.Fatalf("agent.New steer: %v", err)
-	}
-	steer := agentloop.NewSteerControl(steerAgent)
 	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
@@ -61,7 +50,7 @@ func skillTestHandler(t *testing.T) (*Handler, *client) {
 		t.Fatalf("skills registry load: %v", err)
 	}
 	runner := skills.NewSkillRunner(reg, nil)
-	handler := NewHandler(sessions, ledger, steer, nil, nil, nil, HandlerOptions{
+	handler := NewHandler(sessions, ledger, nil, nil, nil, HandlerOptions{
 		Skills:      reg,
 		SkillRunner: runner,
 		Log:         zap.NewNop(),

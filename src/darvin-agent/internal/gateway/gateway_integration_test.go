@@ -10,7 +10,6 @@ import (
 
 	"darvin-cowork/backend/internal/agentloop"
 	agent "darvin-cowork/backend/internal/agents"
-	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/tools"
@@ -150,20 +149,10 @@ func harnessWireTestHandler(t *testing.T, sel agentloop.HarnessSelector) *Handle
 		Logger:   zap.NewNop(),
 		Selector: sel,
 	}
-	steerAgent, err := agent.New(agent.NewAgentConfig{
-		Session:  session.NewSession("steer-placeholder"),
-		Provider: prov,
-		Tools:    tool.NewRegistry(),
-		Store:    st,
-	})
-	if err != nil {
-		t.Fatalf("agent.New steer: %v", err)
-	}
-	steer := agentloop.NewSteerControl(steerAgent)
 	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
-	return NewHandler(sessions, ledger, steer, nil, nil, nil)
+	return NewHandler(sessions, ledger, nil, nil, nil)
 }
 
 func newClientFromHandler(handler *Handler) *client {

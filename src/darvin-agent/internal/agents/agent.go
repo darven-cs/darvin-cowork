@@ -1,9 +1,9 @@
 // Package agent is the root of the agent runtime. It wires the sub-packages
 // (event, queue, session, store, executor, protocol) and the four state
 // sub-packages (msgid, perm, runtime, usage) into a single Agent and
-// exposes the public API (Run / Prompt / Steer / FollowUp / Abort /
-// Subscribe). Capability implementations (provider, tool registry) are
-// injected from outside through the protocol contract.
+// exposes the public API (Run / Prompt / Abort / Subscribe). Capability
+// implementations (provider, tool registry) are injected from outside
+// through the protocol contract.
 package agent
 
 import (
@@ -408,8 +408,8 @@ func (a *Agent) CurrentMessageID() string { return a.msgidBridge.CurrentMessageI
 func (a *Agent) CurrentRunID() string { return a.msgidBridge.CurrentRunID() }
 
 // CurrentUserMessageID returns the user-message id of the in-flight turn.
-// Returns "" when no userMsgID source has been wired (e.g. the steer agent
-// or the unit-test fast path, where nothing is persisted anyway).
+// Returns "" when no userMsgID source has been wired (unit-test fast path
+// where nothing is persisted anyway).
 func (a *Agent) CurrentUserMessageID() string { return a.msgidBridge.CurrentUserMessageID() }
 
 // SetGrantedReads replaces the run's granted-read set (absolute paths the

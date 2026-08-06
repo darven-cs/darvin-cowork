@@ -25,13 +25,11 @@ import (
 	"darvin-cowork/backend/internal/tools"
 )
 
-// newTestHandler wires factory + SessionManager + SteerControl so handlers
-// run against production code paths. prompt 路径走 factory 懒建 AgentLoopSession,
-// steer 路径接一个仅供 SteerControl 持有的 steerAgent。
-//
-// harness resolution 由 tests inject a Selector that returns
-// a no-op embedded harness so the prompt path can drive a stub run
-// closure without dragging the full harness registry into every test.
+// newTestHandler wires factory + SessionManager so handlers run against
+// production code paths. The prompt path goes through the factory's lazy
+// AgentLoopSession build; tests inject a Selector that returns a no-op
+// embedded harness so the prompt path can drive a stub run closure
+// without dragging the full harness registry into every test.
 func newTestHandler(t *testing.T) (*Handler, *client) {
 	t.Helper()
 	prov := &blockingProvider{}
@@ -45,20 +43,10 @@ func newTestHandler(t *testing.T) (*Handler, *client) {
 			return agentloop.NewEmbeddedTestHarness(a), nil
 		},
 	}
-	steerAgent, err := agent.New(agent.NewAgentConfig{
-		Session:  session.NewSession("steer-placeholder"),
-		Provider: prov,
-		Tools:    tool.NewRegistry(),
-		Store:    store,
-	})
-	if err != nil {
-		t.Fatalf("agent.New steer: %v", err)
-	}
-	steer := agentloop.NewSteerControl(steerAgent)
 	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
-	handler := NewHandler(sessions, ledger, steer, nil, nil, nil)
+	handler := NewHandler(sessions, ledger, nil, nil, nil)
 	client := &client{
 		sessions: sessions,
 		ledger:   ledger,
@@ -86,16 +74,6 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 			return agentloop.NewEmbeddedTestHarness(a), nil
 		},
 	}
-	steerAgent, err := agent.New(agent.NewAgentConfig{
-		Session:  session.NewSession("steer-placeholder"),
-		Provider: prov,
-		Tools:    tool.NewRegistry(),
-		Store:    memStore,
-	})
-	if err != nil {
-		t.Fatalf("agent.New steer: %v", err)
-	}
-	steer := agentloop.NewSteerControl(steerAgent)
 	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
@@ -113,7 +91,7 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 	appState := store.NewAppStateStore(db)
 	ifs := store.NewImportedFileStore(db)
 
-	handler := NewHandler(sessions, ledger, steer, sessStore, msgStore, appState,
+	handler := NewHandler(sessions, ledger, sessStore, msgStore, appState,
 		HandlerOptions{ImportedFiles: ifs, WorkspaceRoot: t.TempDir()})
 	client := &client{
 		sessions: sessions,
@@ -359,9 +337,17 @@ func TestDispatchSubscribeEventsSuccess(t *testing.T) {
 
 func TestDispatchSteer(t *testing.T) {
 	_, c := newTestHandler(t)
+	promptResp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.prompt",
+		Params: json.RawMessage(`{"content":"hi"}`),
+	}, c, c.handler)
+	if promptResp.Error != nil {
+		t.Fatalf("prompt setup failed: %+v", promptResp.Error)
+	}
+	sid := promptResp.Result.(PromptResult).SessionID
 	req := &Request{
-		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.steer",
-		Params: json.RawMessage(`{"content":"redirect"}`),
+		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.steer",
+		Params: json.RawMessage(`{"sessionId":"` + sid + `","content":"redirect"}`),
 	}
 	resp := dispatchRequest(context.Background(), req, c, c.handler)
 	if resp.Error != nil {
@@ -370,6 +356,9 @@ func TestDispatchSteer(t *testing.T) {
 	res, _ := resp.Result.(SteerResult)
 	if !res.Steered {
 		t.Fatalf("expected steered=true, got %+v", res)
+	}
+	if res.RunID == "" {
+		t.Errorf("RunID missing from SteerResult: %+v", res)
 	}
 }
 
@@ -941,7 +930,7 @@ func newWorkspaceTestHandler(t *testing.T) (*Handler, *client, string) {
 	ifs := store.NewImportedFileStore(db)
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
-	handler := NewHandler(NewSessionManager(), ledger, nil, sessStore, msgStore, nil,
+	handler := NewHandler(NewSessionManager(), ledger, sessStore, msgStore, nil,
 		HandlerOptions{ImportedFiles: ifs, WorkspaceRoot: root})
 	c := &client{sessions: handler.Sessions, ledger: ledger, handler: handler, log: zap.NewNop()}
 	return handler, c, root
@@ -1256,20 +1245,10 @@ func newTestHandlerWithPlugins(t *testing.T, plugins []tool.Plugin) (*Handler, *
 			return agentloop.NewEmbeddedTestHarness(a), nil
 		},
 	}
-	steerAgent, err := agent.New(agent.NewAgentConfig{
-		Session:  session.NewSession("steer-placeholder"),
-		Provider: prov,
-		Tools:    tool.NewRegistry(),
-		Store:    store,
-	})
-	if err != nil {
-		t.Fatalf("agent.New steer: %v", err)
-	}
-	steer := agentloop.NewSteerControl(steerAgent)
 	sessions := NewSessionManager(WithAgentFactory(factory))
 	ledger := NewEventLedger(zap.NewNop())
 	ledger.fakeDelay = 0
-	handler := NewHandler(sessions, ledger, steer, nil, nil, nil)
+	handler := NewHandler(sessions, ledger, nil, nil, nil)
 	client := &client{
 		sessions: sessions,
 		ledger:   ledger,
@@ -1321,7 +1300,7 @@ func TestHandleListTools_IncludesPluginTools(t *testing.T) {
 }
 
 func TestHandleListTools_NoSessions(t *testing.T) {
-	h := NewHandler(nil, nil, nil, nil, nil, nil)
+	h := NewHandler(nil, nil, nil, nil, nil)
 	c := &client{handler: h, log: zap.NewNop()}
 	req := &Request{
 		JSONRPC: "2.0",

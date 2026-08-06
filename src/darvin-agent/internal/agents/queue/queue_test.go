@@ -25,12 +25,8 @@ func TestEnqueueAndDequeue(t *testing.T) {
 	}
 }
 
-func TestPrioritySteerOverPromptOverFollowUp(t *testing.T) {
+func TestPrioritySteerOverPrompt(t *testing.T) {
 	q := New()
-	// fill all three; Dequeue should pick steer first
-	if err := q.Enqueue(ModeFollowUp, Message{Content: "f"}); err != nil {
-		t.Fatal(err)
-	}
 	if err := q.Enqueue(ModePrompt, Message{Content: "p"}); err != nil {
 		t.Fatal(err)
 	}
@@ -47,10 +43,6 @@ func TestPrioritySteerOverPromptOverFollowUp(t *testing.T) {
 	m, mode, _ = q.Dequeue(ctx)
 	if mode != ModePrompt || m.Content != "p" {
 		t.Errorf("second dequeue = (%q, %q), want (p, prompt)", m.Content, mode)
-	}
-	m, mode, _ = q.Dequeue(ctx)
-	if mode != ModeFollowUp || m.Content != "f" {
-		t.Errorf("third dequeue = (%q, %q), want (f, followup)", m.Content, mode)
 	}
 }
 
@@ -72,7 +64,7 @@ func TestEnqueueFull(t *testing.T) {
 func TestDequeueCancel(t *testing.T) {
 	q := New()
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
+	cancel()
 	if _, _, ok := q.Dequeue(ctx); ok {
 		t.Error("Dequeue on cancelled ctx should return ok=false")
 	}

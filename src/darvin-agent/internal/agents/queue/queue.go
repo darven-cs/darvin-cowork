@@ -1,7 +1,7 @@
-// Package queue is the inbound message queue for an Agent. It exposes three
-// channels (prompt, steer, followup) with a strict priority order
-// (steer > prompt > followup) and a non-blocking Dequeue that respects
-// ctx cancellation.
+// Package queue is the inbound message queue for an Agent. It exposes
+// two channels (prompt, steer) with a strict priority order
+// (steer > prompt) and a non-blocking Dequeue that respects ctx
+// cancellation.
 package queue
 
 import (
@@ -11,19 +11,20 @@ import (
 	"darvin-cowork/backend/internal/agents/event"
 )
 
-// Mode is a type alias for event.Mode so callers can use queue.Mode without
-// importing the event package directly.
+// Mode is a type alias for event.Mode so callers can use queue.Mode
+// without importing the event package directly.
 type Mode = event.Mode
 
 const (
-	ModePrompt   = event.ModePrompt
-	ModeSteer    = event.ModeSteer
-	ModeFollowUp = event.ModeFollowUp
+	ModePrompt = event.ModePrompt
+	ModeSteer  = event.ModeSteer
 )
 
-// ErrQueueFull is returned by Enqueue when the corresponding channel buffer
-// is full. Prompt / Steer use buffer 1 (rejected if busy); FollowUp uses
-// buffer 16 (rejected only if the backlog is enormous).
+// ErrQueueFull is returned by Enqueue when the corresponding channel
+// buffer is full. Both prompt and steer use buffer 1 (rejected if
+// busy); the harness closure immediately enqueues + dequeues one
+// message per turn, so a full channel means a previous prompt has
+// not yet been consumed.
 var ErrQueueFull = errors.New("queue: channel full")
 
 // Message is the unit of work carried by the queue.
@@ -50,20 +51,17 @@ type ImageRef struct {
 	DataURL string `json:"dataUrl"`
 }
 
-// Queue owns the three inbound channels. It is goroutine-safe.
+// Queue owns the inbound channels. It is goroutine-safe.
 type Queue struct {
-	promptCh   chan Message
-	steerCh    chan Message
-	followupCh chan Message
+	promptCh chan Message
+	steerCh  chan Message
 }
 
-// New constructs a Queue with the standard buffer sizes (prompt 1, steer 1,
-// followup 16). FollowUp buffer is sized to absorb a normal user burst.
+// New constructs a Queue with buffer 1 on each channel.
 func New() *Queue {
 	return &Queue{
-		promptCh:   make(chan Message, 1),
-		steerCh:    make(chan Message, 1),
-		followupCh: make(chan Message, 16),
+		promptCh: make(chan Message, 1),
+		steerCh:  make(chan Message, 1),
 	}
 }
 
@@ -85,24 +83,16 @@ func (q *Queue) Enqueue(mode Mode, msg Message) error {
 		default:
 			return ErrQueueFull
 		}
-	case ModeFollowUp:
-		select {
-		case q.followupCh <- msg:
-			return nil
-		default:
-			return ErrQueueFull
-		}
 	default:
 		return errors.New("queue: unknown mode")
 	}
 }
 
-// Dequeue blocks until a message is available, ctx is cancelled, or all
-// three channels return empty and ctx fires. Priority is steer > prompt >
-// followup. On ctx cancel it returns (zero, "", false).
+// Dequeue blocks until a message is available, ctx is cancelled, or
+// both channels return empty and ctx fires. Priority is steer over
+// prompt. On ctx cancel it returns (zero, "", false).
 func (q *Queue) Dequeue(ctx context.Context) (Message, Mode, bool) {
 	for {
-		// non-blocking check: prefer steer, then prompt, then followup
 		select {
 		case m := <-q.steerCh:
 			return m, ModeSteer, true
@@ -113,12 +103,6 @@ func (q *Queue) Dequeue(ctx context.Context) (Message, Mode, bool) {
 			return m, ModePrompt, true
 		default:
 		}
-		select {
-		case m := <-q.followupCh:
-			return m, ModeFollowUp, true
-		default:
-		}
-		// block until something arrives or ctx fires
 		select {
 		case <-ctx.Done():
 			return Message{}, "", false
@@ -126,14 +110,12 @@ func (q *Queue) Dequeue(ctx context.Context) (Message, Mode, bool) {
 			return m, ModeSteer, true
 		case m := <-q.promptCh:
 			return m, ModePrompt, true
-		case m := <-q.followupCh:
-			return m, ModeFollowUp, true
 		}
 	}
 }
 
-// Len returns the total number of buffered messages across all three
+// Len returns the total number of buffered messages across both
 // channels. Intended for diagnostics / tests.
 func (q *Queue) Len() int {
-	return len(q.promptCh) + len(q.steerCh) + len(q.followupCh)
+	return len(q.promptCh) + len(q.steerCh)
 }

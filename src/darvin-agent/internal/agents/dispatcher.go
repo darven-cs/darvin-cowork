@@ -18,34 +18,18 @@ import (
 )
 
 // Prompt enqueues content for immediate processing. Returns ErrAgentBusy
-// if the Agent is already running; callers should use Steer / FollowUp
-// instead. attachments are absolute paths staged for this one message (the
-// LLM is told about them via a transient system note, and read_file may
-// access them via the run's granted-read set). images are base64-encoded
-// image attachments; the dispatcher turns them into LLM image content blocks.
+// if the Agent is already running; callers should use Abort before
+// Prompting to interrupt an in-flight turn. attachments are absolute
+// paths staged for this one message (the LLM is told about them via a
+// transient system note, and read_file may access them via the run's
+// granted-read set). images are base64-encoded image attachments; the
+// dispatcher turns them into LLM image content blocks.
 func (a *Agent) Prompt(_ context.Context, content string, images []queue.ImageRef, attachments ...[]string) error {
 	var files []string
 	if len(attachments) > 0 {
 		files = attachments[0]
 	}
 	return a.enqueue(queue.ModePrompt, content, files, images)
-}
-
-// Steer enqueues content for the next iteration, cancelling any current
-// run. The cancellation is observed by the executor on the next provider
-// stream read. If the Agent is idle, Steer is equivalent to Prompt.
-func (a *Agent) Steer(ctx context.Context, content string) error {
-	// cancel any in-flight run so the current turn's ctx fires
-	a.Abort(ctx)
-	return a.enqueue(queue.ModeSteer, content, nil, nil)
-}
-
-// FollowUp enqueues content to be processed after the current Run ends.
-// If the Agent is idle, FollowUp immediately starts a new Run via the
-// caller's subsequent Run() invocation; FollowUp itself does not start
-// a goroutine.
-func (a *Agent) FollowUp(_ context.Context, content string) error {
-	return a.enqueue(queue.ModeFollowUp, content, nil, nil)
 }
 
 // Abort cancels the current Run's context. It does not modify the queue.
@@ -77,8 +61,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	var totalTurns int
 	var totalUsage protocol.Usage
 	// runMsgID is overwritten after each Dequeue below; the AgentEndEvent
-	// defer reads the most recent snapshot so it always reflects the last
-	// prompt the run consumed (across FollowUp iterations).
+	// defer reads the most recent snapshot so it always reflects the
+	// last prompt the run consumed.
 	var runMsgID string
 	// runUserMsgID mirrors runMsgID but carries the user message's own id
 	// (minted by the Loop), so persistUserMessage's row is not overwritten
@@ -113,7 +97,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		// tagged to this prompt all carry the same MessageID.
 		runMsgID = a.CurrentMessageID()
 		// Snapshot the user message's own id. Fall back to runMsgID for
-		// paths without a userMsgID src (steer agent / unit tests) so the
+		// paths without a userMsgID src (unit-test fast path) so the
 		// old behaviour is preserved there.
 		runUserMsgID = a.CurrentUserMessageID()
 		if runUserMsgID == "" {
@@ -364,10 +348,9 @@ func formatImportedNote(files []string) string {
 	return "[系统] 用户在本消息附加了以下文件（绝对路径，已授权读取，可用 read_file 读取）：\n- " + strings.Join(files, "\n- ")
 }
 
+// enqueue places content into the Agent's queue under the given mode.
+// Prompt is the only mode that requires the Agent to be idle.
 func (a *Agent) enqueue(mode queue.Mode, content string, attachments []string, images []queue.ImageRef) error {
-	// Prompt is the only mode that requires the agent to be idle. Steer and
-	// FollowUp can both be issued while a Run is in progress: Steer cancels
-	// the current run, FollowUp queues for after it returns.
 	if mode == queue.ModePrompt && a.controller.IsRunning() {
 		return ErrAgentBusy
 	}
