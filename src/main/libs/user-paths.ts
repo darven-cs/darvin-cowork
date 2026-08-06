@@ -50,9 +50,11 @@ export function skillStateDbPath(): string {
   return path.join(agentDataDir(), 'skill-state.db');
 }
 
-/** user 装 skill 的根目录；chokidar 监听它。 */
+/** user 装 skill 的根目录；chokidar 监听它。目录名小写，与 Go 端
+ * internal/skills/bootstrap.go 加载的 <ProjectSkillsDir>/skills /
+ * <GlobalConfigDir>/skills 一致。 */
 export function getSkillsRoot(): string {
-  return path.join(agentDataDir(), 'SKILLs');
+  return path.join(agentDataDir(), 'skills');
 }
 
 /**
