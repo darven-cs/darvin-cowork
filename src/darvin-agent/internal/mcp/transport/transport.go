@@ -1,7 +1,8 @@
 // Package transport provides the byte-stream layer underneath the MCP JSON-RPC
-// client. StdioTransport speaks LSP-style Content-Length framed messages over
-// the child process stdio; HTTPTransport speaks a single POST per request and
-// caches the response so the synchronous client can read it back via Recv.
+// client. StdioTransport speaks newline-delimited JSON (with Content-Length
+// fallback) using a reader goroutine and per-request-ID pending channels.
+// HTTPTransport speaks a single POST per request and caches the response so
+// the synchronous client can read it back via Recv.
 package transport
 
 import (
@@ -15,8 +16,11 @@ var ErrTransportClosed = errors.New("mcp transport closed")
 
 // Frame is one wire-level MCP message — the JSON-RPC envelope has already
 // been unwrapped from its Content-Length (stdio) or HTTP (http) framing.
+// Err is set by the stdio reader goroutine to signal fatal read errors
+// to pending request goroutines.
 type Frame struct {
 	Body []byte
+	Err  error
 }
 
 // Transport abstracts the byte stream that carries MCP messages. Both
