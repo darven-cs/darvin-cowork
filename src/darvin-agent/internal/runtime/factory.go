@@ -21,6 +21,7 @@ type AgentFactoryDeps struct {
 	Provider         llm.ModelProvider
 	Store            store.SessionStore
 	MessageStore     store.MessageStore
+	UsageStore       store.UsageStore
 	Logger           *zap.Logger
 	Config           agent.Config
 	Tools            *tool.Registry
@@ -44,6 +45,7 @@ func newAgentFactory(d AgentFactoryDeps) *agentloop.AgentFactory {
 		Provider:         d.Provider,
 		Store:            d.Store,
 		MessageStore:     d.MessageStore,
+		UsageStore:       d.UsageStore,
 		Logger:           d.Logger,
 		Config:           d.Config,
 		Tools:            d.Tools,

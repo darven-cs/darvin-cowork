@@ -89,9 +89,11 @@ type Deps interface {
 	SystemSections() []ctxengine.SystemSection
 	AssemblerEnabled() bool
 	// Usage accounting: RecordUsage stores the API-reported Usage for the
-	// just-finished turn; LastUsage returns the most recent Usage so the
-	// ContextEngine can prefer API token counts over the local estimator.
-	RecordUsage(u protocol.Usage)
+	// just-finished turn (model tags the snapshot so the persistence layer
+	// knows which context window to use on rehydrate); LastUsage returns
+	// the most recent Usage so the ContextEngine can prefer API token
+	// counts over the local estimator.
+	RecordUsage(u protocol.Usage, model string)
 	LastUsage() protocol.Usage
 	// CurrentMessageID returns the messageID the agent loop assigned to the
 	// prompt that triggered the in-flight run. The executor embeds it on
@@ -223,8 +225,10 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		}
 		// publish the API-reported usage so subsequent assembles can prefer
 		// it over the rune/4 estimator, and so the LLMEndEvent payload carries
-		// the real cumulative cost (prior version always emitted zero).
-		d.RecordUsage(turnUsage)
+		// the real cumulative cost (prior version always emitted zero). The
+		// model tag is forwarded so the persisted snapshot knows which
+		// context window to use when rehydrating on session switch.
+		d.RecordUsage(turnUsage, d.ModelName())
 		totalUsage.PromptTokens += turnUsage.PromptTokens
 		totalUsage.CompletionTokens += turnUsage.CompletionTokens
 		totalUsage.TotalTokens += turnUsage.TotalTokens

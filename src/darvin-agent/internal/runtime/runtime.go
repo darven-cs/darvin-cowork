@@ -74,13 +74,14 @@ type Runtime struct {
 
 // Stores aggregates the SQLite-backed stores the runtime owns.
 // Sessions is the concrete *SQLiteStore so Shutdown can release the
-// underlying connection; the other three are concrete pointer types
+// underlying connection; the other four are concrete pointer types
 // because handlers / factories accept them by pointer.
 type Stores struct {
 	Sessions      *store.SQLiteStore
 	Messages      store.MessageStore
 	AppState      *store.AppStateStore
 	ImportedFiles *store.ImportedFileStore
+	Usages        *store.SQLiteUsageStore
 }
 
 // Shutdown stops the gateway server, disposes every registered
@@ -153,6 +154,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		Provider:         provider,
 		Store:            stores.Sessions,
 		MessageStore:     stores.Messages,
+		UsageStore:       stores.Usages,
 		Logger:           log,
 		Config:           agentCfg,
 		Tools:            toolsReg,
@@ -177,6 +179,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	handler := gateway.NewHandler(sessions, ledger,
 		stores.Sessions, stores.Messages, stores.AppState,
 		gateway.HandlerOptions{
+			UsageStore:    stores.Usages,
 			ImportedFiles: stores.ImportedFiles,
 			WorkspaceRoot: workspace,
 			Skills:        skillsResult.Registry,

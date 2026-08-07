@@ -109,7 +109,7 @@ func (f *fakeDeps) Assembler() ctxengine.ContextEngine {
 }
 func (f *fakeDeps) SystemSections() []ctxengine.SystemSection { return nil }
 func (f *fakeDeps) AssemblerEnabled() bool                    { return f.assemblerEnabled }
-func (f *fakeDeps) RecordUsage(u llm.Usage)                   { f.lastUsage = u }
+func (f *fakeDeps) RecordUsage(u llm.Usage, _ string)        { f.lastUsage = u }
 func (f *fakeDeps) LastUsage() llm.Usage                      { return f.lastUsage }
 func (f *fakeDeps) CurrentMessageID() string                  { return f.messageID }
 func (f *fakeDeps) CurrentRunID() string                      { return f.runID }

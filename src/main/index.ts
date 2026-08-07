@@ -41,6 +41,7 @@ import type {
   DarvinDeleteSessionResponse,
   DarvinDestroyArtifactPreviewSessionResponse,
   DarvinGetMessagesResponse,
+  DarvinGetSessionUsageResponse,
   DarvinGetSkillDetailsResponse,
   DarvinImportFilesResponse,
   DarvinInstallSkillResponse,
@@ -80,6 +81,7 @@ import type {
   DarvinRuntimeStatus,
   DarvinSearchSessionsResponse,
   DarvinSession,
+  DarvinSessionUsage,
   DarvinSetLLMConfigResponse,
   DarvinSetSkillEnabledRequest,
   DarvinSetSkillEnabledResponse,
@@ -131,12 +133,14 @@ interface CacheState {
   sessions: DarvinSession[] | null;              // 最近一次 list_sessions
   activeSessionId: string | null | undefined;    // 最近一次 get_active_session；undefined = 还没查过
   messagesBySession: Map<string, DarvinMessage[]>; // 最近一次 get_messages(sid)
+  usageBySession: Map<string, DarvinSessionUsage>; // 最近一次 get_session_usage(sid)
 }
 
 const cache: CacheState = {
   sessions: null,
   activeSessionId: undefined,
   messagesBySession: new Map(),
+  usageBySession: new Map(),
 };
 
 /**
@@ -351,6 +355,8 @@ ipcMain.handle(
       }
     }
     currentRunIdBySessionId.delete(sessionId);
+    cache.messagesBySession.delete(sessionId);
+    cache.usageBySession.delete(sessionId);
     const r = await client.request<DarvinDeleteSessionResponse>(
       'agent.delete_session',
       { sessionId },
@@ -440,6 +446,34 @@ ipcMain.handle(
     return r;
   },
 );
+
+ipcMain.handle(
+  'darvin:get_session_usage',
+  async (_e, sessionId: string): Promise<DarvinGetSessionUsageResponse> => {
+    if (!client.isConnected()) {
+      return { usage: cache.usageBySession.get(sessionId) ?? emptySessionUsage() };
+    }
+    const r = await client.getSessionUsage(sessionId);
+    cache.usageBySession.set(sessionId, r.usage);
+    return r;
+  },
+);
+
+// session_usages 行缺失时返全零,renderer 用 lastUsedTokens === 0 &&
+// totalPromptTokens === 0 判定"无数据"。
+function emptySessionUsage(): DarvinSessionUsage {
+  return {
+    lastPromptTokens: 0,
+    lastCompletionTokens: 0,
+    lastUsedTokens: 0,
+    lastCacheReadTokens: 0,
+    lastCacheWriteTokens: 0,
+    requestCount: 0,
+    totalPromptTokens: 0,
+    totalCompletionTokens: 0,
+    updatedAt: 0,
+  };
+}
 
 ipcMain.handle(
   'darvin:import_files',

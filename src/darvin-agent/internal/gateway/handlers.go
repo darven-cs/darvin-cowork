@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"darvin-cowork/backend/internal/agentloop"
 	"darvin-cowork/backend/internal/agents"
@@ -139,6 +140,42 @@ type GetMessagesResult struct {
 	Messages []store.MessageRecord `json:"messages"`
 }
 
+// GetSessionUsageParams is the JSON-RPC params for agent.get_session_usage.
+// Returns the persisted per-session snapshot so renderer-side
+// contextUsageBySessionId can be rehydrated on session switch / cold start.
+type GetSessionUsageParams struct {
+	SessionID string `json:"sessionId"`
+}
+
+// SessionUsageWire is the JSON-RPC shape of one row from the session_usages
+// table. Fields mirror the snapshot columns plus a synthetic lastUsedTokens
+// (= LastPromptTokens + LastCompletion) the renderer wants to compute the
+// context-window fill percentage. Last / Total are returned as zero-valued
+// objects even when no snapshot exists — the renderer reads
+// (lastUsedTokens == 0 && totalPromptTokens == 0) as "no usage yet" and
+// keeps the empty-state branch.
+type SessionUsageWire struct {
+	LastPromptTokens     int    `json:"lastPromptTokens"`
+	LastCompletionTokens int    `json:"lastCompletionTokens"`
+	LastUsedTokens       int    `json:"lastUsedTokens"`
+	LastCacheReadTokens  int    `json:"lastCacheReadTokens"`
+	LastCacheWriteTokens int    `json:"lastCacheWriteTokens"`
+	LastContextTokens    int    `json:"lastContextTokens"`
+	LastPercent          int    `json:"lastPercent"`
+	LastModel            string `json:"lastModel,omitempty"`
+	RequestCount         int    `json:"requestCount"`
+	TotalPromptTokens    int    `json:"totalPromptTokens"`
+	TotalCompletionTokens int   `json:"totalCompletionTokens"`
+	UpdatedAt            int64  `json:"updatedAt"`
+}
+
+// GetSessionUsageResult is the JSON-RPC result for agent.get_session_usage.
+// Usage is always present (zero-valued when no row exists) — the renderer
+// distinguishes "no data" by the zero checks above rather than nil.
+type GetSessionUsageResult struct {
+	Usage SessionUsageWire `json:"usage"`
+}
+
 // CreateSessionParams is the JSON-RPC params for agent.create_session.
 // title is optional; an empty title falls back to the store default.
 type CreateSessionParams struct {
@@ -225,6 +262,9 @@ type HandlerOptions struct {
 	// SkillRunner 支撑 agent.skill.invoke_user。由 main.go 注入;
 	// nil 时该 handler 返回空结果(handler 测试 stub 不需要构造 runner)。
 	SkillRunner *skills.SkillRunner
+	// UsageStore 支撑 agent.get_session_usage / session 级 cascade
+	// delete。nil 时 get_session_usage 返零值 Usage、delete 不级联删。
+	UsageStore *store.SQLiteUsageStore
 	// Mcp 是 MCP server registry。由 main.go 注入。
 	Mcp *mcp.Registry
 	// Log 是 skills handler 的日志出口;nil 时 handler 不打 warn。
@@ -236,6 +276,9 @@ type Handler struct {
 	Ledger       *EventLedger
 	SessionStore store.SessionStore
 	MessageStore store.MessageStore
+	// UsageStore 支撑 agent.get_session_usage;Run 末尾落库 / 切换会话时
+	// 读快照。nil 时 handler 返回空 Usage 对象(renderer 走空态分支)。
+	UsageStore store.UsageStore
 	// AppState 承载 active_session_id 持久化(get/set_active_session 与
 	// create_session / delete_session 的 active 推进)。nil 时 get_active
 	// 返 null、set/create 只做内存侧行为。
@@ -280,6 +323,7 @@ func NewHandler(
 		Ledger:        l,
 		SessionStore:  sessStore,
 		MessageStore:  msgStore,
+		UsageStore:    o.UsageStore,
 		AppState:      appState,
 		ImportedFiles: o.ImportedFiles,
 		WorkspaceRoot: o.WorkspaceRoot,
@@ -308,6 +352,8 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleListSessions(ctx, req.ID, h)
 	case "agent.get_messages":
 		return handleGetMessages(ctx, req.ID, req.Params, h)
+	case "agent.get_session_usage":
+		return handleGetSessionUsage(ctx, req.ID, req.Params, h)
 	case "agent.create_session":
 		return handleCreateSession(ctx, req.ID, req.Params, c, h)
 	case "agent.get_active_session":
@@ -593,6 +639,92 @@ func handleGetMessages(ctx context.Context, id json.RawMessage, params json.RawM
 	return successResp(id, GetMessagesResult{Messages: rows})
 }
 
+// handleGetSessionUsage 返回 session 的 usage 快照。nil store 时返零值
+// Usage;Get 找不到行时同样返零值 — renderer 用全零判定"没数据"。ErrNoUsage
+// (ErrRecordNotFound) 等价于"该 session 从未跑过 turn",不当作 RPC 错误。
+func handleGetSessionUsage(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	var p GetSessionUsageParams
+	if len(params) == 0 {
+		return errorResp(id, CodeInvalidParams, "params required", nil)
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if p.SessionID == "" {
+		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
+	}
+	if h.UsageStore == nil {
+		return successResp(id, GetSessionUsageResult{Usage: SessionUsageWire{}})
+	}
+	rec, err := h.UsageStore.Get(ctx, p.SessionID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return successResp(id, GetSessionUsageResult{Usage: SessionUsageWire{}})
+		}
+		return errorResp(id, CodeInternalError, "session usage get", err)
+	}
+	used := 0
+	if rec.Last != nil {
+		used = rec.Last.PromptTokens + rec.Last.CompletionTokens
+	}
+	return successResp(id, GetSessionUsageResult{Usage: SessionUsageWire{
+		LastPromptTokens:      usageLastPrompt(rec),
+		LastCompletionTokens:  usageLastCompletion(rec),
+		LastUsedTokens:        used,
+		LastCacheReadTokens:   usageLastCacheRead(rec),
+		LastCacheWriteTokens:  usageLastCacheWrite(rec),
+		LastContextTokens:     rec.LastContextTokens,
+		LastPercent:           rec.LastPercent,
+		LastModel:             rec.LastModel,
+		RequestCount:          rec.RequestCount,
+		TotalPromptTokens:     usageTotalPrompt(rec),
+		TotalCompletionTokens: usageTotalCompletion(rec),
+		UpdatedAt:             rec.UpdatedAt,
+	}})
+}
+
+func usageLastPrompt(rec *store.UsageRecord) int {
+	if rec.Last == nil {
+		return 0
+	}
+	return rec.Last.PromptTokens
+}
+
+func usageLastCompletion(rec *store.UsageRecord) int {
+	if rec.Last == nil {
+		return 0
+	}
+	return rec.Last.CompletionTokens
+}
+
+func usageLastCacheRead(rec *store.UsageRecord) int {
+	if rec.Last == nil {
+		return 0
+	}
+	return rec.Last.CacheReadTokens
+}
+
+func usageLastCacheWrite(rec *store.UsageRecord) int {
+	if rec.Last == nil {
+		return 0
+	}
+	return rec.Last.CacheWriteTokens
+}
+
+func usageTotalPrompt(rec *store.UsageRecord) int {
+	if rec.Total == nil {
+		return 0
+	}
+	return rec.Total.PromptTokens
+}
+
+func usageTotalCompletion(rec *store.UsageRecord) int {
+	if rec.Total == nil {
+		return 0
+	}
+	return rec.Total.CompletionTokens
+}
+
 // handleCreateSession 新建一个 session 并把它设为 active:
 //  1. 用 SessionManager 的 idGen 生成 21 位 nanoid
 //  2. GetOrCreateEntry 建 SessionEntry,并借 factory 懒建 AgentLoopSession
@@ -730,6 +862,15 @@ func handleDeleteSession(ctx context.Context, id json.RawMessage, params json.Ra
 	if h.ImportedFiles != nil {
 		if err := h.ImportedFiles.DeleteBySession(ctx, p.SessionID); err != nil {
 			return errorResp(id, CodeInternalError, "session imported files delete", err)
+		}
+	}
+
+	// 级联删除该 session 的 usage 快照,避免孤立行 / 旧 session 的
+	// 上下文数据在换 id 后被错误读出。UsageStore.DeleteBySession 是
+	// warn-and-continue(missing row 无错),所以即便从未落过快照也安全。
+	if h.UsageStore != nil {
+		if err := h.UsageStore.DeleteBySession(ctx, p.SessionID); err != nil {
+			return errorResp(id, CodeInternalError, "session usage delete", err)
 		}
 	}
 

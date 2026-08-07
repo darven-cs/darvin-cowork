@@ -17,6 +17,7 @@ import (
 
 	"darvin-cowork/backend/internal/agentloop"
 	"darvin-cowork/backend/internal/agents"
+	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
@@ -83,16 +84,21 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 	if err != nil {
 		t.Fatalf("gorm.Open: %v", err)
 	}
-	if err := db.AutoMigrate(&store.Session{}, &store.Message{}, &store.CompactionCheckpoint{}, &store.SkillSnapshot{}, &store.AppState{}, &store.ImportedFile{}); err != nil {
+	if err := db.AutoMigrate(&store.Session{}, &store.Message{}, &store.CompactionCheckpoint{}, &store.SkillSnapshot{}, &store.AppState{}, &store.ImportedFile{}, &store.SessionUsage{}); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
 	sessStore := store.NewSQLiteStore(db)
 	msgStore := store.NewSQLiteMessageStore(db)
 	appState := store.NewAppStateStore(db)
 	ifs := store.NewImportedFileStore(db)
+	usageStore := store.NewSQLiteUsageStore(db)
 
 	handler := NewHandler(sessions, ledger, sessStore, msgStore, appState,
-		HandlerOptions{ImportedFiles: ifs, WorkspaceRoot: t.TempDir()})
+		HandlerOptions{
+			ImportedFiles: ifs,
+			UsageStore:    usageStore,
+			WorkspaceRoot: t.TempDir(),
+		})
 	client := &client{
 		sessions: sessions,
 		ledger:   ledger,
@@ -1355,5 +1361,109 @@ func TestSetSkillEnabled_RefreshTools(t *testing.T) {
 	}
 	if hasToolWire(resp.Result.(ListToolsResult).Tools, "skill__code-review") {
 		t.Error("skill__code-review still present after disable")
+	}
+}
+
+func TestHandleGetSessionUsage_ReturnsPersistedSnapshot(t *testing.T) {
+	_, c, _, _, _ := newTestHandlerWithStores(t)
+	rec := &store.UsageRecord{
+		SessionID:    "sess-usage",
+		LastModel:    "claude-opus",
+		RequestCount: 4,
+		UpdatedAt:    1700000000000,
+		Last: &protocol.Usage{
+			PromptTokens:     4500,
+			CompletionTokens: 200,
+			CacheReadTokens:  3200,
+			CacheWriteTokens: 50,
+		},
+		Total: &protocol.Usage{
+			PromptTokens:     12500,
+			CompletionTokens: 600,
+			CacheReadTokens:  9000,
+		},
+	}
+	if err := c.handler.UsageStore.Save(context.Background(), rec); err != nil {
+		t.Fatalf("seed Save: %v", err)
+	}
+
+	resp := dispatchRequest(context.Background(),
+		&Request{JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.get_session_usage", Params: json.RawMessage(`{"sessionId":"sess-usage"}`)},
+		c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("rpc error: %+v", resp.Error)
+	}
+	got := resp.Result.(GetSessionUsageResult).Usage
+	if got.LastPromptTokens != 4500 || got.LastCompletionTokens != 200 || got.LastUsedTokens != 4700 {
+		t.Fatalf("LastPrompt/Completion/Used = %d/%d/%d, want 4500/200/4700",
+			got.LastPromptTokens, got.LastCompletionTokens, got.LastUsedTokens)
+	}
+	if got.LastCacheReadTokens != 3200 || got.LastCacheWriteTokens != 50 {
+		t.Fatalf("cache = read=%d write=%d, want 3200/50", got.LastCacheReadTokens, got.LastCacheWriteTokens)
+	}
+	if got.LastModel != "claude-opus" || got.RequestCount != 4 {
+		t.Fatalf("LastModel/RequestCount = %q/%d, want claude-opus/4", got.LastModel, got.RequestCount)
+	}
+	if got.TotalPromptTokens != 12500 || got.TotalCompletionTokens != 600 {
+		t.Fatalf("Total = prompt=%d completion=%d, want 12500/600", got.TotalPromptTokens, got.TotalCompletionTokens)
+	}
+	if got.UpdatedAt != 1700000000000 {
+		t.Fatalf("UpdatedAt = %d, want 1700000000000", got.UpdatedAt)
+	}
+}
+
+func TestHandleGetSessionUsage_MissingReturnsZeroValue(t *testing.T) {
+	_, c, _, _, _ := newTestHandlerWithStores(t)
+	resp := dispatchRequest(context.Background(),
+		&Request{JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.get_session_usage", Params: json.RawMessage(`{"sessionId":"never-existed"}`)},
+		c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("rpc error: %+v", resp.Error)
+	}
+	got := resp.Result.(GetSessionUsageResult).Usage
+	if got.LastPromptTokens != 0 || got.LastCompletionTokens != 0 || got.LastUsedTokens != 0 ||
+		got.TotalPromptTokens != 0 || got.TotalCompletionTokens != 0 {
+		t.Fatalf("missing snapshot Usage = %+v, want all-zero", got)
+	}
+	if got.LastModel != "" {
+		t.Fatalf("missing snapshot LastModel = %q, want empty", got.LastModel)
+	}
+}
+
+func TestHandleGetSessionUsage_RejectsEmptySessionID(t *testing.T) {
+	_, c, _, _, _ := newTestHandlerWithStores(t)
+	resp := dispatchRequest(context.Background(),
+		&Request{JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.get_session_usage", Params: json.RawMessage(`{}`)},
+		c, c.handler)
+	if resp.Error == nil || resp.Error.Code != CodeInvalidParams {
+		t.Fatalf("expected CodeInvalidParams, got %+v", resp.Error)
+	}
+}
+
+func TestHandleDeleteSessionCascadesUsage(t *testing.T) {
+	h, c, _, _, _ := newTestHandlerWithStores(t)
+	// Seed a usage row directly (Run tail isn't part of this unit test).
+	if err := h.UsageStore.Save(context.Background(), &store.UsageRecord{
+		SessionID: "sess-cascade",
+		UpdatedAt: 1,
+		Last:      &protocol.Usage{PromptTokens: 100},
+	}); err != nil {
+		t.Fatalf("seed Save: %v", err)
+	}
+	// Seed a session row so delete_session passes the row-delete branch.
+	if err := h.SessionStore.Save(context.Background(), session.NewSession("sess-cascade")); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	resp := dispatchRequest(context.Background(),
+		&Request{JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.delete_session", Params: json.RawMessage(`{"sessionId":"sess-cascade"}`)},
+		c, h)
+	if resp.Error != nil {
+		t.Fatalf("rpc error: %+v", resp.Error)
+	}
+
+	_, err := h.UsageStore.Get(context.Background(), "sess-cascade")
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("after delete, Get error = %v, want gorm.ErrRecordNotFound", err)
 	}
 }

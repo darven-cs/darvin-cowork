@@ -79,8 +79,12 @@ type NewAgentConfig struct {
 	// session metadata save). main.go wires the same SQLiteMessageStore
 	// it uses for sessions so a single *gorm.DB powers both.
 	MessageStore store.MessageStore
-	Logger       *zap.Logger
-	Config       Config
+	// UsageStore is optional. When non-nil, the Agent writes a snapshot
+	// row at the tail of every successful Run so renderer-side
+	// contextUsageBySessionId survives a process restart.
+	UsageStore  store.UsageStore
+	Logger      *zap.Logger
+	Config      Config
 	// Executor is optional. If nil, executor.New() is used.
 	Executor executor.Executor
 	// Tools is the tool registry driving the loop. Required; the concrete
@@ -149,6 +153,7 @@ type Agent struct {
 	session      *session.Session
 	store        store.SessionStore
 	msgStore     store.MessageStore
+	usageStore   store.UsageStore
 	logger       *zap.Logger
 	cfg          Config
 	tools        protocol.ToolRegistry
@@ -253,6 +258,7 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		mcp:          cfg.Mcp,
 		store:        cfg.Store,
 		msgStore:     cfg.MessageStore,
+		usageStore:   cfg.UsageStore,
 		logger:       cfg.Logger,
 		cfg:          cfg.Config,
 		tools:        cfg.Tools,
@@ -357,15 +363,60 @@ func (a *Agent) AssemblerEnabled() bool { return a.assemblerEnabled }
 // uses it to refuse manual context compaction while a turn is executing.
 func (a *Agent) IsRunning() bool { return a.controller.IsRunning() }
 
-// RecordUsage stores the API-reported Usage from the just-finished turn.
-// Safe to call from the executor goroutine; readers (next turn's Assemble)
-// use LastUsage under the same mutex.
-func (a *Agent) RecordUsage(u protocol.Usage) { a.tracker.Record(u) }
+// RecordUsage stores the API-reported Usage from the just-finished turn
+// and tags it with the model name so the persisted snapshot can pick the
+// right context window on rehydrate. Safe to call from the executor
+// goroutine; readers (next turn's Assemble, Run-tail persistence) use
+// LastUsage / Snapshot under the same mutex.
+func (a *Agent) RecordUsage(u protocol.Usage, model string) {
+	a.tracker.RecordWithModel(u, model)
+}
 
 // LastUsage returns the most recently stored API-reported Usage. Zero value
 // when no turn has completed yet (e.g. before the first LLM call), which
 // the ContextEngine interprets as "fall back to the local estimator".
 func (a *Agent) LastUsage() protocol.Usage { return a.tracker.Last() }
+
+// UsageSnapshot returns the Tracker's full state (last + cumulative +
+// model) for the persistence layer's Run-tail write. Nil when no record
+// has been captured yet — the caller skips the row write in that case.
+func (a *Agent) UsageSnapshot() usage.Snapshot { return a.tracker.Snapshot() }
+
+// persistUsageSnapshot writes the current Tracker snapshot to SQLite.
+// Called from Run tail; failures are warn-and-continue (snapshot is
+// best-effort — the live event stream still carries usage for the
+// active session). The percent / context-window fields reuse the same
+// numbers the context_usage event carries so the renderer can
+// rehydrate the indicator on session switch without recomputing them.
+func (a *Agent) persistUsageSnapshot(ctx context.Context) {
+	if a.usageStore == nil {
+		return
+	}
+	snap := a.tracker.Snapshot()
+	if snap.Last == nil {
+		return
+	}
+	used, ctxTokens := a.contextUsageInputs()
+	percent := 0
+	if used > 0 && ctxTokens > 0 {
+		percent = int(float64(used) / float64(ctxTokens) * 100)
+	}
+	rec := &store.UsageRecord{
+		SessionID:         a.session.ID,
+		Last:              snap.Last,
+		Total:             snap.Total,
+		LastContextTokens: ctxTokens,
+		LastPercent:       percent,
+		LastModel:         snap.LastModel,
+		RequestCount:      snap.RequestCount,
+		UpdatedAt:         snap.UpdatedAt,
+	}
+	if err := a.usageStore.Save(ctx, rec); err != nil && a.logger != nil {
+		a.logger.Warn("persist usage snapshot failed",
+			zap.String("session_id", a.session.ID),
+			zap.Error(err))
+	}
+}
 
 // Session returns the agent's session (read-only access pattern; mutators
 // are reserved for the executor).

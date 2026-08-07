@@ -21,6 +21,7 @@ import type {
   DarvinActiveSessionResponse,
   DarvinEvent,
   DarvinGetMessagesResponse,
+  DarvinGetSessionUsageResponse,
   DarvinImportedFile,
   DarvinImportFilesResponse,
   DarvinInvokeSkillRequest,
@@ -100,6 +101,10 @@ const api: DarvinApi = {
 
   async getMessages(sessionId: string): Promise<DarvinGetMessagesResponse> {
     return ipcRenderer.invoke('darvin:get_messages', sessionId);
+  },
+
+  async getSessionUsage(sessionId: string): Promise<DarvinGetSessionUsageResponse> {
+    return ipcRenderer.invoke('darvin:get_session_usage', sessionId);
   },
 
   async prompt(req: DarvinPromptRequest): Promise<DarvinPromptResponse> {

@@ -26,6 +26,7 @@ type AgentFactory struct {
 	Provider     llm.ModelProvider
 	Store        store.SessionStore
 	MessageStore store.MessageStore
+	UsageStore   store.UsageStore
 	Logger       *zap.Logger
 	Config       agent.Config
 	Tools        *tool.Registry
@@ -125,6 +126,7 @@ func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
 		Session:          session.NewSession(sessionID),
 		Store:            f.Store,
 		MessageStore:     f.MessageStore,
+		UsageStore:       f.UsageStore,
 		Logger:           f.Logger,
 		Config:           f.Config,
 		Tools:            f.Tools,

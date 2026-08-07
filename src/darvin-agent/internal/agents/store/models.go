@@ -101,3 +101,39 @@ type ImportedFile struct {
 }
 
 func (ImportedFile) TableName() string { return "imported_files" }
+
+// SessionUsage is the per-session usage snapshot persisted across restarts.
+// One row per session_id; written at every successful LLM turn so the
+// renderer can rehydrate contextUsageBySessionId on session switch without
+// waiting for a live context_usage event. PRIMARY KEY on session_id makes
+// upsert a single Save call and read a single First call — no extra
+// index needed.
+type SessionUsage struct {
+	SessionID         string `gorm:"primaryKey;column:session_id"`
+	LastUsedTokens    int    `gorm:"column:last_used_tokens"`
+	LastPromptTokens  int    `gorm:"column:last_prompt_tokens"`
+	LastCompletion    int    `gorm:"column:last_completion_tokens"`
+	LastCacheRead     int    `gorm:"column:last_cache_read_tokens"`
+	LastCacheWrite    int    `gorm:"column:last_cache_write_tokens"`
+	LastCacheWrite1h  int    `gorm:"column:last_cache_write_1h_tokens"`
+	// LastContextTokens is the model context window the most recent turn
+	// was sized against. Cached so the renderer hydrates the context ring
+	// on session switch without a model-registry lookup.
+	LastContextTokens int    `gorm:"column:last_context_tokens"`
+	// LastPercent is 0–100 — the rendered fill percent the live
+	// context_usage event emitted. Same source-of-truth so the indicator
+	// never recomputes a different number from the same data.
+	LastPercent       int    `gorm:"column:last_percent"`
+	LastModel         string `gorm:"column:last_model"`
+	RequestCount      int    `gorm:"column:request_count"`
+	TotalPromptTokens int    `gorm:"column:total_prompt_tokens"`
+	TotalCompletion   int    `gorm:"column:total_completion_tokens"`
+	TotalCacheRead    int    `gorm:"column:total_cache_read_tokens"`
+	// SnapshotAt is unix ms the caller chose to write. Renamed away from
+	// "UpdatedAt" because GORM auto-detects that name (any type) and
+	// overwrites it at Save time, which would defeat the deterministic
+	// timestamp the persistence layer wants to persist.
+	SnapshotAt int64 `gorm:"column:updated_at"`
+}
+
+func (SessionUsage) TableName() string { return "session_usages" }

@@ -363,6 +363,39 @@ export interface DarvinGetMessagesResponse {
   messages: DarvinMessage[];
 }
 
+/** 持久化的 per-session usage 快照,RPC agent.get_session_usage 返回。 */
+export interface DarvinSessionUsage {
+  /** 最近一次 LLM turn 的 prompt token 数。 */
+  lastPromptTokens: number;
+  /** 最近一次 LLM turn 的 completion token 数。 */
+  lastCompletionTokens: number;
+  /** lastPromptTokens + lastCompletionTokens — renderer 据此算 context fill。 */
+  lastUsedTokens: number;
+  /** 最近一次 turn 的 cache hit token 数。 */
+  lastCacheReadTokens: number;
+  /** 最近一次 turn 的 cache write token 数。 */
+  lastCacheWriteTokens: number;
+  /** 最近一次 turn 的 model context window(Go 端 model registry 缓存的值)。 */
+  lastContextTokens: number;
+  /** 最近一次 turn 的 fill percent(0-100),与 live context_usage 事件同源。 */
+  lastPercent: number;
+  /** 最近一次 turn 用的 model id;renderer 用它查 context window 算 percent。 */
+  lastModel?: string;
+  /** 该 session 累计调 LLM 次数。 */
+  requestCount: number;
+  /** session 累计 prompt token。 */
+  totalPromptTokens: number;
+  /** session 累计 completion token。 */
+  totalCompletionTokens: number;
+  /** 快照落盘 unix ms。 */
+  updatedAt: number;
+}
+
+export interface DarvinGetSessionUsageResponse {
+  /** 全零字段表示该 session 没有快照(renderer 走空态分支)。 */
+  usage: DarvinSessionUsage;
+}
+
 export interface DarvinCreateSessionResponse {
   session: DarvinSession;
 }
@@ -821,6 +854,8 @@ export interface DarvinApi {
   onActiveSessionChanged(handler: (sessionId: string | null) => void): () => void;
 
   getMessages(sessionId: string): Promise<DarvinGetMessagesResponse>;
+  /** 读该 session 持久化的 usage 快照。切换会话 / 冷启动时由 renderer 主动拉取。 */
+  getSessionUsage(sessionId: string): Promise<DarvinGetSessionUsageResponse>;
 
   prompt(req: DarvinPromptRequest): Promise<DarvinPromptResponse>;
   /** `/skill-name args` 显式触发 skill；校验失败以 RPC error 返回。 */

@@ -19,6 +19,7 @@ import type {
   DarvinAbortResponse,
   DarvinEvent,
   DarvinGetMessagesResponse,
+  DarvinGetSessionUsageResponse,
   DarvinInvokeSkillRequest,
   DarvinInvokeSkillResponse,
   DarvinListSessionsResponse,
@@ -287,6 +288,12 @@ export class AgentClient extends EventEmitter {
       sessionId,
       limit,
       offset,
+    });
+  }
+
+  getSessionUsage(sessionId: string): Promise<DarvinGetSessionUsageResponse> {
+    return this.request<DarvinGetSessionUsageResponse>('agent.get_session_usage', {
+      sessionId,
     });
   }
 

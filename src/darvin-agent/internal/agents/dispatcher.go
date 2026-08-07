@@ -190,6 +190,9 @@ func (a *Agent) Run(ctx context.Context) error {
 			Turns:     turnsThisRun,
 		})
 		a.emitContextUsage()
+		// Persist the per-session usage snapshot so renderer-side
+		// contextUsageBySessionId survives a restart / eviction.
+		a.persistUsageSnapshot(runCtx)
 
 		// if no followup is queued, exit; otherwise loop and consume it
 		if a.queue.Len() == 0 {
@@ -204,22 +207,12 @@ func (a *Agent) Run(ctx context.Context) error {
 // input_tokens (common behind a proxy) it falls back to the local rune/4
 // estimate over the session. The window comes from the model registry.
 // Skipped when no LLM call completed or the model's window is unknown, so a
-// 0% ring never appears.
+// 0% ring never appears. The same numbers feed persistUsageSnapshot so the
+// snapshot row carries the rendered percent / window alongside the token
+// counts (renderer hydrates the indicator without a model registry lookup).
 func (a *Agent) emitContextUsage() {
-	used := a.LastUsage().PromptTokens
-	if used <= 0 {
-		for _, m := range a.session.Messages() {
-			used += ctxengine.EstimateMessageTokens(m)
-		}
-	}
-	if used <= 0 {
-		return
-	}
-	ctx := 0
-	if d, ok := protocol.DefaultModelRegistry.Get(a.ModelName()); ok {
-		ctx = d.ContextWindow
-	}
-	if ctx <= 0 {
+	used, ctx := a.contextUsageInputs()
+	if used <= 0 || ctx <= 0 {
 		return
 	}
 	a.bus.Emit(event.ContextUsageEvent{
@@ -228,6 +221,26 @@ func (a *Agent) emitContextUsage() {
 		ContextTokens: ctx,
 		Percent:       int(float64(used) / float64(ctx) * 100),
 	})
+}
+
+// contextUsageInputs returns the (used, context-window) pair that drives
+// the context_usage event and the persisted snapshot. Returns (0,0) when
+// no LLM call has completed yet or the model registry has no window for
+// the active model — callers treat that as "skip the emit / write".
+func (a *Agent) contextUsageInputs() (used, ctxTokens int) {
+	used = a.LastUsage().PromptTokens
+	if used <= 0 {
+		for _, m := range a.session.Messages() {
+			used += ctxengine.EstimateMessageTokens(m)
+		}
+	}
+	if used <= 0 {
+		return 0, 0
+	}
+	if d, ok := protocol.DefaultModelRegistry.Get(a.ModelName()); ok {
+		ctxTokens = d.ContextWindow
+	}
+	return used, ctxTokens
 }
 
 // persistUserMessage is hook 1 of 3. It records the

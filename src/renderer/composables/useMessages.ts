@@ -285,6 +285,39 @@ async function loadMessages(sessionId: string): Promise<void> {
       [sessionId]: [],
     };
   }
+  // Rehydrate the context ring from the persisted snapshot so a session
+  // that's been idle / evicted / cold-started still shows its own usage
+  // — without this, only live context_usage events could populate
+  // contextUsageBySessionId, and any session without one would inherit
+  // a stale value from whichever session ran most recently.
+  await hydrateSessionUsage(sessionId);
+}
+
+/**
+ * 拉该 session 持久化的 usage 快照,合成 DarvinContextUsage 喂回 map。
+ * 全零字段(lastUsedTokens=0 && totalPromptTokens=0)跳过,保留空态。
+ */
+async function hydrateSessionUsage(sessionId: string): Promise<void> {
+  if (typeof window === 'undefined' || !window.darvin) return;
+  try {
+    const r = await window.darvin.getSessionUsage(sessionId);
+    const u = r.usage;
+    if (!u || (u.lastUsedTokens === 0 && u.totalPromptTokens === 0)) return;
+    contextUsageBySessionId.value = {
+      ...contextUsageBySessionId.value,
+      [sessionId]: {
+        sessionId,
+        usedTokens: u.lastUsedTokens,
+        contextTokens: u.lastContextTokens,
+        percent: u.lastPercent,
+        status: 'normal',
+        model: u.lastModel,
+        updatedAt: u.updatedAt,
+      },
+    };
+  } catch {
+    // best-effort; the next live context_usage event will heal it
+  }
 }
 
 // 切 active session 时清 unread + 拉历史。watch 只在此处建一次，避免每个
