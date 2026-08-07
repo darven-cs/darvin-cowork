@@ -549,6 +549,11 @@ export interface DarvinWorkspaceRootResult {
   label: string | null;
 }
 
+/** Go agent.set_workspace 的响应：返回重锚后的绝对 rootPath。 */
+export interface DarvinSetWorkspaceResponse {
+  rootPath: string;
+}
+
 /** 单 skill 的 renderer 视图。`path` 仅 main 用，renderer 不展示。 */
 export interface DarvinSkillSummary {
   id: string;

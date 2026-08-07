@@ -28,6 +28,19 @@ func NewSkillPlugin(reg *SkillRegistry, runner *SkillRunner) *SkillPlugin {
 // PluginID returns the owning identifier used for UnregisterByPlugin.
 func (p *SkillPlugin) PluginID() string { return p.pluginID }
 
+// SetBootstrapResult swaps the registry + runner the plugin registers
+// tools from. Runtime workspace switches (agent.set_workspace) re-bootstrap
+// project skills against the new workspace and update the plugin in place,
+// then SessionManager.RefreshAllTools re-runs Register so the tool surface
+// follows the new project skill set.
+func (p *SkillPlugin) SetBootstrapResult(res *BootstrapResult) {
+	if res == nil {
+		return
+	}
+	p.registry = res.Registry
+	p.runner = res.Runner
+}
+
 // Register adds one SkillTool per enabled skill.
 func (p *SkillPlugin) Register(reg tool.ToolRegistrar) error {
 	for _, entry := range p.registry.ListEnabled() {

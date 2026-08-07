@@ -257,6 +257,10 @@ type SearchSessionsResult struct {
 type HandlerOptions struct {
 	ImportedFiles *store.ImportedFileStore
 	WorkspaceRoot string
+	// SetWorkspaceRoot 在 agent.set_workspace 时把运行时 workspace 重锚到新
+	// 根:更新 tools sandbox + 重扫项目 skills + RefreshAllTools。由 runtime
+	// 注入;nil 时 set_workspace 只更新 Handler.WorkspaceRoot(handler 测试 stub)。
+	SetWorkspaceRoot func(string) error
 	// Skills 是 skills registry。由 main.go 注入。
 	Skills *skills.SkillRegistry
 	// SkillRunner 支撑 agent.skill.invoke_user。由 main.go 注入;
@@ -290,6 +294,9 @@ type Handler struct {
 	// WorkspaceRoot 是 agent 的沙箱根(env DARVIN_AGENT_WORKSPACE),
 	// import_files 用它做 sourcePaths 的 containment check。
 	WorkspaceRoot string
+	// SetWorkspaceRoot 在 agent.set_workspace 时重锚运行时 workspace
+	// (sandbox + skills + tools)。nil 时只更新 WorkspaceRoot。
+	SetWorkspaceRoot func(string) error
 	// Skills 支撑 agent.skills.list / set_enabled / bootstrap。
 	// nil 时这些 handler 返回空结果,handler 测试 stub 不需要构造 registry。
 	Skills *skills.SkillRegistry
@@ -325,9 +332,10 @@ func NewHandler(
 		MessageStore:  msgStore,
 		UsageStore:    o.UsageStore,
 		AppState:      appState,
-		ImportedFiles: o.ImportedFiles,
-		WorkspaceRoot: o.WorkspaceRoot,
-		Skills:        o.Skills,
+		ImportedFiles:   o.ImportedFiles,
+		WorkspaceRoot:   o.WorkspaceRoot,
+		SetWorkspaceRoot: o.SetWorkspaceRoot,
+		Skills:          o.Skills,
 		SkillRunner:   o.SkillRunner,
 		Mcp:           o.Mcp,
 		Log:           o.Log,
@@ -360,6 +368,8 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleGetActiveSession(ctx, req.ID, h)
 	case "agent.set_active_session":
 		return handleSetActiveSession(ctx, req.ID, req.Params, c, h)
+	case "agent.set_workspace":
+		return handleSetWorkspace(ctx, req.ID, req.Params, h)
 	case "agent.delete_session":
 		return handleDeleteSession(ctx, req.ID, req.Params, c, h)
 	case "agent.rename_session":
@@ -823,6 +833,53 @@ func handleSetActiveSession(ctx context.Context, id json.RawMessage, params json
 		}
 	}
 	return successResp(id, SetActiveSessionResult{SessionID: p.SessionID})
+}
+
+// SetWorkspaceParams is the JSON-RPC params for agent.set_workspace.
+type SetWorkspaceParams struct {
+	// SessionID 是发起切换的会话;set_workspace 本身是进程级 workspace
+	// 重锚,不带 session 语义,保留字段仅为对齐其它 workspace handler。
+	SessionID string `json:"sessionId"`
+	// RootPath 是新的绝对 workspace 根。必须为存在的目录。
+	RootPath string `json:"rootPath"`
+}
+
+// SetWorkspaceResult is the JSON-RPC result for agent.set_workspace.
+type SetWorkspaceResult struct {
+	RootPath string `json:"rootPath"`
+}
+
+// handleSetWorkspace 把运行时 workspace 重锚到新绝对路径。相比 main 端旧
+// 的 restartGoSubprocess,它不重启 Go 子进程,保留其它 session 的 in-memory
+// 上下文与在途流式。校验 rootPath 为绝对路径 + 存在的目录后:
+//  1. 调 h.SetWorkspaceRoot(rootPath)(sandbox + 项目 skills + tools),
+//     失败时返回 RPC error 且不更新 WorkspaceRoot;
+//  2. 更新 h.WorkspaceRoot,供 import_files 的 containment check 使用。
+func handleSetWorkspace(_ context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	if len(params) == 0 {
+		return errorResp(id, CodeInvalidParams, "params required", nil)
+	}
+	var p SetWorkspaceParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+	}
+	if strings.TrimSpace(p.RootPath) == "" {
+		return errorResp(id, CodeInvalidParams, "rootPath is required", nil)
+	}
+	if !filepath.IsAbs(p.RootPath) {
+		return errorResp(id, CodeInvalidParams, "rootPath must be absolute", nil)
+	}
+	st, err := os.Stat(p.RootPath)
+	if err != nil || !st.IsDir() {
+		return errorResp(id, CodeInvalidParams, "rootPath is not an existing directory", nil)
+	}
+	if h.SetWorkspaceRoot != nil {
+		if err := h.SetWorkspaceRoot(p.RootPath); err != nil {
+			return errorResp(id, CodeInternalError, "set workspace root", err)
+		}
+	}
+	h.WorkspaceRoot = p.RootPath
+	return successResp(id, SetWorkspaceResult{RootPath: p.RootPath})
 }
 
 // handleDeleteSession 删除一个 session:

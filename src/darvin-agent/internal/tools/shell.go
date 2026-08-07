@@ -102,7 +102,7 @@ func (t *shellTool) Execute(ctx context.Context, args map[string]any) Result {
 	}
 	argv := toStrSlice(args["args"])
 
-	cwd := t.sb.root
+	cwd := t.sb.Root()
 	if v, ok := args["cwd"].(string); ok && v != "" {
 		resolved, err := t.sb.Resolve(v)
 		if err != nil {

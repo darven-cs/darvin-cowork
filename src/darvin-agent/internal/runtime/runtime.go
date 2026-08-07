@@ -180,26 +180,46 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		gateway.WithEventLedger(ledger),
 	)
 
-	handler := gateway.NewHandler(sessions, ledger,
+	skillPlugin := skills.NewSkillPlugin(skillsResult.Registry, skillsResult.Runner)
+	mcpPlugin := tool.NewMcpPlugin(mcpReg)
+	factory.Plugins = append(factory.Plugins, skillPlugin, mcpPlugin)
+
+	// setWorkspace 重锚运行时 workspace:更新 sandbox root → 按新 workspace
+	// 重扫项目 skills → 刷新 plugin 的 registry/runner → 对所有已建 agent
+	// 重跑工具插件。handler 由 var 前向声明,闭包内通过非 nil 判断避免
+	// 构造期竞态。
+	var handler *gateway.Handler
+	setWorkspace := func(root string) error {
+		if err := toolsReg.SetWorkspaceRoot(root); err != nil {
+			return err
+		}
+		newSkills := bootstrapSkills(ctx, log, root, toolsReg)
+		skillPlugin.SetBootstrapResult(newSkills)
+		if handler != nil {
+			handler.Skills = newSkills.Registry
+			handler.SkillRunner = newSkills.Runner
+		}
+		sessions.RefreshAllTools()
+		return nil
+	}
+
+	handler = gateway.NewHandler(sessions, ledger,
 		stores.Sessions, stores.Messages, stores.AppState,
 		gateway.HandlerOptions{
-			UsageStore:    stores.Usages,
-			ImportedFiles: stores.ImportedFiles,
-			WorkspaceRoot: workspace,
-			Skills:        skillsResult.Registry,
-			SkillRunner:   skillsResult.Runner,
-			Mcp:           mcpReg,
-			Log:           log,
+			UsageStore:       stores.Usages,
+			ImportedFiles:    stores.ImportedFiles,
+			WorkspaceRoot:    workspace,
+			SetWorkspaceRoot: setWorkspace,
+			Skills:           skillsResult.Registry,
+			SkillRunner:      skillsResult.Runner,
+			Mcp:              mcpReg,
+			Log:              log,
 		})
 
 	mcpReg.SetNotifier(mcp.Notifier{
 		OnConnectionChanged: handler.OnMcpConnectionChanged,
 		OnResolutionChanged: handler.OnMcpResolutionChanged,
 	})
-
-	skillPlugin := skills.NewSkillPlugin(skillsResult.Registry, skillsResult.Runner)
-	mcpPlugin := tool.NewMcpPlugin(mcpReg)
-	factory.Plugins = append(factory.Plugins, skillPlugin, mcpPlugin)
 
 	server := gateway.NewServer(handler, log)
 	if err := server.Start(ctx); err != nil {

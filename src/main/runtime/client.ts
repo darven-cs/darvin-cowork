@@ -33,6 +33,7 @@ import type {
   DarvinPromptResponse,
   DarvinSetSkillEnabledRequest,
   DarvinSetSkillEnabledResponse,
+  DarvinSetWorkspaceResponse,
   DarvinSkillSummary,
   DarvinTestMcpConnectionRequest,
   DarvinTestMcpConnectionResponse,
@@ -294,6 +295,13 @@ export class AgentClient extends EventEmitter {
   getSessionUsage(sessionId: string): Promise<DarvinGetSessionUsageResponse> {
     return this.request<DarvinGetSessionUsageResponse>('agent.get_session_usage', {
       sessionId,
+    });
+  }
+
+  /** 运行时重锚 workspace（Go 侧 sandbox + 项目 skills），不重启子进程。 */
+  setWorkspace(rootPath: string): Promise<DarvinSetWorkspaceResponse> {
+    return this.request<DarvinSetWorkspaceResponse>('agent.set_workspace', {
+      rootPath,
     });
   }
 

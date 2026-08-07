@@ -92,12 +92,17 @@ func newFsSandbox(workdir string, exclusions ...string) (*fsSandbox, error) {
 // and for non-existent paths the deepest existing ancestor is resolved and
 // the literal remainder is appended. A non-existent path is not an error at
 // this layer (callers get the resolved abs and see ENOENT themselves).
+//
+// root / realRoot are read as a snapshot under the sandbox lock, so a
+// concurrent SetRoot (runtime workspace switch) cannot tear the two apart
+// mid-resolution.
 func (s *fsSandbox) Resolve(p string) (string, error) {
+	root, realRoot := s.roots()
 	var abs string
 	if filepath.IsAbs(p) {
 		abs = filepath.Clean(p)
 	} else {
-		abs = filepath.Clean(filepath.Join(s.root, p))
+		abs = filepath.Clean(filepath.Join(root, p))
 	}
 	if pattern, ok := matchExclusion(s.exclusions, abs); ok {
 		return "", fmt.Errorf("%w: %q matches pattern %q", ErrPathExcluded, abs, pattern)
@@ -109,20 +114,20 @@ func (s *fsSandbox) Resolve(p string) (string, error) {
 	if pattern, ok := matchExclusion(s.exclusions, real); ok {
 		return "", fmt.Errorf("%w: %q matches pattern %q", ErrPathExcluded, real, pattern)
 	}
-	if err := s.checkContained(real); err != nil {
+	if err := checkContained(real, realRoot); err != nil {
 		// 用户在权限弹窗里单次放行的路径允许越界（读或写）。
 		if s.isApproved(abs) {
 			return abs, nil
 		}
 		return "", fmt.Errorf("%w: %q resolves to %q outside root %q",
-			ErrPathEscapesViaSymlink, p, real, s.realRoot)
+			ErrPathEscapesViaSymlink, p, real, realRoot)
 	}
 	return abs, nil
 }
 
 // checkContained reports whether real is inside the symlink-resolved root.
-func (s *fsSandbox) checkContained(real string) error {
-	rel, err := filepath.Rel(s.realRoot, real)
+func checkContained(real, realRoot string) error {
+	rel, err := filepath.Rel(realRoot, real)
 	if err != nil {
 		return err
 	}
@@ -145,7 +150,7 @@ func (s *fsSandbox) openRootFile(p string, label string) (*os.File, string, erro
 	if err != nil {
 		return nil, "", fmt.Errorf("%s: resolve %q: %w", label, p, err)
 	}
-	if err := s.checkContained(real); err != nil {
+	if err := checkContained(real, s.RealRoot()); err != nil {
 		return nil, "", fmt.Errorf("%s: %w: %q resolves outside root", label, ErrPathEscapesViaSymlink, p)
 	}
 	f, err := os.Open(real)
@@ -360,8 +365,49 @@ func DefaultPathExclusions() []string {
 	}
 }
 
+// SetRoot re-anchors the sandbox to a new absolute root at runtime. It
+// mirrors the root resolution in newFsSandbox (Abs + Clean + EvalSymlinks)
+// and swaps both root fields atomically under the lock. A workspace switch
+// (agent.set_workspace RPC) uses this instead of restarting the process.
+//
+// The new root must be an absolute path to an existing directory; callers
+// should validate that before calling so a bad root never lands in the
+// containment baseline.
+func (s *fsSandbox) SetRoot(newRoot string) error {
+	if newRoot == "" {
+		return errors.New("sandbox: SetRoot requires a non-empty root")
+	}
+	abs, err := filepath.Abs(newRoot)
+	if err != nil {
+		return fmt.Errorf("sandbox: abs %q: %w", newRoot, err)
+	}
+	abs = filepath.Clean(abs)
+	real := abs
+	if r, err := filepath.EvalSymlinks(abs); err == nil {
+		real = r
+	}
+	s.mu.Lock()
+	s.root = abs
+	s.realRoot = real
+	s.mu.Unlock()
+	return nil
+}
+
+// roots returns the current root / realRoot as a consistent snapshot.
+func (s *fsSandbox) roots() (root, realRoot string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.root, s.realRoot
+}
+
 // Root returns the lexical sandbox root (for diagnostics).
-func (s *fsSandbox) Root() string { return s.root }
+func (s *fsSandbox) Root() string {
+	r, _ := s.roots()
+	return r
+}
 
 // RealRoot returns the symlink-resolved sandbox root (for diagnostics).
-func (s *fsSandbox) RealRoot() string { return s.realRoot }
+func (s *fsSandbox) RealRoot() string {
+	_, rr := s.roots()
+	return rr
+}

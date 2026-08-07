@@ -1467,3 +1467,78 @@ func TestHandleDeleteSessionCascadesUsage(t *testing.T) {
 		t.Fatalf("after delete, Get error = %v, want gorm.ErrRecordNotFound", err)
 	}
 }
+
+func TestSetWorkspace_ReanchorsAndUpdatesRoot(t *testing.T) {
+	root := t.TempDir()
+	h, c := newTestHandler(t)
+	var called string
+	h.SetWorkspaceRoot = func(newRoot string) error {
+		called = newRoot
+		return nil
+	}
+	req := &Request{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`"ws1"`),
+		Method:  "agent.set_workspace",
+		Params:  json.RawMessage(`{"sessionId":"s1","rootPath":"` + root + `"}`),
+	}
+	resp := dispatchRequest(context.Background(), req, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res, ok := resp.Result.(SetWorkspaceResult)
+	if !ok {
+		t.Fatalf("result type: %T", resp.Result)
+	}
+	if res.RootPath != root {
+		t.Errorf("RootPath = %q, want %q", res.RootPath, root)
+	}
+	if called != root {
+		t.Errorf("SetWorkspaceRoot called with %q, want %q", called, root)
+	}
+	if h.WorkspaceRoot != root {
+		t.Errorf("handler.WorkspaceRoot = %q, want %q", h.WorkspaceRoot, root)
+	}
+}
+
+func TestSetWorkspace_ValidatesRootPath(t *testing.T) {
+	h, c := newTestHandler(t)
+	h.SetWorkspaceRoot = func(string) error { t.Fatal("must not call setter on invalid path"); return nil }
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"missing rootPath", `{"sessionId":"s1"}`},
+		{"relative path", `{"rootPath":"relative/dir"}`},
+		{"nonexistent dir", `{"rootPath":"/definitely/not/existing/dir-xyz"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &Request{
+				JSONRPC: "2.0",
+				ID:      json.RawMessage(`"e"`),
+				Method:  "agent.set_workspace",
+				Params:  json.RawMessage(tc.body),
+			}
+			resp := dispatchRequest(context.Background(), req, c, h)
+			if resp.Error == nil || resp.Error.Code != CodeInvalidParams {
+				t.Fatalf("expected invalid params, got %+v", resp)
+			}
+		})
+	}
+}
+
+func TestSetWorkspace_SetterErrorPropagates(t *testing.T) {
+	h, c := newTestHandler(t)
+	h.SetWorkspaceRoot = func(string) error { return errors.New("sandbox reanchor failed") }
+	req := &Request{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`"e2"`),
+		Method:  "agent.set_workspace",
+		Params:  json.RawMessage(`{"rootPath":"` + t.TempDir() + `"}`),
+	}
+	resp := dispatchRequest(context.Background(), req, c, h)
+	if resp.Error == nil || resp.Error.Code != CodeInternalError {
+		t.Fatalf("expected internal error, got %+v", resp)
+	}
+}

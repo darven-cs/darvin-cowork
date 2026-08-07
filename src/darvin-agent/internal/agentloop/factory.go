@@ -1,6 +1,7 @@
 package agentloop
 
 import (
+	"context"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -69,6 +70,10 @@ func (f *AgentFactory) NewAgentLoopSession(sessionID string) (*AgentLoopSession,
 	if err != nil {
 		return nil, err
 	}
+	// 从持久化 MessageStore 恢复该 session 的历史消息进内存 Session，
+	// 让重启 / entry 重建后的 agent 仍记得之前的对话。失败 warn-and-continue，
+	// 不阻塞 AgentLoopSession 构造。
+	hydrateSession(context.Background(), f, a.Session())
 	h, err := f.resolveHarnessFor(a)
 	if err != nil {
 		return nil, err

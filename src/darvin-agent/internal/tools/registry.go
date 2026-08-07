@@ -12,6 +12,20 @@ import (
 // name is already present.
 var ErrAlreadyRegistered = errors.New("tool: already registered")
 
+// SetWorkspaceRoot re-anchors the shared file/shell sandbox to a new root.
+// The registry holds the sandbox reference from NewBuiltins, so updating it
+// re-anchors every built-in file tool at once. No-op when the registry has
+// no sandbox (hand-assembled registries without NewBuiltins).
+func (r *Registry) SetWorkspaceRoot(newRoot string) error {
+	r.mu.RLock()
+	sb := r.sb
+	r.mu.RUnlock()
+	if sb == nil {
+		return nil
+	}
+	return sb.SetRoot(newRoot)
+}
+
 // Registry holds the active set of tools. Goroutine-safe.
 type Registry struct {
 	mu      sync.RWMutex

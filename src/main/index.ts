@@ -176,16 +176,20 @@ function broadcastWorkspaceChanged(sessionId: string): void {
 }
 
 /**
- * 把受控 workspace 重锚到指定 session：更新 workspaceLoc + 建目录 + 以新根
- * 重启 Go 子进程（重新注入 DARVIN_AGENT_WORKSPACE，agent 沙箱随会话切换）。
- * 相同 session 直接跳过（bootstrap 已锚定）。切换会话会中断其它在途流式，
- * 成本约 1s，本版本接受（后续可做 Go set_workspace RPC 消除重启）。
+ * 把受控 workspace 重锚到指定 session：更新 workspaceLoc + 建目录 + 调 Go 端
+ * agent.set_workspace 运行时重锚沙箱。相同 session 直接跳过（bootstrap 已锚定）。
+ * 相比旧的 restartGoSubprocess，切换不再重启 Go 子进程，保留其它 session 的
+ * in-memory 上下文与在途流式。
  */
 async function followActiveWorkspace(sessionId: string): Promise<void> {
   if (workspaceLoc && workspaceLoc.workspaceId === sessionId) return;
   workspaceLoc = resolveWorkspaceRoot(sessionId);
   await ensureWorkspaceRoot(workspaceLoc);
-  await restartGoSubprocess(workspaceLoc.rootPath);
+  if (client.isConnected()) {
+    await client.setWorkspace(workspaceLoc.rootPath);
+  } else {
+    await restartGoSubprocess(workspaceLoc.rootPath);
+  }
 }
 
 function updateCacheFromListSessions(sessions: DarvinSession[]): void {
@@ -639,7 +643,7 @@ ipcMain.handle(
   },
 );
 
-/** 把当前会话工作目录重锚到指定路径：校验 → 写映射 → 以新根重启 Go 子进程。 */
+/** 把当前会话工作目录重锚到指定路径：校验 → 写映射 → Go 端运行时重锚沙箱。 */
 async function setWorkspaceRootTo(sessionId: string, rootPath: string): Promise<DarvinSetWorkspaceResult> {
   const abs = path.resolve(rootPath);
   try {
@@ -652,7 +656,11 @@ async function setWorkspaceRootTo(sessionId: string, rootPath: string): Promise<
   map[sessionId] = abs;
   writeWorkspaceMap(map);
   workspaceLoc = { rootPath: abs, workspaceId: sessionId };
-  await restartGoSubprocess(abs);
+  if (client.isConnected()) {
+    await client.setWorkspace(abs);
+  } else {
+    await restartGoSubprocess(abs);
+  }
   broadcastWorkspaceChanged(sessionId);
   return { canceled: false, rootPath: abs, label: path.basename(abs) };
 }
