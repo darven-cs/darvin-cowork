@@ -367,9 +367,13 @@ func (n *npxResolver) Resolve(ctx context.Context, spec ServerSpec) (LaunchResol
 		resolved = pkg.Version
 	}
 
-	// Step 2: install into rootDir/<serverID>/ so each server has its
-	// own isolated dependency tree.
-	installDir := filepath.Join(n.rootDir, spec.ID)
+	// Step 2: install into rootDir/<server.id>-<packageName>/ so every
+	// (server, package) pair shares a single node_modules across
+	// sessions, while a package swap lands in a fresh dir instead of
+	// overwriting the prior install. Mirrors LobsterAI's
+	// mcpLaunchResolverManager.<server-id>-<packageName> convention.
+	installDir := filepath.Join(n.rootDir,
+		sanitizeForPath(spec.ID)+"-"+sanitizeForPath(pkg.Name))
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
 		return LaunchResolution{
 			ResolverKind:     ResolverNpx,

@@ -12,7 +12,12 @@
  *   │   (Cache/ Cookies/ GPUCache/ ...)
  *   └── darvin-agent/                     ← agent 拥有的业务数据
  *       ├── config.yaml                   ← Electron 写入、Go 读合并
- *       └── sessions.db                   ← Go agent sessions.db（统一数据源）
+ *       ├── sessions.db                   ← Go agent sessions.db（统一数据源）
+ *       ├── skill-state.db                ← main 端 skills.enabled 缓存
+ *       ├── mcp.db                        ← main 端 MCP server 元数据
+ *       ├── mcp-packages/                 ← npx install 落点(从 main 注入 env 给 Go)
+ *       │   └── <server.id>-<packageName>/  ← per (server, package),跨 session 共享
+ *       └── skills/                       ← 用户装 skill 的根
  *
  * 与 Go 侧 config.UserDataDir() 落在同一绝对路径下；config.UserConfigPath()
  * 与 agentSessionsDsnPath() 也对齐。旧的 darvin-cowork.sqlite（Electron

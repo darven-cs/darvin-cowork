@@ -109,3 +109,8 @@ go.work.sum
 
 # Playwright CLI debug artifacts
 .playwright-cli/
+
+# MCP packages 落点：dev 端或裸 `go run` 漏注入 DARVIN_MCP_PACKAGES_DIR 时,
+# 兜底应走 os.UserCacheDir,不应再写到 cwd;这层 ignore 是防御性兜底,
+# 任何意外再现都不会污染 git status。
+mcp-packages/

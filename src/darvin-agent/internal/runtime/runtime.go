@@ -165,7 +165,11 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 
 	skillsResult := bootstrapSkills(ctx, log, workspace, toolsReg)
 
-	mcpReg, err := bootstrapMCP(ctx, log, workspace)
+	mcpRoot, err := resolveMCPPackagesDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve mcp packages dir: %w", err)
+	}
+	mcpReg, err := bootstrapMCP(ctx, log, mcpRoot)
 	if err != nil {
 		return nil, err
 	}

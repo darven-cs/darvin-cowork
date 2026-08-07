@@ -11,7 +11,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import fs from 'node:fs';
-import { agentSessionsDsnPath } from '../libs/user-paths';
+import { agentSessionsDsnPath, getMcpPackagesDir } from '../libs/user-paths';
 
 /** 启动超时：超过则视为子进程没能进入 listen 状态。 */
 const START_TIMEOUT_MS = 5000;
@@ -109,6 +109,9 @@ export class RuntimeMgr extends EventEmitter {
       const cfg = resolveAgentConfigPath();
       if (cfg) env.DARVIN_CONFIG = cfg;
       env.DARVIN_SESSIONS_DSN = agentSessionsDsnPath();
+      // 注入 MCP packages 落点(用户-data 级绝对路径);Go 端走
+      // resolveMCPPackagesDir,失败时硬报错而非 fallback 到 cwd。
+      env.DARVIN_MCP_PACKAGES_DIR = getMcpPackagesDir();
       if (workspaceRoot) env.DARVIN_AGENT_WORKSPACE = workspaceRoot;
 
       const proc = spawn(bin, [], { stdio: ['ignore', 'pipe', 'pipe'], env });

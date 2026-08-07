@@ -189,6 +189,16 @@ func TestNpxResolver_HappyPath(t *testing.T) {
 	if len(res.Args) != 2 || res.Args[1] != "/tmp" {
 		t.Fatalf("args = %v, want [bin, /tmp]", res.Args)
 	}
+	// installDir is the per-(server, package) landing point shared
+	// across sessions — <rootDir>/<sanitize(server.id)>-<sanitize(pkg.name)>.
+	wantInstallDir := filepath.Join(rootDir,
+		sanitizeForPath("filesystem")+"-"+sanitizeForPath("@modelcontextprotocol/server-filesystem"))
+	if res.InstallDir != wantInstallDir {
+		t.Errorf("installDir = %q, want %q", res.InstallDir, wantInstallDir)
+	}
+	if _, err := os.Stat(filepath.Join(wantInstallDir, "node_modules")); err != nil {
+		t.Errorf("expected node_modules under %q: %v", wantInstallDir, err)
+	}
 }
 
 func TestNpxResolver_NpmViewFails(t *testing.T) {
