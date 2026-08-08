@@ -169,12 +169,12 @@ type Agent struct {
 	msgidBridge *msgid.Bridge
 	tracker     *usage.Tracker
 
-	// runImportedNote is the current prompt's staged imported files note;
-	// Instructions() appends it so the LLM perceives them. Cleared after run.
+	// runImportedNote is the current prompt's staged imported-files note
+	// (Instructions() appends it so the LLM perceives them); cleared after run.
 	runImportedNote string
 
 	// runSkillPrompt / runSkillTools are set by RunSkillSession for a
-	// user-invoked skill's mini loop; cleared after the run.
+	// skill's mini loop; cleared after the run.
 	runSkillPrompt string
 	runSkillTools  protocol.ToolRegistry
 
@@ -188,13 +188,13 @@ type Agent struct {
 	workspaceBstrp BootstrapReader
 	digestStore    store.DigestStore
 
-	// toolTransformer normalises a tool result before the executor forwards
-	// it to the LLM (set via SetToolResultTransformer; nil = no transform).
+	// toolTransformer normalises a tool result before the LLM (set via
+	// SetToolResultTransformer; nil = no transform).
 	toolTransformer func(protocol.Result) protocol.Result
 }
 
-// agentState / stateIdle / stateRun are local aliases used by the run
-// lifecycle so helpers can compare without importing runtime's State enum.
+// agentState / stateIdle / stateRun are local aliases for the run
+// lifecycle so helpers compare without importing runtime's State enum.
 type agentState = int
 
 const (
@@ -315,8 +315,8 @@ func (a *Agent) Session() *session.Session        { return a.session }
 func (a *Agent) Provider() protocol.ModelProvider { return a.provider }
 func (a *Agent) ModelName() string                { return a.model.Model }
 
-// Tools returns the active tool registry — the skill's scoped registry
-// during a mini loop, the agent's full registry otherwise.
+// Tools returns the active registry — the skill's scoped set during a
+// mini loop, the agent's full set otherwise.
 func (a *Agent) Tools() protocol.ToolRegistry {
 	if a.runSkillTools != nil {
 		return a.runSkillTools
@@ -324,8 +324,8 @@ func (a *Agent) Tools() protocol.ToolRegistry {
 	return a.tools
 }
 
-// Instructions returns the system prompt: the skill's SKILL.md body
-// during a mini loop, else the agent instructions plus the imported-files note.
+// Instructions returns the system prompt — the skill's SKILL.md body
+// during a mini loop, else the agent instructions + imported-files note.
 func (a *Agent) Instructions() string {
 	if a.runSkillPrompt != "" {
 		return a.runSkillPrompt
@@ -348,43 +348,33 @@ func (a *Agent) Emit(ev event.Event) { a.bus.Emit(ev) }
 // Assembler returns the wired ContextEngine (nil if unconfigured).
 func (a *Agent) Assembler() ctxengine.ContextEngine { return a.assembler }
 
-// SystemSections returns caller-supplied system sections for the
-// assembler. Returns nil today (SystemPromptAddition is covered via cfg).
+// SystemSections returns caller-supplied system sections; nil today.
 func (a *Agent) SystemSections() []ctxengine.SystemSection { return nil }
 
-// AssemblerEnabled reports whether the host opted into the assembler
-// pipeline; false forces the legacy d.Session().Messages() path.
+// AssemblerEnabled reports assembler opt-in; false → legacy path.
 func (a *Agent) AssemblerEnabled() bool { return a.assemblerEnabled }
 
-// IsRunning reports whether Agent.Run is currently in progress. The gateway
-// uses it to refuse manual context compaction while a turn is executing.
+// IsRunning reports whether Agent.Run is in progress (the gateway refuses
+// manual compaction while a turn executes).
 func (a *Agent) IsRunning() bool { return a.controller.IsRunning() }
 
-// RecordUsage stores the API-reported Usage from the just-finished turn
-// and tags it with the model name so the persisted snapshot can pick the
-// right context window on rehydrate. Safe to call from the executor
-// goroutine; readers (next turn's Assemble, Run-tail persistence) use
-// LastUsage / Snapshot under the same mutex.
+// RecordUsage stores the API-reported Usage for the just-finished turn,
+// tagged with the model for context-window selection on rehydrate.
 func (a *Agent) RecordUsage(u protocol.Usage, model string) {
 	a.tracker.RecordWithModel(u, model)
 }
 
-// LastUsage returns the most recently stored API-reported Usage. Zero value
-// when no turn has completed yet (e.g. before the first LLM call), which
-// the ContextEngine interprets as "fall back to the local estimator".
+// LastUsage returns the most recent API-reported Usage; zero before any
+// turn completes (the ContextEngine falls back to the local estimator).
 func (a *Agent) LastUsage() protocol.Usage { return a.tracker.Last() }
 
 // UsageSnapshot returns the Tracker's full state (last + cumulative +
-// model) for the persistence layer's Run-tail write. Nil when no record
-// has been captured yet — the caller skips the row write in that case.
+// model) for the persistence layer's Run-tail write.
 func (a *Agent) UsageSnapshot() usage.Snapshot { return a.tracker.Snapshot() }
 
-// persistUsageSnapshot writes the current Tracker snapshot to SQLite.
-// Called from Run tail; failures are warn-and-continue (snapshot is
-// best-effort — the live event stream still carries usage for the
-// active session). The percent / context-window fields reuse the same
-// numbers the context_usage event carries so the renderer can
-// rehydrate the indicator on session switch without recomputing them.
+// persistUsageSnapshot writes the current Tracker snapshot to SQLite
+// (Run-tail; failures are warn-and-continue). The percent / window reuse
+// the context_usage numbers so the renderer rehydrates without recompute.
 func (a *Agent) persistUsageSnapshot(ctx context.Context) {
 	if a.usageStore == nil {
 		return
@@ -424,79 +414,51 @@ func (a *Agent) Subscribe(buffer int) *event.Subscription {
 	return a.bus.Subscribe(buffer)
 }
 
-// AttachMessageIDSrc wires the function the executor queries (via
-// Deps.CurrentMessageID) to read the in-flight messageID. main.go passes
-// a method value of agentloop.Loop.CurrentMessageID so every emitted event's
-// EventCommon.MessageID matches the prompt that triggered the run.
+// Attach*IDSrc wire the functions the executor / dispatcher query (via
+// Deps.CurrentMessageID / CurrentRunID / CurrentUserMessageID) to read
+// the in-flight ids; main.go passes method values of Loop so every
+// emitted event's EventCommon ids match the triggering prompt.
 func (a *Agent) AttachMessageIDSrc(src func() string) {
 	a.msgidBridge.AttachMessageID(src)
 }
-
-// AttachRunIDSrc wires the function the executor and dispatcher query
-// (via Deps.CurrentRunID) to read the in-flight runID. main.go passes a
-// method value of agentloop.Loop.CurrentRunID so every emitted event's
-// EventCommon.RunID matches the prompt that triggered the run.
 func (a *Agent) AttachRunIDSrc(src func() string) {
 	a.msgidBridge.AttachRunID(src)
 }
-
-// AttachUserMessageIDSrc wires the function the dispatcher queries (via
-// CurrentUserMessageID) to read the messageID minted for the current turn's
-// user message. main.go passes a method value of agentloop.Loop.CurrentUserMessageID.
 func (a *Agent) AttachUserMessageIDSrc(src func() string) {
 	a.msgidBridge.AttachUserMessageID(src)
 }
 
-// CurrentMessageID satisfies executor.Deps. Returns "" when no messageID
-// source has been wired or when the agent is idle.
+// Current*ID return the in-flight ids via the bridge, or "" when no
+// source is wired or the agent is idle.
 func (a *Agent) CurrentMessageID() string { return a.msgidBridge.CurrentMessageID() }
-
-// CurrentRunID satisfies executor.Deps. Returns "" when no runID source
-// has been wired or when the agent is idle.
-func (a *Agent) CurrentRunID() string { return a.msgidBridge.CurrentRunID() }
-
-// CurrentUserMessageID returns the user-message id of the in-flight turn.
-// Returns "" when no userMsgID source has been wired (unit-test fast path
-// where nothing is persisted anyway).
-func (a *Agent) CurrentUserMessageID() string { return a.msgidBridge.CurrentUserMessageID() }
+func (a *Agent) CurrentRunID() string     { return a.msgidBridge.CurrentRunID() }
+func (a *Agent) CurrentUserMessageID() string {
+	return a.msgidBridge.CurrentUserMessageID()
+}
 
 // SetGrantedReads replaces the run's granted-read set (absolute paths the
-// user attached for the current message). Called by the dispatcher before
-// RunConversation and cleared after.
+// user attached for this message); called before RunConversation, cleared
+// after.
 func (a *Agent) SetGrantedReads(paths []string) {
 	a.perm.SetGrantedReads(paths, a.tools)
 }
 
-// ApprovePath satisfies executor.Deps — grants the sandbox one-shot access
-// to a path the user allowed via the permission modal.
+// Permission-gate accessors for the permission modal flow: approve a path,
+// evaluate whether a call needs approval, request (blocking) / resolve the
+// renderer's answer, and query / record auto-allow rules.
 func (a *Agent) ApprovePath(path string) { a.perm.ApprovePath(path, a.tools) }
-
-// EvaluatePermission satisfies executor.Deps. Delegates to the tool
-// registry's combined path-containment + danger classification.
 func (a *Agent) EvaluatePermission(toolName string, args map[string]any) protocol.PermissionEval {
 	return a.perm.EvaluatePermission(toolName, args, a.tools)
 }
-
-// RequestPermission satisfies executor.Deps. Emits a permission_request event
-// and blocks until the renderer answers via ResolvePermission, the timeout
-// fires (default deny), or ctx is cancelled.
 func (a *Agent) RequestPermission(ctx context.Context, req executor.PermissionRequest) (executor.PermissionResult, error) {
 	return a.perm.RequestPermission(ctx, req, a.tools)
 }
-
-// ResolvePermission delivers the renderer's answer to the blocked executor
-// call. Unknown requestID (already timed out / cancelled) is a no-op.
 func (a *Agent) ResolvePermission(requestID string, result executor.PermissionResult) {
 	a.perm.ResolvePermission(requestID, result)
 }
-
-// HasPermissionRule satisfies executor.Deps — whether an identical
-// (tool, level, reason) request was allowed + remembered this session.
 func (a *Agent) HasPermissionRule(toolName, level, reason string) bool {
 	return a.perm.HasRule(toolName, level, reason)
 }
-
-// AddPermissionRule satisfies executor.Deps — records an auto-allow rule.
 func (a *Agent) AddPermissionRule(toolName, level, reason string) {
 	a.perm.AddRule(toolName, level, reason)
 }
