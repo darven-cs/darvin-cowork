@@ -1,4 +1,6 @@
-// Verifies that a harness implements every capability it declares.
+// Verifies capability declarations and carries the selection support
+// types (SupportContext / SupportResult / AutoSelectionHint) used to
+// rank harnesses for a session.
 
 package harness
 
@@ -156,4 +158,78 @@ func implementsCapability(h Harness, cap Capability) bool {
 	default:
 		return false
 	}
+}
+
+// ProviderOwnership records which plugins claim ownership of a provider
+// (Status: "unowned" | "owned" | "ambiguous").
+type ProviderOwnership struct {
+	Status    string
+	PluginIDs []string
+}
+
+// SupportContext is what selection knows about a session before picking a
+// harness for it.
+type SupportContext struct {
+	SessionID  string
+	SessionKey string
+
+	Provider string
+	Model    string
+
+	// RequestedRuntime is the harness id the caller's config asked for;
+	// empty means auto. Non-empty applies a priority boost after hard filters.
+	RequestedRuntime string
+	// ProviderOwnership is the requested provider's ownership record.
+	ProviderOwnership *ProviderOwnership
+
+	// ContextEngine is what the caller's context engine requires; nil = none.
+	ContextEngine *ContextEngineRequirement
+	// PluginID is set when the call is delegated from a plugin.
+	PluginID string
+	// RequestedHarnessID pins a harness explicitly, bypassing scoring.
+	RequestedHarnessID string
+}
+
+// SupportResult is one harness's answer to a SupportContext. Higher
+// Priority wins; ties break on harness id so ordering is deterministic.
+type SupportResult struct {
+	Supported bool
+	Priority  int
+	// Reason explains a refusal; surfaced in diagnostics only.
+	Reason string
+}
+
+// AutoSelectionHint is a harness's static provider allowlist; it only
+// filters (no priority contribution). A non-nil empty Providers slice
+// marks the harness explicit-only.
+type AutoSelectionHint struct {
+	Providers []string
+}
+
+// Eligible reports whether the hint admits provider; nil hint / nil
+// Providers defers to Supports, an empty slice marks explicit-only.
+func (h *AutoSelectionHint) Eligible(provider string) bool {
+	if h == nil || h.Providers == nil {
+		return true
+	}
+	if len(h.Providers) == 0 {
+		return false
+	}
+	return containsProvider(h.Providers, provider)
+}
+
+// normalizeProviderID lowercases and trims a provider id so an allowlist
+// entry and a request that differ only in case / padding still match.
+func normalizeProviderID(id string) string {
+	return strings.ToLower(strings.TrimSpace(id))
+}
+
+func containsProvider(list []string, want string) bool {
+	want = normalizeProviderID(want)
+	for _, v := range list {
+		if normalizeProviderID(v) == want {
+			return true
+		}
+	}
+	return false
 }
