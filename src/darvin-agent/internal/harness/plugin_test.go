@@ -1,6 +1,6 @@
 // Tests for the plugin manager and runtime-loadable harness factories.
 
-package plugin
+package harness
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/harness"
 )
 
 type recordingBus struct {
@@ -43,32 +42,32 @@ func mkPlugin(id, version string, factory HarnessFactory, hooks *Hooks) *Plugin 
 // stubHarness returns a Harness whose ID is whatever the test asks for,
 // since the embedded harness always reports EmbeddedID and the spec needs
 // plugins to bring their own ids.
-type stubHarness struct {
+type pluginStubHarness struct {
 	id       string
 	pluginID string
 }
 
-func (s *stubHarness) ID() string                         { return s.id }
-func (s *stubHarness) Label() string                      { return s.id }
-func (s *stubHarness) PluginID() string                   { return s.pluginID }
-func (s *stubHarness) Capabilities() harness.Capabilities { return harness.Capabilities{Healthy: true} }
-func (s *stubHarness) Supports(harness.SupportContext) harness.SupportResult {
-	return harness.SupportResult{Supported: true, Priority: 1}
+func (s *pluginStubHarness) ID() string                 { return s.id }
+func (s *pluginStubHarness) Label() string              { return s.id }
+func (s *pluginStubHarness) PluginID() string           { return s.pluginID }
+func (s *pluginStubHarness) Capabilities() Capabilities { return Capabilities{Healthy: true} }
+func (s *pluginStubHarness) Supports(SupportContext) SupportResult {
+	return SupportResult{Supported: true, Priority: 1}
 }
-func (s *stubHarness) RunAttempt(context.Context, harness.RunAttemptParams) (*harness.AttemptResult, error) {
-	return &harness.AttemptResult{Status: harness.AttemptOK}, nil
+func (s *pluginStubHarness) RunAttempt(context.Context, RunAttemptParams) (*AttemptResult, error) {
+	return &AttemptResult{Status: AttemptOK}, nil
 }
-func (s *stubHarness) Reset(context.Context, harness.ResetParams) error { return nil }
-func (s *stubHarness) Dispose(context.Context) error                    { return nil }
+func (s *pluginStubHarness) Reset(context.Context, ResetParams) error { return nil }
+func (s *pluginStubHarness) Dispose(context.Context) error            { return nil }
 
-func mkHarness(id, pluginID string) harness.Harness {
+func mkHarness(id, pluginID string) Harness {
 	return &stubHarness{id: id, pluginID: pluginID}
 }
 
 func resetAll(t *testing.T) {
 	t.Helper()
-	harness.ResetRegistryForTests()
-	harness.ResetLifecycleForTests()
+	ResetRegistryForTests()
+	ResetLifecycleForTests()
 	ResetForTests()
 }
 
@@ -78,13 +77,13 @@ func TestLoadRegistersAndEmits(t *testing.T) {
 	mgr := NewManager(bus)
 
 	err := mgr.Load(context.Background(), mkPlugin("acpx", "1.0.0",
-		func() (harness.Harness, error) { return mkHarness("acpx-h", "acpx"), nil },
+		func() (Harness, error) { return mkHarness("acpx-h", "acpx"), nil },
 		nil))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 
-	h, ok := harness.Get("acpx-h")
+	h, ok := Get("acpx-h")
 	if !ok {
 		t.Fatal("harness not registered after Load")
 	}
@@ -112,7 +111,7 @@ func TestUnloadEmitsAndUnregisters(t *testing.T) {
 
 	var unloadHookCalled int
 	if err := mgr.Load(context.Background(), mkPlugin("acpx", "1.0.0",
-		func() (harness.Harness, error) { return mkHarness("acpx-h", "acpx"), nil },
+		func() (Harness, error) { return mkHarness("acpx-h", "acpx"), nil },
 		&Hooks{OnUnload: func(context.Context) error {
 			unloadHookCalled++
 			return nil
@@ -127,7 +126,7 @@ func TestUnloadEmitsAndUnregisters(t *testing.T) {
 	if unloadHookCalled != 1 {
 		t.Fatalf("OnUnload called %d times, want 1", unloadHookCalled)
 	}
-	if _, ok := harness.Get("acpx-h"); ok {
+	if _, ok := Get("acpx-h"); ok {
 		t.Fatal("harness still registered after Unload")
 	}
 
@@ -145,12 +144,12 @@ func TestLoadFactoryError(t *testing.T) {
 	mgr := NewManager(nil)
 
 	err := mgr.Load(context.Background(), mkPlugin("acpx", "1.0.0",
-		func() (harness.Harness, error) { return nil, errors.New("factory exploded") },
+		func() (Harness, error) { return nil, errors.New("factory exploded") },
 		nil))
 	if err == nil {
 		t.Fatal("Load accepted a failing factory")
 	}
-	if _, ok := harness.Get("acpx-h"); ok {
+	if _, ok := Get("acpx-h"); ok {
 		t.Fatal("failed Load registered a harness anyway")
 	}
 	if got := mgr.ListLoaded(); len(got) != 0 {
@@ -167,18 +166,18 @@ func TestLoadDuplicateIDReplaces(t *testing.T) {
 	// PluginID matches the plugin id, so Register accepts both. The second
 	// load replaces the first.
 	if err := mgr.Load(context.Background(), mkPlugin("acpx", "1.0.0",
-		func() (harness.Harness, error) { return mkHarness("acpx-h", "acpx"), nil }, nil)); err != nil {
+		func() (Harness, error) { return mkHarness("acpx-h", "acpx"), nil }, nil)); err != nil {
 		t.Fatalf("Load v1: %v", err)
 	}
 	if err := mgr.Load(context.Background(), mkPlugin("acpx", "2.0.0",
-		func() (harness.Harness, error) { return mkHarness("acpx-h", "acpx"), nil }, nil)); err != nil {
+		func() (Harness, error) { return mkHarness("acpx-h", "acpx"), nil }, nil)); err != nil {
 		t.Fatalf("Load v2: %v", err)
 	}
 
 	if got := len(mgr.ListLoaded()); got != 1 {
 		t.Fatalf("ListLoaded len = %d, want 1", got)
 	}
-	if _, ok := harness.Get("acpx-h"); !ok {
+	if _, ok := Get("acpx-h"); !ok {
 		t.Fatal("acpx-h not registered after second Load")
 	}
 
@@ -193,13 +192,13 @@ func TestOnLoadFailureDoesNotRegister(t *testing.T) {
 	mgr := NewManager(nil)
 
 	err := mgr.Load(context.Background(), mkPlugin("acpx", "1.0.0",
-		func() (harness.Harness, error) { return mkHarness("acpx-h", "acpx"), nil },
+		func() (Harness, error) { return mkHarness("acpx-h", "acpx"), nil },
 		&Hooks{OnLoad: func(context.Context) error { return errors.New("hook exploded") }},
 	))
 	if err == nil {
 		t.Fatal("Load accepted a failing OnLoad")
 	}
-	if _, ok := harness.Get("acpx-h"); ok {
+	if _, ok := Get("acpx-h"); ok {
 		t.Fatal("harness registered despite OnLoad failure")
 	}
 }
@@ -210,7 +209,7 @@ func TestListLoadedOrderStable(t *testing.T) {
 
 	for _, id := range []string{"zebra", "alpha", "mango", "bravo"} {
 		if err := mgr.Load(context.Background(), mkPlugin(id, "1.0.0",
-			func() (harness.Harness, error) { return mkHarness(id+"-h", id), nil }, nil)); err != nil {
+			func() (Harness, error) { return mkHarness(id+"-h", id), nil }, nil)); err != nil {
 			t.Fatalf("Load %s: %v", id, err)
 		}
 	}
@@ -237,7 +236,7 @@ func TestGetLoaded(t *testing.T) {
 		t.Fatal("Get on empty manager returned a plugin")
 	}
 	if err := mgr.Load(context.Background(), mkPlugin("acpx", "1.0.0",
-		func() (harness.Harness, error) { return mkHarness("acpx-h", "acpx"), nil }, nil)); err != nil {
+		func() (Harness, error) { return mkHarness("acpx-h", "acpx"), nil }, nil)); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if _, ok := mgr.Get("acpx"); !ok {
@@ -262,8 +261,8 @@ func TestValidation(t *testing.T) {
 		p    *Plugin
 	}{
 		{"nil", nil},
-		{"no id", &Plugin{Version: "1.0", HarnessFactory: func() (harness.Harness, error) { return mkHarness("x", "x"), nil }}},
-		{"no version", &Plugin{ID: "x", HarnessFactory: func() (harness.Harness, error) { return mkHarness("x", "x"), nil }}},
+		{"no id", &Plugin{Version: "1.0", HarnessFactory: func() (Harness, error) { return mkHarness("x", "x"), nil }}},
+		{"no version", &Plugin{ID: "x", HarnessFactory: func() (Harness, error) { return mkHarness("x", "x"), nil }}},
 		{"no factory", &Plugin{ID: "x", Version: "1.0"}},
 	}
 	for _, tc := range cases {

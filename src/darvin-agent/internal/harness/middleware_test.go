@@ -1,6 +1,6 @@
 // Tests for tool-result normalisation middleware.
 
-package tooldridge
+package harness
 
 import (
 	"strings"

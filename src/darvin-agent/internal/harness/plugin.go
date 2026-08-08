@@ -1,4 +1,4 @@
-// Package plugin hosts runtime-loadable harness factories.
+// Runtime-loadable harness factories.
 //
 // A Plugin is the wiring-layer shape of an extension: it has an ID, a
 // version, a HarnessFactory that produces a Harness, and optional OnLoad /
@@ -9,7 +9,8 @@
 // Plugins are statically linked in this codebase; the spec deliberately
 // defers .so dynamic loading to a later phase. The Manager API is shaped
 // so the loader can be swapped later without touching call sites.
-package plugin
+
+package harness
 
 import (
 	"context"
@@ -19,7 +20,6 @@ import (
 	"time"
 
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/harness"
 )
 
 // Hooks carries optional lifecycle callbacks. Either field may be nil.
@@ -38,7 +38,7 @@ type PluginConfig struct {
 
 // HarnessFactory builds the Harness instance this plugin contributes. It
 // runs once during Load.
-type HarnessFactory func() (harness.Harness, error)
+type HarnessFactory func() (Harness, error)
 
 // Plugin is the wiring-layer shape of one runtime extension.
 type Plugin struct {
@@ -54,7 +54,7 @@ type Plugin struct {
 // resolved Harness) without forcing every Plugin author to set them.
 type loadedPlugin struct {
 	Plugin   *Plugin
-	Harness  harness.Harness
+	Harness  Harness
 	Hooks    *Hooks
 	LoadedAt time.Time
 }
@@ -104,7 +104,7 @@ func (m *Manager) Load(ctx context.Context, p *Plugin) error {
 			return fmt.Errorf("plugin %q OnLoad: %w", p.ID, err)
 		}
 	}
-	if err := harness.Register(built, p.ID); err != nil {
+	if err := Register(built, p.ID); err != nil {
 		return fmt.Errorf("plugin %q register: %w", p.ID, err)
 	}
 	m.mu.Lock()
@@ -154,7 +154,7 @@ func (m *Manager) Unload(ctx context.Context, id string) error {
 		}
 	}
 	if harnessID != "" {
-		harness.Unregister(harnessID)
+		Unregister(harnessID)
 	}
 	return errors.Join(errs...)
 }
@@ -195,9 +195,6 @@ func UnloadPlugin(ctx context.Context, id string) error { return defaultManager.
 
 // ListLoaded is the default-manager shortcut for ListLoaded.
 func ListLoaded() []*Plugin { return defaultManager.ListLoaded() }
-
-// Get is the default-manager shortcut for Get.
-func Get(id string) (*Plugin, bool) { return defaultManager.Get(id) }
 
 // ResetForTests clears the default Manager. Tests that build plugins from
 // scratch need a clean slate.

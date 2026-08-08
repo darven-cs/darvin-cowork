@@ -1,6 +1,6 @@
 // Tests for the tool-registry bridge.
 
-package tooldridge
+package harness
 
 import (
 	"testing"

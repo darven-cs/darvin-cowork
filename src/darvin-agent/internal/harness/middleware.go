@@ -1,6 +1,6 @@
 // Provides result middleware that normalises tool output size and error text.
 
-package tooldridge
+package harness
 
 import (
 	"strings"

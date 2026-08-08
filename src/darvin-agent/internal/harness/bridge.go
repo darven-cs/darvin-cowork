@@ -1,7 +1,8 @@
-// Package tooldridge adapts protocol.ToolRegistry to the harness-facing
-// Surface shape and chains ResultMiddleware that normalises tool output.
-// The bridge never holds state of its own.
-package tooldridge
+// Adapts protocol.ToolRegistry to the harness-facing Surface shape and
+// chains ResultMiddleware that normalises tool output. The bridge never
+// holds state of its own.
+
+package harness
 
 import (
 	"darvin-cowork/backend/internal/agents/protocol"
