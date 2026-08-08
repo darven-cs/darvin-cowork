@@ -51,11 +51,8 @@ What is still in progress or unstarted, and the single most concrete next action
 Rules: be terse — bullet points and fragments, not prose. Preserve identifiers, paths, and numbers exactly. Do NOT invent anything not present in the messages; if something is unknown, leave it out rather than guessing.`
 
 // Compact runs the LLM-based compaction pipeline. It never mutates
-// p.Messages — the caller adopts RetainedMessages only on Success.
-//
-// Prior digests (matched by isCompactionSummary) stay verbatim in the
-// retained slice so repeated passes don't recursively re-summarise the
-// original summary text.
+// p.Messages — the caller adopts RetainedMessages only on Success. Prior
+// digests stay verbatim so repeated passes don't re-summarise them.
 func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) CompactResult {
 	if err := ctx.Err(); err != nil {
 		return CompactResult{
@@ -65,9 +62,8 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		}
 	}
 
-	// Stuck latch — once auto-compact has run on two consecutive
-	// turns, pause and surface a Notice so the user can fix the
-	// context window rather than pay repeated LLM summariser calls.
+	// Stuck latch: after two consecutive auto-compacts, pause and surface
+	// a Notice instead of paying repeated LLM summariser calls.
 	if !p.Force && a.Stuck() {
 		return CompactResult{
 			Success:          false,
@@ -129,28 +125,18 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		}
 	}
 
-	// partitionFold splits messages into (pinned, kept, fold):
-	//   pinnedPrefix — leading pinned run (always kept verbatim)
-	//   kept        — prior digests + pinnable user turns (verbatim)
-	//   fold        — the rest, fed to the summariser
-	// Old digests stay out of the LLM summary, so repeated Compact
-	// passes don't re-summarise the original summary text.
+	// partitionFold splits into pinnedPrefix (verbatim), kept (prior
+	// digests + pinnable user turns, verbatim), and fold (summarised).
 	pinned, kept, fold := partitionFold(p.Messages)
 
-	// tail uses two independent knobs — RecentKeep is the
-	// message-count floor, CompactTailTokens is the token budget.
-	// The tailStart helper below computes start = the index from
-	// which the verbatim tail begins; messages[head:start] is the
-	// region we hand to the summariser.
+	// tailStart computes start from RecentKeep (message-count floor) and
+	// CompactTailTokens (token budget); [head:start] is the fold region.
 	head := pinnedPrefixLen(p.Messages, 0, EstimateMessageTokens)
-	_ = head // head is informational here; partitionFold already split pinned/kept
+	_ = head // head is informational; partitionFold already split pinned/kept
 
 	start := tailStart(p.Messages, 0, cfg.CompactTailTokens, EstimateMessageTokens, cfg.RecentKeep)
-	// Adjust start so the tail doesn't split a tool_use/tool_result
-	// pair. Without this
-	// adjustment, the tail could start on a tool message whose
-	// tool_use lives in the fold region (or vice versa), producing
-	// an orphan tool_result that the Anthropic wire format rejects.
+	// Don't split a tool_use/tool_result pair across the tail boundary —
+	// an orphan tool_result is rejected by the Anthropic wire format.
 	if start < len(p.Messages) {
 		tailLen := len(p.Messages) - start
 		if aligned := alignTailBoundary(p.Messages, tailLen); aligned > tailLen {
