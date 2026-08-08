@@ -9,18 +9,19 @@
 | 维度 | 当前实现 | 后果 |
 |---|---|---|
 | 1. 触发阈值 | `token_budget: 0`(默认值),`tokensBefore > budget` → 有 token 就触发 | 默认配置下**第一个非空 turn 就自动压**,实际跟 config.yaml 注释「0 = no budget check (executor fallback)」完全不符 — 注释承诺禁用,实现实际启用 |
-| 2. 触发模型 | 单一阈值(绝对 token 数) | 没有软通知(50%)、没有廉价 snip 路径(60%)、没有 force 阈值(90%) — Reasonix 三层级联 |
+| 2. 触发模型 | 单一阈值(绝对 token 数) | 没有软通知(50%)、没有廉价 snip 路径(60%)、没有强制 force 路径(90% 绕 foldEconomics) — Reasonix 四段比例级联 |
 | 3. 摘要 prompt | 通用一句话("preserve tool inputs/outputs, decisions, and context") | 没有针对 coding agent 的结构化 briefing;LLM 输出不可预测,后续 hydrate 解析困难 |
 | 4. re-compact loop 防御 | **完全没有** | 窗口太小(`token_budget` 设过低)时每 turn 都压,fold/tail 来回切,既慢又费钱且丢信息 |
 | 5. 失败处理 | `Compact` 返 `Success=false`,caller 回退原 messages | 摘要 LLM 调用一旦失败,自动压完全作废,会话持续膨胀直到 LLM 上游 400 |
 | 6. Archive 留底 | **完全没有** | 被压消息直接消失,出 bug / 模型 hallucinate 时无法回放查证 |
+| 7. Config 字段冗余 | `CompactMaxRetries`(默认 0)+ `CompactTailKeep` + `CompactTailTokens` 双轨 tail 规则 + `TokenBudget`(默认 0 触发语义错乱) | `CompactMaxRetries` Reasonix 没有,FR-5 改造后递归减半 fold 由 `tokensAfter<=budget` 自然终止,无需 retry 计数;`CompactTailKeep` + `CompactTailTokens` 双轨增加心智负担,合并成单一 `CompactTailTokens`(默认 16384 对齐 Reasonix `defaultTailTokens`)+ `RecentKeep`(默认 2 对齐 Reasonix `minRecentKeep`);`TokenBudget` Reasonix 完全没有(只靠 `contextWindow × ratio`),彻底删除,「0 = 关闭自动压」语义挪到 `ContextWindow=0` |
 
 Reasonix 在 `internal/agent/compact.go` 已经把这些都处理掉(2026-08 实地对照),本 spec 把同样能力搬过来,并按 darvin-cowork 现有的「digest 走独立 `session_digests` 表」(spec §3 FR-2)做适配。
 
 ### 1.2 目标
 
 1. **修默认配置语义**:`token_budget: 0` 真正等于「关闭 auto-compact」,而不是「任何内容都触发」。
-2. **加三层级联触发**:50% 软通知 / 60% 廉价 snip / 80% 调摘要 — 沿用 Reasonix 比例模型,绝对 token 数仍作为降级。
+2. **加四层级联触发**:50% 软通知 / 60% 廉价 snip / 80% 调摘要 / 90% 强制摘要(绕 foldEconomics)— 沿用 Reasonix 比例模型,纯比例触发,不再用绝对 token 数。
 3. **换 Reasonix 7 段结构化 briefing prompt**:针对 coding agent 场景,7 段 heading 强制结构。
 4. **加 re-compact loop 防御**:连续 2 turn 都压 → 暂停自动压并发 Notice。
 5. **加机械折叠 fallback**:摘要 LLM 失败时不再 `Success=false`,改用 `mechanicalFoldDigest` 占位 digest。
@@ -118,29 +119,26 @@ Reasonix 在 `internal/agent/compact.go` 已经把这些都处理掉(2026-08 实
 
 ## 3. 功能需求
 
-### FR-1:`token_budget=0` 真正关闭自动压
+### FR-1:`context_window=0` 真正关闭自动压(对照 Reasonix `maybeCompact:86`)
 
-`ctxengine.assemble.go:27-58` 的 budget 回退逻辑改为:
+D10 删 `TokenBudget` 后,「关闭自动压」的语义挪到 `ContextWindow=0`。`ctxengine.assemble.go` 入口改为:
 
 ```go
-budget := p.ToolBudget
-if budget == 0 {
-    budget = cfg.TokenBudget
-}
-if budget <= 0 {
-    // 0 = 关闭自动压 — 跳过整段 compact 路径
+// 完全照搬 Reasonix maybeCompact 第一行
+if a.cfg.ContextWindow <= 0 || lastUsage == nil || lastUsage.PromptTokens == 0 {
+    // 0 = 关闭自动压 — 整段 maybeCompact 路径不进入
     return AssembleResult{...no compact stats...}
 }
-// 否则正常走 tokensBefore > budget 检查
+// 否则正常走 high/snip/soft 比例判断
 ```
 
-`cfg.TokenBudget=0` 且 `p.ToolBudget=0`(默认值情况) → 整段 `Compact` 路径不进入。`config.yaml` 注释「0 = no budget check」与实际行为对齐。
+`cfg.ContextWindow=0`(默认值情况)→ 整段 `Compact` / `Snip` / `Notice` 路径全部跳过;`config.yaml` 注释「0 = no budget check (executor fallback)」改成「0 = 关闭自动压(对齐 Reasonix)」,与实际行为一致。
 
-**额外**:如果 budget > 0 但 token 估算用 0(`LastUsage.PromptTokens=0` 且 msgs 空),`Assemble` 返回空 messages + 0 tokens,预算检查自然不触发。无需额外 guard。
+**额外**:如果 `lastUsage.PromptTokens=0` 或 msgs 空,`Assemble` 返回空 messages + 0 tokens,4 段 switch 自然不触发。无需额外 guard(对照 Reasonix `maybeCompact:86` 的 `|| u == nil || u.PromptTokens == 0`)。
 
-### FR-2:三层级联触发(soft → snip → compact)
+### FR-2:四层级联触发(soft → snip → compact → force)
 
-`ctxengine.assemble.go` 新增 `AssembleStats` 字段 + 三态决策:
+`ctxengine.assemble.go` 新增 `AssembleStats` 字段 + 4 段比例决策:
 
 ```go
 type AssembleStats struct {
@@ -185,9 +183,20 @@ case ratio >= 0.5 && !a.softNotified:
 }
 ```
 
-**`ContextWindow` 配置**:在 `ctxengine.Config` 加 `ContextWindow int` 字段,从 `cfg.Agent.ContextWindow`(config.yaml 新增)读。`ContextWindow=0` → 降级用绝对 token + budget,行为跟今天一致。
+**`ContextWindow` 配置**:在 `ctxengine.Config` 加 `ContextWindow int` 字段,从 `cfg.Agent.ContextWindow`(config.yaml 新增)读。`ContextWindow=0` → **关闭自动压**(对照 Reasonix `maybeCompact` 第一行 `if a.contextWindow <= 0 { return }`,整个压缩管线完全跳过)。不再有「绝对 token 降级路径」 — Reasonix 也没有,删 `TokenBudget` 字段后唯一入口就是 `ContextWindow`。
 
-**新增 `cfg.Agent.SoftCompactRatio / ToolResultSnipRatio / CompactRatio / CompactForceRatio`**(默认 0.5 / 0.6 / 0.8 / 0.9)。`Config` 加对应字段透出。
+**新增 4 段比例字段**,对齐 Reasonix `defaultSoftCompactRatio / defaultToolResultSnipRatio / defaultCompactRatio / defaultCompactForceRatio`:
+
+| 字段 | 默认 | 作用 |
+|---|---|---|
+| `SoftCompactRatio` | 0.5 | 50% 软通知(只发 Notice,不压) |
+| `ToolResultSnipRatio` | 0.6 | 60% 廉价 snip(截 tool result,不调 LLM) |
+| `CompactRatio` | 0.8 | 80% 触发 LLM 摘要(走 `foldEconomics` 判定) |
+| `CompactForceRatio` | 0.9 | 90% **强制** 摘要(绕 `foldEconomics`,即使 fold < minFoldTokens 也压) |
+
+**CompactForceRatio 必要性**(对照 Reasonix `compact.go:119-129`):小窗口下 fold 算下来不到 `minFoldTokens=400`,`foldEconomics` 会跳过压缩,但窗口已经快满 → 必须有第 4 段「强制压」层保证不退化到 LLM 上游 400。`CompactForceRatio=0.9` 不是「保险冗余」,是 Reasonix 实际用的「高水位强制」路径。
+
+**新增其他字段**:`RecentKeep`(默认 2 对齐 Reasonix `minRecentKeep`)+ `ArchiveDir`(默认空,对齐 Reasonix `archiveDir="")`。`Config` 加对应字段透出。
 
 ### FR-3:Reasonix 7 段结构化 briefing prompt
 
@@ -412,16 +421,16 @@ archive_dir: "<stateRoot>/sessions/<sid>/archive"
 
 | 模块 | 改动 |
 |---|---|
-| `internal/agents/ctxengine/config.go`(已存在 `Config`) | 新增 `ContextWindow / SoftCompactRatio / ToolResultSnipRatio / CompactRatio / CompactForceRatio / ArchiveDir` |
-| `internal/agents/ctxengine/assemble.go` | 重写 budget 决策;加 3-tier switch;新增 `stats.SoftNoticeEmitted / SnipTriggered / PausedReCompactLoop`;加 `clearStuckLatch` 逻辑 |
+| `internal/agents/ctxengine/config.go`(已存在 `Config`) | 新增 `ContextWindow / SoftCompactRatio / ToolResultSnipRatio / CompactRatio / CompactForceRatio / ArchiveDir / RecentKeep`(7 个字段,Reasonix 4 比例对齐 0.5 / 0.6 / 0.8 / 0.9) |
+| `internal/agents/ctxengine/assemble.go` | 重写 budget 决策;加 4-tier switch(soft 50% / snip 60% / compact 80% / force 90%);新增 `stats.SoftNoticeEmitted / SnipTriggered / PausedReCompactLoop`;加 `clearStuckLatch` 逻辑 |
 | `internal/agents/ctxengine/compact.go` | 替换 prompt 常量;`DefaultSummarizer` 改用 `Stream` + 90s 超时;加 `mechanicalFoldDigest`;调 `Archive`;改 fail 路径用机械折叠而非 `Success=false`;加 `compactStuck` latch |
 | `internal/agents/ctxengine/assembler.go` | `DefaultAssembler` 增 4 个 mutex-protected 字段 + 3 个 setter(`SetArchiver / SetContextWindow / SetRatios`);`NewDefaultAssembler` 签名不变(向后兼容,新字段用 setter) |
 | `internal/agents/ctxengine/archive.go` | **新增** `Archiver` 接口 + `FileArchiver` 实现 |
 | `internal/agents/ctxengine/archive_test.go` | **新增** roundtrip / 并发写不同名 / 禁写目录 / 失败容错 |
 | `internal/agents/agent.go` | `New` 时如果 cfg.ArchiveDir 非空,构造 `FileArchiver` 注入 assembler;透传 `ContextWindow` 等新 config 字段 |
 | `internal/runtime/agent_config.go` | 透传新字段到 `agent.Config` / `executor.Config` / `ctxengine.Config` |
-| `internal/config/config.go` | `AgentConfig` 加 `ContextWindow / SoftCompactRatio / ToolResultSnipRatio / CompactRatio / CompactForceRatio / ArchiveDir` 字段(mapstructure tag) |
-| `src/darvin-agent/config.yaml` | 注释修正「token_budget=0」实际语义;新增 5 个 ratio 默认值 + `context_window: 0`;`archive_dir: ""` |
+| `internal/config/config.go` | `AgentConfig` 加 `ContextWindow / SoftCompactRatio / ToolResultSnipRatio / CompactRatio / CompactForceRatio / ArchiveDir / RecentKeep` 字段(mapstructure tag,7 个;Reasonix 4 比例对齐 0.5/0.6/0.8/0.9)+ `CompactTailTokens` |
+| `src/darvin-agent/config.yaml` | 注释修正「token_budget=0」实际语义(改为「0 = 关闭自动压」);新增 4 个 ratio 默认值(`soft_compact_ratio: 0.5` / `tool_result_snip_ratio: 0.6` / `compact_ratio: 0.8` / `compact_force_ratio: 0.9`,对齐 Reasonix) + `context_window: 200000`(0 = 关闭) + `archive_dir: ""`(空 = 禁用) |
 | `internal/agents/event/event.go` | `NoticeKind` 加 `NoticeSoftCompact / NoticeSnipStaleTools / NoticeMechanicalFold / NoticeStuck`(或一个 `NoticeCompact` 总类,4 个 detail 字段) |
 | `internal/agents/event/notice_test.go`(或合并到现有) | 加新 kind 的 emit 路径单测 |
 
@@ -432,7 +441,7 @@ archive_dir: "<stateRoot>/sessions/<sid>/archive"
 - 修复后行为:用户想触发 → 设 `token_budget: 30000`(或类似);不想触发 → 保持 0。
 - 跟 spec FR-1 一致。
 
-**D2**:为什么三层级联而不是单阈值?
+**D2**:为什么四层级联而不是单阈值?
 - 50% 通知是「cache 优先」策略:压一次会破坏 cache prefix,LLM 调用会失去 cache 命中,延迟 + 成本涨。50% 时先通知但不压,等真要压(80%)再压,中间能保多少保多少。
 - 60% snip 是「廉价修剪」:`SnipStaleToolResults` 只是字符串截断 + 重写 `tool_result_max_bytes`,**不调 LLM**,成本极低。能在 80% 前先压一波再决定要不要 LLM。
 - 80% compact 才是「贵操作」:调 LLM 摘要,有延迟有 token 开销。
@@ -459,6 +468,35 @@ archive_dir: "<stateRoot>/sessions/<sid>/archive"
 **D7**:`softNotified` / `snippedThisTurn` 是 per-assembler 状态
 - 同一 session 的同一 agent 一个 assembler 实例,这两个 flag 是进程级(per-agent)
 - 一次窗口增长周期内只通知一次 / 只 snip 一次 → 不刷屏
+
+**D8**:删除 `CompactMaxRetries`,递归减半 fold 改用 `for tokensAfter > budget` 自然终止
+- 现状:`for retries < cfg.CompactMaxRetries { half := len(fold)/2; fold = fold[:half]; ... }`,默认 0 = 整段跳过 → 实际从来跑不到
+- Reasonix 没有 retry 计数,用的是 `fold = fold[:half]` + `if fitsBudget { break }` while 循环
+- FR-5 改造后,即使 summary LLM 失败也用 `mechanicalFoldDigest` 占位 digest → 「递归减半」的唯一目的变成「找能装下的最小 fold」,自然条件退出即可,无需 magic 计数
+- 现有 `compact_test.go:299` 等测试用 `CompactMaxRetries: 3` 跑递归减半逻辑 → 测试同步改成不依赖该字段(改用 `Budget=1` 触发最小 fold 兜底,见 §7)
+- 删除收益:少一个 magic 数,少一处 `retries=0` 边界 case;跟 Reasonix 完全对齐
+
+**D9**:删 `CompactTailKeep`,改名为 `RecentKeep`(默认 2 对齐 Reasonix `minRecentKeep`)+ 合并 `CompactTailTokens` 单字段(默认 16384)
+- 现状:`tail = CompactTailKeep`;若 `CompactTailTokens > 0` 用 `pinnedPrefixLen(fold, tokens, estimate)` 覆盖 — 双轨规则,用户需要理解优先级
+- Reasonix 模型:tail 起点按 token 预算(`tailStart(msgs, head, defaultTailTokens=16384, ...)`),同时 `recentKeep`(默认 `minRecentKeep=2`)是 tail 消息数**下限**;两者独立,前者控 token 量,后者保消息完整性
+- 改造方向:
+  - `CompactTailKeep` 删 → 改名为 `RecentKeep`,默认从 `6` 改成 `2`(对齐 `minRecentKeep`),仍保留 `tailFloor()` 兜底逻辑(`if RecentKeep > minRecentKeep { return RecentKeep } return minRecentKeep`)
+  - `CompactTailTokens` 保留,默认从 `0` 改成 `16384`(对齐 `defaultTailTokens`)
+  - 双轨变两段独立规则:**RecentKeep 是消息数下限**、**CompactTailTokens 是 token 预算**;不再有「哪个优先」的耦合
+- 现有测试(`compact_test.go:60,273,302,384`)用 `CompactTailKeep` 做 fixture → 同步迁移到 `RecentKeep`(2)+ `CompactTailTokens`(16000 / 5 / 1000 / 1000)
+- `assembler.go:88` 的 `if cfg.CompactTailKeep <= 0 { tail = 6 }` 默认 fallback 改成 `if cfg.RecentKeep <= 0 { cfg.RecentKeep = 2 }`(对齐 Reasonix)
+- 保留 `CompactTailKeep` 不合算:「消息数下限」语义应叫 `RecentKeep`(对齐 Reasonix 命名),「token 预算」应叫 `CompactTailTokens`(对齐 `defaultTailTokens` const),两者职责分明;旧名混着两个语义,容易误调
+
+**D10**:删 `TokenBudget`,完全对齐 Reasonix(assembler 不持有默认预算)
+- 现状:`Config.TokenBudget` 是「assembler 自带的绝对预算字段」,贯穿 yaml → viper → agent.Config → executor.Config → `AssembleParams.ToolBudget` 整条链
+- Reasonix 模型:`Agent` struct 上**完全没有**绝对预算字段;触发完全靠 `contextWindow × ratio` 纯比例;`contextWindow <= 0` = 关闭(`maybeCompact:86`)
+- 改造方向:
+  - `Config.TokenBudget` 字段删
+  - `AssembleParams.ToolBudget` 字段**保留**但只作 `0 = 关闭` 哨兵值(代替原 `cfg.TokenBudget` 的判断)—Reasonix 不需要这个,darvin-cowork 保留是兼容旧 caller
+  - `gateway/handlers.go:540` manual `/compact` IPC 的 `CompactParams.Budget` 保留(yaml 端可用 `archive_dir` 旁的 hardcoded fallback 替代)
+  - yaml `token_budget: 0` 行删
+- 下游波及面:7 个文件 / 2 个测试集(`config.go:73`、`agent.go:72,320,380`、`executor.go:69-72,186`、`assemble.go:29`、`handlers.go:540`、`config_test.go`、`agent_test.go:103,160-171`、4 个 ctxengine 测试 9 处 fixture)— 全部迁移,见 §6 涉及文件
+- 收益:跟 Reasonix 完全对齐;assembler 不再有「默认预算」概念,所有预算都从 `ContextWindow × ratio` 推;少一处「config 改了 assembler 没生效」的同步风险
 
 ### 4.3 关键伪代码
 
@@ -491,9 +529,13 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 
     pinned, kept, fold := partitionFold(p.Messages)
 
-    tail := ... // CompactTailKeep / CompactTailTokens 算
-    tail = alignTailBoundary(p.Messages, tail)
-
+    // D9: tail 算两个独立字段:
+    //   - head = pinnedPrefixLen(msgs) — system + 第一条小 user turn + 旧 digests(防重复摘要)
+    //   - start = tailStart(msgs, head, CompactTailTokens=16384, tokPerChar, RecentKeep=2)
+    //     按 token 数算 tail 起点,RecentKeep 做消息数下限;tool pair 自动对齐(不需 alignTailBoundary)
+    head := pinnedPrefixLen(p.Messages)
+    start := tailStart(p.Messages, head, cfg.CompactTailTokens, tokPerChar(), cfg.RecentKeep)
+    fold := p.Messages[head:start]
     if len(fold) == 0 {
         return CompactResult{Success: false, ...}
     }
@@ -519,6 +561,23 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 
     summaryMsg := protocol.Message{...}
     newMessages := ...
+
+    // D8: 递归减半 fold 改用 while tokensAfter<=Budget 自然终止,不再需要 CompactMaxRetries 计数
+    for p.Budget > 0 && tokensAfter > p.Budget {
+        half := len(fold) / 2
+        if half == 0 {
+            break
+        }
+        fold = fold[:half]
+        newSpan, err := summarizer.Summarize(ctx, SummarizeRequest{...})
+        if err != nil {
+            // FR-5: LLM 二次摘要失败仍走机械折叠
+            newSpan = mechanicalFoldDigest(len(fold), archived)
+        }
+        summaryMsg.Content = "[Conversation Summary]\n" + newSpan + ...
+        newMessages = rebuild(pinned, kept, summaryMsg, tail, p.Messages)
+        tokensAfter = estimateMessages(newMessages)
+    }
 
     // 失败 latch 更新
     if realSummaryErr != nil {
@@ -580,21 +639,22 @@ renderer 端把 4 种 Notice 渲染为不同的 info/warn 卡片(后续 UI 改�
 
 | 文件 | 变更说明 |
 |---|---|
-| `internal/agents/ctxengine/config.go` | `Config` 加 `ContextWindow / SoftCompactRatio / ToolResultSnipRatio / CompactRatio / CompactForceRatio / ArchiveDir` |
-| `internal/agents/ctxengine/assemble.go` | FR-1/FR-2:重写 budget 决策;3-tier switch;clearStuckLatch |
-| `internal/agents/ctxengine/assembler.go` | `DefaultAssembler` 加 4 mutex 字段 + Setter;`AssembleStats` 加 3 bool |
-| `internal/agents/ctxengine/compact.go` | FR-3:换 `summarySystemPrompt`;`DefaultSummarizer` 改 Stream + 90s;FR-4:`compactStuck` latch;FR-5:`mechanicalFoldDigest`;FR-6:调 `archiver.Archive` |
+| `internal/agents/ctxengine/config.go` | `Config` 加 `ContextWindow / SoftCompactRatio / ToolResultSnipRatio / CompactRatio / CompactForceRatio / ArchiveDir / RecentKeep`(7 个,Reasonix 4 比例对齐 0.5/0.6/0.8/0.9)+ `CompactTailTokens`(默认 16384 对齐 `defaultTailTokens`);**删** `CompactMaxRetries`(D8)+ `CompactTailKeep`(D9,改名 `RecentKeep`)+ `TokenBudget`(D10,Reasonix 无) |
+| `internal/agents/ctxengine/assemble.go` | FR-1/FR-2:重写 budget 决策;**4-tier switch**(soft 50% / snip 60% / compact 80% / force 90%);clearStuckLatch;D10 删 `cfg.TokenBudget` 引用 |
+| `internal/agents/ctxengine/assembler.go` | `DefaultAssembler` 加 4 mutex 字段 + Setter;`AssembleStats` 加 3 bool;**改** `if cfg.CompactTailKeep <= 0 { tail = 6 }` → `if cfg.RecentKeep <= 0 { cfg.RecentKeep = 2 }`(D9 对齐 Reasonix `minRecentKeep`) |
+| `internal/agents/ctxengine/compact.go` | FR-3:换 `summarySystemPrompt`;`DefaultSummarizer` 改 Stream + 90s;FR-4:`compactStuck` latch;FR-5:`mechanicalFoldDigest`;FR-6:调 `archiver.Archive`;**改** `for retries < cfg.CompactMaxRetries` → `for tokensAfter > budget`(D8,FR-5 机械折叠一并兜住重试);tail 起点改 `pinnedPrefixLen + tailStart`(D9,Reasonix `planCompaction` 双字段 `head/start`);**删** `tokensBefore <= p.Budget`(D10,Reasonix 不走 Budget 路径,改用 `usage.PromptTokens >= high` 比例判断) |
 | `internal/agents/ctxengine/archive.go` | **新增** `Archiver` 接口 + `FileArchiver` |
 | `internal/agents/ctxengine/archive_test.go` | **新增** roundtrip / 并发 / 失败 / 禁用 |
-| `internal/agents/ctxengine/compact_test.go` | 加 FR-5 机械折叠测试 / FR-4 stuck latch 测试 |
-| `internal/agents/ctxengine/assemble_test.go` | 加 FR-1 budget=0 不触发 / FR-2 三层级联测试 |
-| `internal/agents/ctxengine/tokens.go` | 加 `SoftCompactRatio / ToolResultSnipRatio / CompactRatio / CompactForceRatio` 常量(默认 0.5/0.6/0.8/0.9) |
+| `internal/agents/ctxengine/compact_test.go` | 同步:删 `CompactMaxRetries: N` fixture;删 `CompactTailKeep` fixture → `RecentKeep: 2`;删 `TokenBudget` fixture;fixture 改 `ContextWindow: 200000` + 4 比例;加 FR-5 机械折叠 / FR-4 stuck latch / FR-3 4 段比例触发测试 |
+| `internal/agents/ctxengine/assemble_test.go` | 同步:删 `TokenBudget` / `CompactTailKeep` fixture;改 `ContextWindow` + 4 比例;加 FR-1 ContextWindow=0 关闭 / FR-2 4 段比例触发测试 |
+| `internal/agents/ctxengine/tokens.go` | 加 `SoftCompactRatio / ToolResultSnipRatio / CompactRatio / CompactForceRatio` 常量(默认 0.5/0.6/0.8/0.9,对齐 Reasonix);加 `DefaultTailTokens = 16384`(D9);加 `MinRecentKeep = 2`(D9);加 `MinFoldTokens = 400`(Reasonix `foldEconomics`);加 `FallbackTokPerChar = 0.25`(D 备选,tokPerChar fallback) |
 | `internal/agents/event/event.go` | `NoticeKind` 加 4 个常量 |
-| `internal/agents/agent.go` | `New` 时构造 `FileArchiver` 注入;透传 ContextWindow / 比例 |
-| `internal/runtime/agent_config.go` | 透传新字段到各层 Config |
-| `internal/config/config.go` | `AgentConfig` 加 mapstructure 字段 |
-| `src/darvin-agent/config.yaml` | 修正 `token_budget` 注释;新增 5 个 ratio + `context_window` + `archive_dir` 默认 |
-| `internal/agents/ctxengine/params.go` | `CompactResult` 加 `Reason` 枚举("compact_paused_stuck" / "budget_exceeded" / "manual" 等) |
+| `internal/agents/agent.go` | `New` 时构造 `FileArchiver` 注入;透传 `ContextWindow / RecentKeep / CompactTailTokens / 4 比例 / ArchiveDir`;**删** `TokenBudget / CompactMaxRetries / CompactTailKeep` 透传 |
+| `internal/runtime/agent_config.go` | 透传新字段到各层 Config;**删** `TokenBudget / CompactMaxRetries / CompactTailKeep` 透传 |
+| `internal/config/config.go` | `AgentConfig` 加 7 个 mapstructure 字段(`ContextWindow / SoftCompactRatio / ToolResultSnipRatio / CompactRatio / CompactForceRatio / ArchiveDir / RecentKeep`)+ 1 个 `CompactTailTokens`;**删** `TokenBudget / CompactMaxRetries / CompactTailKeep` 字段(mapstructure tag 同步移除) |
+| `src/darvin-agent/config.yaml` | **删** `token_budget / compact_tail_keep / compact_max_retries` 行;新增 `context_window: 200000`(0 = 关闭)+ `soft_compact_ratio: 0.5` + `tool_result_snip_ratio: 0.6` + `compact_ratio: 0.8` + `compact_force_ratio: 0.9` + `recent_keep: 2` + `compact_tail_tokens: 16384` + `archive_dir: ""`(对齐 Reasonix 8 字段默认值) |
+| `internal/agents/ctxengine/params.go` | `CompactResult` 加 `Reason` 枚举("compact_paused_stuck" / "force" / "manual" 等) |
+| `internal/gateway/handlers.go` | `runManualCompact` 不再读 `a.Config().TokenBudget`(D10),改用 IPC payload 自带 budget 或 hardcoded fallback(对齐 Reasonix `compact(ctx, "manual", ...)` 不依赖预算字段) |
 
 ---
 
@@ -609,6 +669,18 @@ renderer 端把 4 种 Notice 渲染为不同的 info/warn 卡片(后续 UI 改�
 - [ ] 场景 5:连续 2 turn 都压 → 第 3 turn 跳过 emit `NoticeStuck`、自动压暂停;budget 调高后恢复
 - [ ] 场景 6:LLM 摘要 503/超时 → emit `NoticeMechanicalFold`,走 `mechanicalFoldDigest`,Session 仍替换,Compaction 返 `Success=true`
 - [ ] 场景 7:任何 Compact 成功 / 机械折叠 → `<archiveDir>/<timestamp>.jsonl` 出现,内容是 fold 原消息的 JSON Lines;archive 失败不阻塞
+
+### 配置清理(D8 / D9 / D10)
+
+- [ ] `grep -r "CompactMaxRetries" src/darvin-agent` 零命中(代码 / 测试 / 配置全部清干净,D8)
+- [ ] `grep -r "compact_tail_keep" src/darvin-agent` 零命中(D9 改名 `RecentKeep`)
+- [ ] `grep -r "TokenBudget" src/darvin-agent` 零命中(D10,Reasonix 无此字段)
+- [ ] `grep -r "token_budget" src/darvin-agent` 零命中(D10 yaml 行删除)
+- [ ] `config.yaml` 出现 8 个新字段:`context_window: 200000` / `soft_compact_ratio: 0.5` / `tool_result_snip_ratio: 0.6` / `compact_ratio: 0.8` / `compact_force_ratio: 0.9` / `recent_keep: 2` / `compact_tail_tokens: 16384` / `archive_dir: ""`;旧 `token_budget` / `compact_tail_keep` / `compact_max_retries` 行已删除
+- [ ] `ctxengine.Config` 字段净增:8 个 → 13 个(删 3 个 `TokenBudget` / `CompactMaxRetries` / `CompactTailKeep`,加 7 个 `ContextWindow` / `SoftCompactRatio` / `ToolResultSnipRatio` / `CompactRatio` / `CompactForceRatio` / `ArchiveDir` / `RecentKeep`,+ 保留 `CompactTailTokens` 改名 + 默认改 16384)
+- [ ] `runtime/agent_config.go` / `agent.go` 不再有 `TokenBudget` 字段透传;`gateway/handlers.go:540` 不再读 `a.Config().TokenBudget`(改 IPC payload / hardcoded fallback)
+- [ ] `ctxengine/compact.go` `maybeCompact` 函数第一行 `if a.cfg.ContextWindow <= 0 { return }` 命中后,所有下游 `4-tier switch`(soft / snip / compact / force)完全不跑
+- [ ] `compact_test.go` 0 处 `CompactMaxRetries:` / `CompactTailKeep:` / `TokenBudget:` fixture;0 处 `for retries < N` 测试断言
 
 ### 自动化
 
@@ -674,7 +746,7 @@ renderer 端把 4 种 Notice 渲染为不同的 info/warn 卡片(后续 UI 改�
 |---|---|
 | `internal/agents/ctxengine/archive.go` | `FileArchiver.Archive` 顶部一段 JSDoc 说明「best-effort,失败不阻塞」业务不变量;**不写**「archive 模块」「以下实现 archive 逻辑」开场白 |
 | `internal/agents/ctxengine/compact.go` | `summarySystemPrompt` 常量上方一行说明来源(Reasonix);`mechanicalFoldDigest` 函数顶部 JSDoc;`compactStuck` latch 解锁条件加一行「为什么」注释 |
-| `internal/agents/ctxengine/assemble.go` | 3-tier switch 顶部一行说明三层级联的目的;**不写**「step 1 / step 2」注释 |
+| `internal/agents/ctxengine/assemble.go` | 4-tier switch 顶部一行说明四层级联的目的(soft / snip / compact / force);**不写**「step 1 / step 2」注释 |
 | `internal/agents/ctxengine/config.go` | `Config` 新字段保留已有 godoc 风格(简短说明单位 / 默认 / 来源) |
 
 review 时除功能正确性外,按 8.1–8.3 三条逐项扫一遍注释。
