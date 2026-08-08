@@ -12,46 +12,36 @@ import (
 	"darvin-cowork/backend/internal/agents/protocol"
 )
 
-// Archiver persists the original messages dropped during a compaction
-// so the full history stays traceable for debug / replay. Implementations
-// MUST be best-effort: any write failure returns the path so far and an
-// error, but the caller treats archive failure as non-fatal (the live
-// compaction has already produced a digest and replaced the session).
+// Archiver persists the original messages dropped during compaction so
+// the full history stays traceable for debug / replay. Implementations
+// MUST be best-effort: any write failure returns the path so far and
+// an error, but the caller treats archive failure as non-fatal.
 //
-// Returning "" with a nil error means "archive disabled" (no dir
-// configured); the caller skips the write path entirely.
+// Returning "" with a nil error means "archive disabled".
 type Archiver interface {
 	Archive(ctx context.Context, msgs []protocol.Message) (path string, err error)
 }
 
-// FileArchiver writes one timestamped jsonl per Archive call. The
-// filename format follows the jsonl convention so external tooling can
-// ingest the files without a custom parser.
-//
-// The directory is created lazily on first use; an empty dir disables
-// archive (the most common configuration in fresh installs).
+// FileArchiver writes one timestamped jsonl per Archive call. An empty
+// dir disables archive (the most common configuration in fresh installs).
 type FileArchiver struct {
 	mu   sync.Mutex
 	dir  string
 	emit func(noticeText, detail string)
 }
 
-// NewFileArchiver wires a FileArchiver. emit may be nil for tests that
-// do not want Notice plumbing; production callers pass
-// agent.Agent.Emit wrapped to match the (text, detail) signature.
+// NewFileArchiver wires a FileArchiver. emit may be nil for tests; production
+// callers pass a wrapper around agent.Agent.Emit.
 func NewFileArchiver(dir string, emit func(text, detail string)) *FileArchiver {
 	return &FileArchiver{dir: dir, emit: emit}
 }
 
-// Archive serialises msgs as one JSON object per line and writes the
-// result to <dir>/<YYYYMMDD-HHMMSS.NNN>.jsonl. The returned path is
-// stable for the duration of this call and safe to embed in the digest
-// body so the model can point the user at it.
-//
-// Errors propagate verbatim; callers should treat any non-nil error as
-// "archive failed, compaction still succeeded". The mutex guards the
-// concurrent-write boundary so two parallel Archive calls land in
-// distinct files even when the wall clock collides on the second.
+// Archive serialises msgs as one JSON object per line into
+// <dir>/<YYYYMMDD-HHMMSS.NNN>.jsonl. The returned path is safe to embed
+// in the digest body. Errors propagate verbatim; callers treat any
+// non-nil error as "archive failed, compaction still succeeded". The
+// mutex guards concurrent writes so parallel calls land in distinct
+// files even when the wall clock collides.
 func (a *FileArchiver) Archive(ctx context.Context, msgs []protocol.Message) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err

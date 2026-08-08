@@ -19,10 +19,7 @@ import (
 
 // AgentFactory carries the shared dependencies needed to build an
 // *agent.Agent. main.go constructs one and injects it into
-// SessionManager, which calls NewAgentLoopSession on the lazy build
-// path. From Agent's perspective, Provider / Store / Logger / Tools /
-// Assembler are read-only; only the conversation history goes through
-// session.Session's own lock.
+// SessionManager, which calls NewAgentLoopSession on the lazy build path.
 type AgentFactory struct {
 	Name         string
 	Instructions string
@@ -38,61 +35,46 @@ type AgentFactory struct {
 	Assembler    ctxengine.ContextEngine
 
 	// Plugins are applied to the agent's tool registry after every Build
-	// (skill / mcp plugins). SessionManager.RefreshAllTools reuses the
-	// same plugin list for the bulk Unregister + Register pass so the
-	// tool surface tracks skill / mcp state changes.
+	// (skill / mcp). SessionManager.RefreshAllTools reuses the same list.
 	Plugins []tool.Plugin
 
 	// AssemblerEnabled and Config.AssemblerEnabled are two independent
-	// switches: the latter controls whether a default Assembler is
-	// constructed; the former controls whether the executor takes the
-	// assembler path. The factory does not merge them for callers —
-	// each side decides on its own.
+	// switches: the latter builds the default Assembler, the former
+	// flips the executor onto the assembler path.
 	AssemblerEnabled bool
 
-	// Memory feeds ctxengine.Deps.MemoryFacts; nil disables the MEMORY
-	// block instead of failing the run.
+	// Memory feeds ctxengine.Deps.MemoryFacts; nil disables the MEMORY block.
 	Memory *memory.Manager
-	// WorkspaceBootstrap feeds ctxengine.Deps.MemoryBootstrap; nil
-	// means no IDENTITY/SOUL/USER blocks. Must be the workspace-level
-	// singleton so bootstrap.write invalidation propagates to every
-	// session.
+	// WorkspaceBootstrap feeds ctxengine.Deps.MemoryBootstrap; nil means
+	// no IDENTITY/SOUL/USER blocks. Must be the workspace-level singleton
+	// so bootstrap.write invalidation propagates to every session.
 	WorkspaceBootstrap agent.BootstrapReader
 
-	// HarnessID pins a specific harness by id. An empty
-	// value defers to harness.SelectHarness at NewAgentLoopSession time.
+	// HarnessID pins a specific harness by id. Empty defers to
+	// harness.SelectHarness at NewAgentLoopSession time.
 	HarnessID string
 
-	// Selector is the factory's harness selector. nil falls back to a
+	// Selector is the factory's harness selector. nil falls back to the
 	// built-in helper that uses harness.SelectHarness with the factory's
-	// provider / model / explicit-id state. Production wiring uses the
-	// default; tests inject a fake to keep the registry deterministic.
+	// provider / model state.
 	Selector HarnessSelector
 }
 
-// HarnessSelector chooses a harness for a given session. The default
-// implementation goes through harness.SelectHarness.
+// HarnessSelector chooses a harness for a given session.
 type HarnessSelector func(a *agent.Agent, f *AgentFactory) (harness.Harness, error)
 
-// NewAgentLoopSession constructs the Agent + Harness + Loop in one go
-// and attaches Loop's CurrentMessageID / CurrentRunID onto Agent so
-// the messageID / runID carried by events matches Loop's current
-// state. The order is important: build Loop first, then call
-// AttachMessageIDSrc — otherwise the executor Deps.Current* hooks
-// resolve to empty strings.
-//
-// When MessageStore is wired we also attach TextDeltaHook (streaming
-// persistence); the hook subscription is cleaned up by
-// AgentLoopSession.Close on evict.
+// NewAgentLoopSession constructs the Agent + Harness + Loop and attaches
+// Loop's CurrentMessageID / CurrentRunID onto Agent so event IDs match
+// Loop's state. Order matters: build Loop first, then call
+// AttachMessageIDSrc, otherwise Deps.Current* resolves to "". When
+// MessageStore is wired, TextDeltaHook (streaming persistence) is also
+// attached and cleaned up by AgentLoopSession.Close on evict.
 func (f *AgentFactory) NewAgentLoopSession(sessionID string) (*AgentLoopSession, error) {
 	a, err := f.Build(sessionID)
 	if err != nil {
 		return nil, err
 	}
-	// Replay historical messages from the persistent MessageStore into
-	// the in-memory Session so the agent remembers prior turns after
-	// restart / entry rebuild. Failures are warn-and-continue and do
-	// not block AgentLoopSession construction.
+	// Replay historical messages from MessageStore; warn-and-continue on failure.
 	hydrateSession(context.Background(), f, a.Session())
 	h, err := f.resolveHarnessFor(a)
 	if err != nil {
@@ -113,10 +95,9 @@ func (f *AgentFactory) NewAgentLoopSession(sessionID string) (*AgentLoopSession,
 	}, nil
 }
 
-// resolveHarnessFor picks a harness. If the Selector accepts the just-built
-// agent, it can wire its closures to drive that exact instance. The default
-// Selector path does not need an agent — it goes through harness.SelectHarness
-// which only looks at provider / model facts.
+// resolveHarnessFor picks a harness. The default path goes through
+// harness.SelectHarness (no agent needed); the Selector variant can
+// accept the just-built agent to wire its closures.
 func (f *AgentFactory) resolveHarnessFor(a *agent.Agent) (harness.Harness, error) {
 	if id := f.HarnessID; id != "" {
 		h, ok := harness.Get(id)
@@ -139,11 +120,10 @@ func (f *AgentFactory) resolveHarnessFor(a *agent.Agent) (harness.Harness, error
 }
 
 // Build constructs a fresh *agent.Agent with the given sessionID.
-// Agent's own session.ID is the only source of the sessionId field
-// that the dispatcher stamps on events — if it is wrong,
-// EventLedger.publishLocked routes to the wrong bucket. After each
-// new agent is built we apply Plugins in order; plugin registration
-// failures are logged as warnings and do not block agent availability.
+// Agent's own session.ID is the only source of the sessionId field that
+// the dispatcher stamps on events — if it is wrong,
+// EventLedger.publishLocked routes to the wrong bucket. Plugins are
+// applied in order; registration failures are logged and do not block.
 func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
 	a, err := agent.New(agent.NewAgentConfig{
 		Name:               f.Name,
