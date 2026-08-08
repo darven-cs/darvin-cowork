@@ -427,8 +427,7 @@ renderer **不下载 woff2 / 不引用 CDN**，全走系统字体栈，写在 `s
 
 ### darvin-agent Go 代码规范
 
-> 适用范围：`src/darvin-agent/` 下所有 Go 业务源代码。`docs/` / `specs/` / 子级 `AGENTS.md` 不受本规范约束。
-> 规则变更追踪见 `specs/refactors/agent-code-readability/2026-08-08-agent-code-readability-design.md` §3.3。
+> 适用范围：`src/darvin-agent/` 下所有 Go 业务源代码。
 
 #### 文件结构
 
