@@ -12,14 +12,12 @@ import (
 )
 
 // errClosed is returned from writeJSON / writeControl when the conn
-// pointer has been cleared by run's defer Close. It is a sentinel —
-// callers log at debug and continue.
+// pointer has been cleared by run's defer Close.
 var errClosed = errors.New("client: connection closed")
 
 // client represents one open WebSocket connection. All shared mutable
-// state (the write pump, the in-flight response counter) lives behind
-// writeMu so handlers and the read loop can both call SendNotification
-// without serialising at a higher level.
+// state lives behind writeMu so handlers and the read loop can both
+// call SendNotification without higher-level serialisation.
 type client struct {
 	conn     *websocket.Conn
 	sessions *SessionManager
@@ -27,20 +25,15 @@ type client struct {
 	handler  *Handler
 	log      *zap.Logger
 
-	// writeMu guards ws writes. The gorilla/websocket package forbids
-	// concurrent writers on a single connection — without this mutex a
-	// handler reply and a notification could interleave and corrupt the
-	// frame.
+	// writeMu guards ws writes; gorilla/websocket forbids concurrent
+	// writers on a single connection.
 	writeMu sync.Mutex
 }
 
-// writeJSON serialises payload and writes it as a single text frame.
-// Centralised so the read loop and SendNotification share the same lock.
-//
-// A nil conn is treated as a closed connection: callers that ignore
-// the error (notably SendNotification, which only logs) won't panic
-// when EmitStub's goroutine fires after the read loop has already torn
-// down the connection.
+// writeJSON serialises v and writes it as a single text frame. A nil
+// conn is treated as closed so callers that ignore the error (notably
+// SendNotification) do not panic when a goroutine fires after the
+// connection has been torn down.
 func (c *client) writeJSON(v any) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
@@ -50,8 +43,8 @@ func (c *client) writeJSON(v any) error {
 	return c.conn.WriteJSON(v)
 }
 
-// writeControl sends a control frame (ping/pong/close). It is safe to
-// call concurrently with writeJSON; the mutex serialises them.
+// writeControl sends a control frame (ping / pong / close). Safe to
+// call concurrently with writeJSON (mutex serialises them).
 func (c *client) writeControl(msgType int, payload []byte, deadline time.Time) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
@@ -61,9 +54,8 @@ func (c *client) writeControl(msgType int, payload []byte, deadline time.Time) e
 	return c.conn.WriteControl(msgType, payload, deadline)
 }
 
-// SendNotification is called by EventLedger.publishLocked to push a
-// server-initiated event to the renderer. Errors here are logged and
-// swallowed — the next read error from the peer will trigger the
+// SendNotification pushes a server-initiated event to the renderer.
+// Errors are logged and swallowed; the next read error triggers the
 // deferred UnsubscribeAll.
 func (c *client) SendNotification(method string, params any) {
 	if err := c.writeJSON(newNotification(method, params)); err != nil {
@@ -71,17 +63,12 @@ func (c *client) SendNotification(method string, params any) {
 	}
 }
 
-// run is the connection's lifetime loop. It owns:
-//   - read pump: decode JSON-RPC frames, dispatch to handlers, write back responses
-//   - ping ticker: 30s pings to keep middleboxes / NAT happy
-//   - pong handler: deadline reset on every pong frame
-//   - shutdown: defer unsubscribe + close
-//
-// The read goroutine and the ping ticker share the same connection, so
-// WriteControl (used for ping) must be serialised against WriteJSON
-// (used for responses / notifications) — that's the writeMu contract.
+// run is the connection's lifetime loop. It owns the read pump
+// (decode JSON-RPC frames → dispatch → write back), the ping ticker
+// (30s pings to keep middleboxes happy), the pong handler (deadline
+// reset), and the shutdown defer (unsubscribe + close).
 func (c *client) run(ctx context.Context) {
-	// Set an initial read deadline; every pong refreshes it.
+	// Initial read deadline; every pong refreshes it.
 	_ = c.conn.SetReadDeadline(time.Now().Add(75 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
 		_ = c.conn.SetReadDeadline(time.Now().Add(75 * time.Second))
@@ -97,8 +84,8 @@ func (c *client) run(ctx context.Context) {
 	defer func() {
 		c.ledger.UnsubscribeAll(c)
 		// Clear the conn pointer before Close so any goroutine still
-		// holding *client (EmitStub's background write) short-circuits
-		// in writeJSON rather than calling into a half-closed *Conn.
+		// holding *client short-circuits in writeJSON rather than
+		// calling into a half-closed *Conn.
 		conn := c.conn
 		c.conn = nil
 		_ = conn.Close()
@@ -131,9 +118,9 @@ func (c *client) run(ctx context.Context) {
 			continue
 		}
 
-		// A notification is a request with no id — no response. Otherwise
-		// we collect responses into a slice; if the inbound was a batch
-		// we reply as a JSON array, else a single object.
+		// A notification is a request with no id (no response). Otherwise we
+		// collect responses and reply as a JSON array iff the inbound
+		// was a batch.
 		responses := make([]*Response, 0, len(reqs))
 		for _, req := range reqs {
 			resp := dispatchRequest(ctx, req, c, c.handler)
@@ -160,8 +147,8 @@ func (c *client) run(ctx context.Context) {
 	}
 }
 
-// pingLoop emits a ping every 30s and exits when the connection finishes
-// (pingDone is closed by the defer in run) or when ctx is cancelled.
+// pingLoop emits a ping every 30s and exits when the connection
+// finishes or ctx is cancelled.
 func (c *client) pingLoop(ctx context.Context, done <-chan struct{}) {
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
@@ -181,10 +168,8 @@ func (c *client) pingLoop(ctx context.Context, done <-chan struct{}) {
 	}
 }
 
-// marshalIDLossy is a tiny helper for the response id: the gorilla
-// decoder hands us a json.RawMessage that may carry a string or number;
-// marshalling it back through any loses the original shape. Tests that
-// need a faithful round-trip should assert on the wire bytes directly.
+// marshalIDLossy copies the response id without re-marshalling so the
+// original JSON shape (string vs number) survives the round-trip.
 func marshalIDLossy(id json.RawMessage) json.RawMessage {
 	return append(json.RawMessage(nil), id...)
 }

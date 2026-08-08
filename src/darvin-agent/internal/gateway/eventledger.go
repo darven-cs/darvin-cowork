@@ -11,36 +11,27 @@ import (
 	"darvin-cowork/backend/internal/llm"
 )
 
-// EventLedger is the bridge between the agent's event bus and WS clients.
-// AttachSubscription feeds it a *event.Subscription; every event read from
-// that channel is forwarded as an "agent.event" notification to the
-// subscribers of the event's session.
-//
-// Subscriptions are stored session-scoped: bySession maps sessionID → the
-// set of clients that want events for that session. A client subscribing
-// to many sessions shows up in many sets; UnsubscribeAll walks them all
-// in O(nSessions) so a disconnect is cheap.
+// EventLedger bridges the agent event bus and WS clients. Each event
+// from a subscription is forwarded as an "agent.event" notification to
+// the subscribers of the event's session. bySession is session-scoped;
+// UnsubscribeAll walks all sets in O(nSessions) so a disconnect is cheap.
 type EventLedger struct {
 	mu        sync.RWMutex
 	bySession map[string]map[*client]struct{}
-	// allConns holds *client handles for every currently active WS
-	// connection. The Subscribe entry point does not add to it
-	// (client.run handles that); Broadcast walks this map for global
-	// fanout that does not need a subscription state — for example
-	// agent.skills.changed notifies main, which always has exactly
-	// one connection, so promoting it to session-scoped routing
-	// would add cost without benefit.
+	// allConns holds every currently active connection (without a
+	// session subscription). Broadcast walks it for global fanout
+	// (skills changes, runtime health pings) that has no session key.
 	allConns map[*client]struct{}
 	log      *zap.Logger
 
-	// fakeDelay is the inter-event sleep used by EmitStub. Public so
-	// tests can collapse it to zero.
+	// fakeDelay is the inter-event sleep used by EmitStub. Tests
+	// collapse it to zero.
 	fakeDelay time.Duration
 }
 
-// NewEventLedger builds an empty ledger. The fakeDelay defaults to 50ms —
-// short enough that wscat sees the two-event burst within 1s, long enough
-// to keep the order observable in human-driven testing.
+// NewEventLedger builds an empty ledger. fakeDelay defaults to 50ms —
+// enough that the renderer has time to subscribe before the first
+// text_delta fires, but short enough for two-event bursts in tests.
 func NewEventLedger(log *zap.Logger) *EventLedger {
 	return &EventLedger{
 		bySession: make(map[string]map[*client]struct{}),
@@ -50,20 +41,18 @@ func NewEventLedger(log *zap.Logger) *EventLedger {
 	}
 }
 
-// RegisterConnection adds c to the global connection set so Broadcast can
-// reach it without a session subscription. The read loop calls this once
-// when the connection is established; UnsubscribeAll is the symmetric
-// remove.
+// RegisterConnection adds c to the global connection set so Broadcast
+// can reach it without a session subscription. Read loop calls this
+// once on connect; UnsubscribeAll is the symmetric remove.
 func (l *EventLedger) RegisterConnection(c *client) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.allConns[c] = struct{}{}
 }
 
-// Broadcast fans a notification out to every active connection. Used for
-// events that have no per-session routing key (skills changes, runtime
-// health pings, etc.). Drops on a wedged client are tolerated — the next
-// read error from the peer will tear the connection down.
+// Broadcast fans a notification out to every active connection (events
+// with no per-session key). Drops on a wedged client are tolerated —
+// the next read error tears the connection down.
 func (l *EventLedger) Broadcast(method string, params any) {
 	l.mu.RLock()
 	clients := make([]*client, 0, len(l.allConns))
@@ -90,9 +79,9 @@ func (l *EventLedger) Subscribe(sessionID string, c *client) {
 	set[c] = struct{}{}
 }
 
-// UnsubscribeAll removes c from every session's subscriber set. Called
-// when a WS connection's read/write loop exits; the next EmitStub that
-// targets an already-detached client will be a no-op.
+// UnsubscribeAll removes c from every session's subscriber set. Read
+// loop calls this on exit; subsequent EmitStub calls targeting an
+// already-detached client are no-ops.
 func (l *EventLedger) UnsubscribeAll(c *client) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -106,13 +95,11 @@ func (l *EventLedger) UnsubscribeAll(c *client) {
 }
 
 // AttachSubscription wires a real agent event bus into the ledger. Each
-// event read from sub.C() is routed to subscribers of its EventCommon.
-// SessionID via publishLocked; events with no SessionID (e.g. system
-// events emitted before any session is established) are dropped.
-//
-// main.go calls this once after constructing the Agent — the goroutine
-// runs for the lifetime of the WS server and exits when sub.Unsubscribe
-// closes the channel.
+// event from sub.C() is routed via publishLocked to subscribers of its
+// EventCommon.SessionID; events with no SessionID are dropped. Called
+// once by main.go after constructing the Agent; the goroutine runs for
+// the WS-server lifetime and exits when sub.Unsubscribe closes the
+// channel.
 func (l *EventLedger) AttachSubscription(sub *event.Subscription) {
 	go func() {
 		for ev := range sub.C() {
@@ -126,14 +113,12 @@ func (l *EventLedger) AttachSubscription(sub *event.Subscription) {
 	}()
 }
 
-// publishLocked fans ev out to every subscriber of sessionID. The caller
-// must NOT hold l.mu — SendNotification writes to the WS under the
-// client's own write mutex and must not be re-entered.
-//
-// Drop semantics: writes are best-effort. If a client is wedged, the
-// goroutine blocks in SendNotification until its write timeout / ctx
-// expires; ledger-level fanout does not itself drop. (event.Bus.Emit
-// drops-oldest on a full subscription channel — that's a different layer.)
+// publishLocked fans ev out to every subscriber of sessionID. Caller
+// must NOT hold l.mu — SendNotification takes the client's own write
+// mutex and must not be re-entered. Writes are best-effort: a wedged
+// client blocks SendNotification until its write timeout / ctx
+// expires; ledger-level fanout does not drop. (event.Bus.Emit drops
+// on a full subscription channel — that's a different layer.)
 func (l *EventLedger) publishLocked(sessionID string, ev event.Event) {
 	l.mu.RLock()
 	set := l.bySession[sessionID]
@@ -149,14 +134,10 @@ func (l *EventLedger) publishLocked(sessionID string, ev event.Event) {
 	}
 }
 
-// EmitStub is a fake event source: a goroutine that pushes a
-// text_delta followed by an agent_end to the session's subscribers.
-//
-// The initial fakeDelay is intentional: the spec's flow is
-// agent.prompt → agent.subscribe_events → events. Without a delay
-// the first text_delta fires before the renderer has had time to
-// register the subscription and gets dropped. One fakeDelay (~50ms)
-// is enough for the JSON-RPC roundtrip on a localhost connection.
+// EmitStub is a fake event source: pushes a text_delta followed by an
+// agent_end to a session's subscribers. The initial fakeDelay exists so
+// the renderer's subscribe_events call (a JSON-RPC roundtrip on
+// localhost) lands before the first text_delta fires.
 func (l *EventLedger) EmitStub(sessionID, msgID, content string) {
 	go func() {
 		time.Sleep(l.fakeDelay)
@@ -172,17 +153,12 @@ func (l *EventLedger) EmitStub(sessionID, msgID, content string) {
 	}()
 }
 
-// mapEventToTS converts an event.Event into the JSON object the renderer
-// consumes as DarvinEvent. The session-scoped subscribe path uses these
-// shapes; events not matched here fall through to a bare {type, ...}
-// envelope so a new event class can't accidentally disappear.
-//
-// sessionId and runId are read from the embedded EventCommon so the
-// renderer store can demultiplex events onto the per-session / per-turn
-// indexes regardless of which WS the notification arrived on. They are
-// omitted from events that don't carry them (e.g. a legacy event with
-// an empty Common) so consumers don't have to special-case missing
-// fields.
+// mapEventToTS converts an event.Event into the JSON object the
+// renderer consumes as DarvinEvent. sessionId / runId come from the
+// embedded EventCommon (omitted when empty so consumers don't
+// special-case missing fields). Unmatched events fall through to a
+// bare {type, ...} envelope so a new event class can't accidentally
+// disappear.
 func mapEventToTS(ev event.Event, _ string) any {
 	common := ev.Common()
 	withCommon := func(m map[string]any) map[string]any {
@@ -212,11 +188,9 @@ func mapEventToTS(ev event.Event, _ string) any {
 			"type":      "done",
 			"messageId": ev.Common().MessageID,
 		})
-		// Surface Usage as an optional `usage` block. Token accounting is
-		// the renderer's hook for displaying cost / progress; the field is
-		// omitted (rather than zero-valued) so consumers that don't care
-		// can ignore it and zero-usage turns don't carry a misleading
-		// `{totalTokens: 0}` payload.
+		// Surface Usage as an optional `usage` block. The field is omitted
+		// when zero so consumers that don't care can ignore it and
+		// zero-usage turns don't carry a misleading `{totalTokens: 0}`.
 		if e.Usage != (llm.Usage{}) {
 			out["usage"] = map[string]any{
 				"inputTokens":  e.Usage.PromptTokens,
@@ -250,8 +224,7 @@ func mapEventToTS(ev event.Event, _ string) any {
 		return withCommon(end)
 	case event.AgentErrorEvent:
 		// Field names match the DarvinEvent 'error' variant in
-		// src/shared/darvin-api.ts: the renderer looks the message up by
-		// messageId and renders `message` on the bubble.
+		// src/shared/darvin-api.ts; renderer looks up by messageId.
 		return withCommon(map[string]any{
 			"type":      "error",
 			"messageId": ev.Common().MessageID,
@@ -297,8 +270,8 @@ func mapEventToTS(ev event.Event, _ string) any {
 	}
 }
 
-// addToolKindFields appends the kind attribution fields to a tool event's
-// wire payload. Empty values are omitted so old events without a kind stay
+// addToolKindFields appends the kind-attribution fields to a tool
+// event's wire payload. Empty values are omitted so old events stay
 // backward-compatible.
 func addToolKindFields(m map[string]any, toolKind, skillID, mcpServerID string) {
 	if toolKind != "" {
@@ -312,9 +285,8 @@ func addToolKindFields(m map[string]any, toolKind, skillID, mcpServerID string) 
 	}
 }
 
-// truncate is a bounds-clamp for the user-visible "Echo: ..." payload.
-// 80 chars keeps a long paste from dominating the test output without
-// truncating the common case.
+// truncate clamps the user-visible "Echo: ..." payload at n chars so
+// a long paste does not dominate test output.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

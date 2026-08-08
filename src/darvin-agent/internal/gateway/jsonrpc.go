@@ -1,9 +1,5 @@
-// Package gateway implements the WebSocket + JSON-RPC 2.0 front door of the
-// Go agent. It owns three components (see docs/系统架构.md §Gateway 层):
-//
-//	Server        — binds localhost:0, prints the port on stdout, serves /ws
-//	SessionManager — nanoid session ids, in-memory sessionID → *session.Session
-//	EventLedger   — sessionID → subscribed clients, pushes agent.event notifications
+// Package gateway implements the WebSocket + JSON-RPC 2.0 front door of
+// the Go agent (Server, SessionManager, EventLedger).
 package gateway
 
 import "encoding/json"
@@ -11,8 +7,7 @@ import "encoding/json"
 // JSONRPCVersion is the only "jsonrpc" value this server accepts or emits.
 const JSONRPCVersion = "2.0"
 
-// JSON-RPC 2.0 reserved error codes. Application-defined codes
-// live in the -32000..-32099 range.
+// JSON-RPC 2.0 reserved error codes; application codes use -32000..-32099.
 const (
 	CodeParseError     = -32700
 	CodeInvalidRequest = -32600
@@ -20,35 +15,24 @@ const (
 	CodeInvalidParams  = -32602
 	CodeInternalError  = -32603
 
-	// CodeSessionStalled: prompt landed inside the refusal window after
-	// Stop. See SessionManager.Stop / stoppedUntilMs.
+	// CodeSessionStalled: prompt inside the refusal window after Stop.
 	CodeSessionStalled = -32001
 
-	// CodeNoAgentLoopSession: a handler hit an entry whose
-	// AgentLoopSession has not been built yet (subscribe preceded
-	// prompt, and SessionManager has no factory wired). Normal
-	// production paths do not trigger this; handler-test stubs do.
+	// CodeNoAgentLoopSession: handler hit an entry whose
+	// AgentLoopSession is not built (subscribe preceded prompt).
 	CodeNoAgentLoopSession = -32002
 
-	// CodeAgentInitFailed: factory.NewAgentLoopSession failed to
-	// build, SessionManager has already rolled back the entry; the
-	// renderer can retry.
+	// CodeAgentInitFailed: lazy build failed; renderer may retry.
 	CodeAgentInitFailed = -32003
 
-	// CodeSkillNotFound: agent.skill.invoke_user hit an unknown skill.
-	CodeSkillNotFound = -32010
-
-	// CodeSkillDisabled: agent.skill.invoke_user hit a disabled skill.
-	CodeSkillDisabled = -32011
-
-	// CodeSkillNotUserInvocable: agent.skill.invoke_user 命中
-	// userInvocable=false 的 skill。
+	// agent.skill.invoke_user outcome codes.
+	CodeSkillNotFound        = -32010
+	CodeSkillDisabled        = -32011
 	CodeSkillNotUserInvocable = -32012
 )
 
-// Request is an inbound JSON-RPC call. ID is kept as raw JSON because the
-// spec allows string, number or null, and a response must echo it verbatim.
-// A request with no ID is a notification and gets no response.
+// Request is an inbound JSON-RPC call. ID is raw JSON so the response
+// can echo it verbatim (string / number / null). No id ⇒ notification.
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
@@ -56,8 +40,8 @@ type Request struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
-// IsNotification reports whether the request omitted an id, in which case
-// the server must not reply.
+// IsNotification reports whether the request omitted its id (the
+// server must not reply to notifications).
 func (r *Request) IsNotification() bool {
 	return len(r.ID) == 0 || string(r.ID) == "null"
 }
@@ -106,14 +90,12 @@ func newNotification(method string, params any) *Notification {
 	return &Notification{JSONRPC: JSONRPCVersion, Method: method, Params: params}
 }
 
-// nullID is the id used when a request could not be parsed far enough to
-// recover its id (JSON-RPC 2.0 §5: "If there was an error in detecting the
-// id ... it MUST be Null").
+// nullID is the fallback id when the request's id cannot be recovered
+// (JSON-RPC 2.0 §5: unparseable id MUST be Null).
 var nullID = json.RawMessage("null")
 
-// parseFrame decodes one WebSocket text frame. A frame is either a single
-// request object or a batch array. batch is true when the payload was an
-// array, which determines whether the reply is an array too.
+// parseFrame decodes one WebSocket text frame (single request or batch
+// array). batch=true ⇒ reply is also an array.
 func parseFrame(data []byte) (reqs []*Request, batch bool, err error) {
 	trimmed := skipSpace(data)
 	if len(trimmed) > 0 && trimmed[0] == '[' {
