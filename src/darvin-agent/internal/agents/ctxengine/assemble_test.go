@@ -12,7 +12,7 @@ import (
 
 func TestAssemble_ShortMessages_Passthrough(t *testing.T) {
 	a := NewDefaultAssembler(Config{
-		TokenBudget:        16000,
+		ContextWindow:      16000,
 		ToolResultMaxBytes: 51200,
 	}, fakeDeps{logger: zap.NewNop()})
 
@@ -147,7 +147,7 @@ func TestAssemble_NonToolMessage_NotTruncated(t *testing.T) {
 
 func TestAssemble_BudgetZero_FallsBackToCfg(t *testing.T) {
 	a := NewDefaultAssembler(Config{
-		TokenBudget:        8000,
+		ContextWindow:      8000,
 		ToolResultMaxBytes: 0,
 	}, fakeDeps{logger: zap.NewNop()})
 
@@ -157,14 +157,17 @@ func TestAssemble_BudgetZero_FallsBackToCfg(t *testing.T) {
 		ToolBudget: 0,
 	})
 
-	if res.Budget != 8000 {
-		t.Errorf("Budget = %d, want 8000 (fallback)", res.Budget)
+	// The compact target is half the context window (Reasonix's
+	// compactTarget = 0.5); the Budget returned is the post-compact
+	// target rather than the absolute window.
+	if res.Budget != 4000 {
+		t.Errorf("Budget = %d, want 4000 (contextWindow/2)", res.Budget)
 	}
 }
 
 func TestAssemble_BudgetFromCallerOverridesCfg(t *testing.T) {
 	a := NewDefaultAssembler(Config{
-		TokenBudget: 8000,
+		ContextWindow: 8000,
 	}, fakeDeps{logger: zap.NewNop()})
 
 	res := a.Assemble(context.Background(), AssembleParams{
@@ -275,7 +278,7 @@ func TestAssemble_ContextCancelled(t *testing.T) {
 
 func TestAssemble_EstimatedTokensWithMixedRoles(t *testing.T) {
 	a := NewDefaultAssembler(Config{
-		TokenBudget: 16000,
+		ContextWindow: 16000,
 	}, fakeDeps{logger: zap.NewNop()})
 
 	msgs := []llm.Message{
@@ -307,10 +310,15 @@ func min(a, b int) int {
 
 func TestAssemble_TriggersCompact_OnBudgetExceeded(t *testing.T) {
 	s := &fakeSummarizer{output: "compacted"}
-	a := newAssemblerWithSummarizer(s) // TailKeep=3, MaxRetries=2
+	a := NewDefaultAssembler(Config{
+		ContextWindow:      44, // 44 × 0.8 = 35 trigger; 18 × 2 = 36 > 35
+		RecentKeep:         3,
+		SummarizeMaxTokens: 100,
+	}, fakeDeps{model: "m", logger: zap.NewNop()})
+	a.SetSummarizer(s)
 
-	// Token math: 18 × 2 = 36 tokens > 35 budget → Compact triggers;
-	// summary (~28) + tail 3 × 2 = 34 ≤ 35 → success.
+	// Token math: 18 × 2 = 36 tokens > 35 = 80% of window → Compact triggers;
+	// summary (~28) + tail 3 × 2 = 34 ≤ 35 budget → success.
 	msgs := makeMessages(18)
 
 	res := a.Assemble(context.Background(), AssembleParams{
@@ -333,9 +341,8 @@ func TestAssemble_TriggersCompact_OnBudgetExceeded(t *testing.T) {
 func TestAssemble_NoCompactTrigger_WhenUnderBudget(t *testing.T) {
 	s := &fakeSummarizer{output: "should not be called"}
 	a := NewDefaultAssembler(Config{
-		TokenBudget:        16000,
-		CompactTailKeep:    6,
-		CompactMaxRetries:  2,
+		ContextWindow:      16000,
+		RecentKeep:         6,
 		SummarizeMaxTokens: 100,
 	}, fakeDeps{model: "m", logger: zap.NewNop()})
 	a.SetSummarizer(s)
@@ -361,16 +368,16 @@ func TestAssemble_NoCompactTrigger_WhenUnderBudget(t *testing.T) {
 func TestAssemble_LastUsage_OverridesEstimator(t *testing.T) {
 	s := &fakeSummarizer{output: "compact"}
 	a := NewDefaultAssembler(Config{
-		TokenBudget:        100,
-		CompactTailKeep:    2,
-		CompactMaxRetries:  0,
+		ContextWindow:      100,
+		RecentKeep:         2,
 		SummarizeMaxTokens: 50,
 	}, fakeDeps{model: "m", logger: zap.NewNop()})
 	a.SetSummarizer(s)
 
-	// 4 messages × ~3 tokens (estimator) ≈ 12 tokens under budget=100, so
-	// the estimator alone would NOT trigger Compact. The LastUsage path
-	// (PromptTokens=200) says we are over budget, so Compact must fire.
+	// 4 messages × ~3 tokens (estimator) ≈ 12 tokens, well below the
+	// context window's 80% threshold (80). The LastUsage path
+	// (PromptTokens=200) blows past both the compact threshold (80)
+	// and the force threshold (90), so Compact must fire.
 	msgs := []llm.Message{
 		{Role: llm.RoleUser, Content: "hi"},
 		{Role: llm.RoleAssistant, Content: "hi back"},
@@ -389,7 +396,7 @@ func TestAssemble_LastUsage_OverridesEstimator(t *testing.T) {
 	})
 
 	if !res.Stats.CompactionTriggered {
-		t.Errorf("CompactionTriggered should be true (LastUsage 200 > budget 100)")
+		t.Errorf("CompactionTriggered should be true (LastUsage 200 above 80 percent of window)")
 	}
 	if s.calls < 1 {
 		t.Errorf("summarizer calls = %d, want >= 1", s.calls)
@@ -408,7 +415,7 @@ func TestAssemble_LastUsage_OverridesEstimator(t *testing.T) {
 // the first-turn / pre-API baseline behaviour).
 func TestAssemble_LastUsage_ZeroFallsBackToEstimator(t *testing.T) {
 	a := NewDefaultAssembler(Config{
-		TokenBudget: 100000,
+		ContextWindow: 100000,
 	}, fakeDeps{logger: zap.NewNop()})
 
 	res := a.Assemble(context.Background(), AssembleParams{

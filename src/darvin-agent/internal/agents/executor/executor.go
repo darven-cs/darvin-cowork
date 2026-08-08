@@ -66,10 +66,22 @@ func truncateForStore(content string) string {
 type Config struct {
 	MaxTurns    int
 	ToolTimeout time.Duration
-	// TokenBudget is forwarded to ContextEngine.Assemble as the per-turn
-	// tool-budget cap. When <= 0, Assemble uses the assembler's configured
-	// fallback (or disables Compact if that is also <= 0).
-	TokenBudget int
+	// ContextWindow is the LLM's hard context cap; forwarded to
+	// ContextEngine.Assemble as part of the assembler's auto-compact
+	// configuration. When <= 0 the FR-1 / D10 closed semantic
+	// disables the entire auto-compact pipeline.
+	ContextWindow int
+}
+
+// compactBudget returns the post-compact token target for the
+// current run. Reasonix's default compactTarget is 0.5; we mirror it
+// so the assemble-time cascade compresses into the lower half of the
+// context window rather than barely under the trigger threshold.
+func (c Config) compactBudget() int {
+	if c.ContextWindow <= 0 {
+		return 0
+	}
+	return c.ContextWindow / 2
 }
 
 // Deps is the surface of agent.Agent the executor consumes. The agent root
@@ -183,7 +195,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 			assembled := d.Assembler().Assemble(ctx, ctxengine.AssembleParams{
 				SessionID:       d.Session().ID,
 				Messages:        d.Session().Messages(),
-				ToolBudget:      d.Config().TokenBudget,
+				ToolBudget:      d.Config().compactBudget(),
 				LastUsage:       d.LastUsage(),
 				SystemSections:  d.SystemSections(),
 				AvailableSkills: d.SkillSummaries(),

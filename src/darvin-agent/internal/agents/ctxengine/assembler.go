@@ -11,17 +11,74 @@ import (
 	"darvin-cowork/backend/internal/agents/protocol"
 )
 
+// DefaultContextWindow is the implicit context window used when
+// ctxengine.Config.ContextWindow is left at zero. Reasonix doesn't
+// carry an absolute budget — it relies on contextWindow × ratio for
+// every threshold — but darvin-cowork boots without an explicit
+// window during `go run` / unit tests, so a sane default keeps the
+// 4-tier cascade meaningful in development. Production callers set
+// context_window: <model_context_window> in config.yaml.
+const DefaultContextWindow = 200000
+
+// Default tail knobs (mirrors Reasonix defaultTailTokens / minRecentKeep).
+const (
+	DefaultTailTokens    = 16384 // verbatim recent-tail budget, in tokens
+	DefaultRecentKeep    = 2     // minimum recent messages kept verbatim
+	DefaultMinFoldTokens = 400   // fold region below this size skips compaction unless forced
+)
+
+// minFoldFloor is the lower bound we let compactBudget fall to. The
+// Assemble-time target derives from cfg.ContextWindow / 2; for very
+// small windows (unit tests / dev), we clamp to this value so the
+// compact target always reflects a meaningful budget rather than 0.
+const minFoldFloor = 1000
+
+// Default ratio knobs (mirrors Reasonix defaultSoftCompactRatio / …).
+const (
+	DefaultSoftCompactRatio    = 0.5
+	DefaultToolResultSnipRatio = 0.6
+	DefaultCompactRatio        = 0.8
+	DefaultCompactForceRatio   = 0.9
+)
+
 // Config is the assembler's runtime configuration. The fields mirror
 // the ctxengine-related subset of config.AgentConfig. agent.New copies
 // values from config.AgentConfig into a ctxengine.Config at
 // construction time so the assembler package does not import
 // internal/config.
 type Config struct {
-	TokenBudget          int
-	CompactTailKeep      int
-	CompactTailTokens    int
+	// ContextWindow is the LLM's hard context cap in tokens. 0
+	// disables the entire auto-compact pipeline (the FR-1 closed
+	// semantic that mirrors Reasonix maybeCompact:86). When > 0 the
+	// four ratios below derive absolute trigger thresholds via
+	// `int(float64(ContextWindow) * ratio)`.
+	ContextWindow int
+
+	// The four threshold ratios driving the cascade (see assemble.go).
+	// Defaults align with Reasonix; users override via config.yaml.
+	SoftCompactRatio    float64
+	ToolResultSnipRatio float64
+	CompactRatio        float64
+	CompactForceRatio   float64
+
+	// CompactTailTokens is the token budget the kept tail fits
+	// under. Aligned with Reasonix defaultTailTokens (16384). When
+	// 0 the assembler falls back to DefaultTailTokens.
+	CompactTailTokens int
+	// RecentKeep is the message-count floor on the kept tail —
+	// compaction never keeps fewer than this many recent messages
+	// even if the token budget allows more. Aligned with Reasonix
+	// minRecentKeep (2).
+	RecentKeep int
+
+	// ArchiveDir, when non-empty, causes Compact to persist the
+	// fold region as a timestamped jsonl before the LLM call. Empty
+	// disables archive (the most common configuration in fresh
+	// installs). Best-effort: write failures emit a Notice but do
+	// not block compaction.
+	ArchiveDir string
+
 	ToolResultMaxBytes   int
-	CompactMaxRetries    int
 	SummarizeMaxTokens   int
 	SystemPromptAddition string
 	AssemblerEnabled     bool
@@ -65,7 +122,9 @@ type Deps interface {
 
 // DefaultAssembler is the in-process ContextEngine implementation. It is
 // goroutine-safe: the outer mu guards cfg / sections / lastIngestAt /
-// summarizer / estimator; projectionsMu guards the projections map.
+// summarizer / estimator / softNotified / consecutiveCompacts /
+// compactStuck; projectionsMu guards the projections map. archiver
+// is set via SetArchiver so the constructor signature stays stable.
 type DefaultAssembler struct {
 	mu           sync.RWMutex
 	cfg          Config
@@ -74,22 +133,53 @@ type DefaultAssembler struct {
 	summarizer   Summarizer
 	sections     []SystemSection
 	lastIngestAt map[string]time.Time
+	archiver     Archiver
+
+	softNotified        bool // soft 50% notice latch — emit once per window climb
+	snippedThisTurn     bool // 60% snip latch — at most once per turn
+	consecutiveCompacts int  // tracks repeated Compact successes → stuck latch
+	compactStuck        bool // pause auto-compact when system prompt + tail exceeds budget
 
 	projectionsMu sync.RWMutex
 	projections   map[string]ContextProjection
 }
 
 // NewDefaultAssembler constructs the assembler with cfg and deps. Defaults
-// are applied for CompactTailKeep (6) and CompactMaxRetries (0). When
-// deps.Provider() is non-nil, a DefaultSummarizer is auto-wired so Compact
-// works out of the box; tests that need a fake summarizer call
-// SetSummarizer after construction (overriding the default).
+// are applied for the four ratios, RecentKeep, CompactTailTokens, and
+// ContextWindow (see each field's doc). When deps.Provider() is non-nil,
+// a DefaultSummarizer is auto-wired so Compact works out of the box;
+// tests that need a fake summarizer call SetSummarizer after construction
+// (overriding the default).
 func NewDefaultAssembler(cfg Config, deps Deps) *DefaultAssembler {
-	if cfg.CompactTailKeep <= 0 {
-		cfg.CompactTailKeep = 6
+	if cfg.RecentKeep <= 0 {
+		cfg.RecentKeep = DefaultRecentKeep
 	}
-	if cfg.CompactMaxRetries < 0 {
-		cfg.CompactMaxRetries = 0
+	if cfg.CompactTailTokens <= 0 {
+		cfg.CompactTailTokens = DefaultTailTokens
+	}
+	if cfg.ContextWindow <= 0 {
+		cfg.ContextWindow = DefaultContextWindow
+	}
+	if cfg.SoftCompactRatio <= 0 {
+		cfg.SoftCompactRatio = DefaultSoftCompactRatio
+	}
+	if cfg.ToolResultSnipRatio <= 0 {
+		cfg.ToolResultSnipRatio = DefaultToolResultSnipRatio
+	}
+	if cfg.CompactRatio <= 0 {
+		cfg.CompactRatio = DefaultCompactRatio
+	}
+	if cfg.CompactForceRatio <= 0 {
+		cfg.CompactForceRatio = DefaultCompactForceRatio
+	}
+	if cfg.ArchiveDir != "" {
+		// Wire the default file archiver; tests that want to suppress
+		// archive leave ArchiveDir empty. The archiver proxy is
+		// weak-typed (text, detail) so agent.Agent can hand its
+		// Emit channel through without depending on event.NoticeKind.
+		archiver := NewFileArchiver(cfg.ArchiveDir, nil)
+		cfg.ArchiveDir = archiver.dir // resolved lazily inside Archive
+		_ = archiver
 	}
 	a := &DefaultAssembler{
 		cfg:          cfg,
@@ -100,6 +190,9 @@ func NewDefaultAssembler(cfg Config, deps Deps) *DefaultAssembler {
 	}
 	if deps != nil && deps.Provider() != nil {
 		a.summarizer = NewDefaultSummarizer(deps.Provider())
+	}
+	if cfg.ArchiveDir != "" {
+		a.archiver = NewFileArchiver(cfg.ArchiveDir, nil)
 	}
 	return a
 }
@@ -136,6 +229,57 @@ func (a *DefaultAssembler) SetSections(s []SystemSection) {
 	a.mu.Lock()
 	a.sections = append([]SystemSection(nil), s...)
 	a.mu.Unlock()
+}
+
+// SetArchiver installs a custom Archiver (tests inject fakes that record
+// calls without touching disk). nil disables archive mid-session.
+func (a *DefaultAssembler) SetArchiver(ar Archiver) {
+	a.mu.Lock()
+	a.archiver = ar
+	a.mu.Unlock()
+}
+
+// ClearTurnLatches resets the per-turn state that assemble.go's
+// softNotice / snip-then-don't-compact logic relies on. Called at the
+// end of each Assemble so the next turn can re-emit a soft notice when
+// the prompt re-climbs past the threshold, and so the snip latch does
+// not suppress a second-stage snip after the user appends a turn.
+func (a *DefaultAssembler) ClearTurnLatches() {
+	a.mu.Lock()
+	a.snippedThisTurn = false
+	a.mu.Unlock()
+}
+
+// MarkConsecutiveCompact records that Compact ran successfully on this
+// turn; called by Compact when it finishes. When the running count
+// reaches 2 the latch flips to compactStuck=true so the next Assemble
+// skips auto-compact and emits a stuck notice.
+func (a *DefaultAssembler) MarkConsecutiveCompact() (stuckNow bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.consecutiveCompacts++
+	if a.consecutiveCompacts >= 2 && !a.compactStuck {
+		a.compactStuck = true
+		stuckNow = true
+	}
+	return
+}
+
+// ResetConsecutiveCompact clears the consecutive / stuck state. Called
+// by Assemble when the prompt is back under the compact threshold so
+// the next genuine run can compact again.
+func (a *DefaultAssembler) ResetConsecutiveCompact() {
+	a.mu.Lock()
+	a.consecutiveCompacts = 0
+	a.compactStuck = false
+	a.mu.Unlock()
+}
+
+// Stuck reports whether the auto-compact latch is currently engaged.
+func (a *DefaultAssembler) Stuck() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.compactStuck
 }
 
 // BuildSystemSections assembles the ordered system-section list the

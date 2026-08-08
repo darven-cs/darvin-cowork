@@ -231,6 +231,30 @@ type CompactionEvent struct {
 func (CompactionEvent) isAgentEvent()     {}
 func (CompactionEvent) EventName() string { return "compaction" }
 
+// NoticeKind tags the source / channel of a NoticeEvent so the renderer
+// can pick the right surface (info card / warn toast / debug strip).
+type NoticeKind string
+
+const (
+	NoticeSoftCompact    NoticeKind = "compact_soft"       // 50% of context window reached
+	NoticeSnipStaleTools NoticeKind = "compact_snip_stale" // 60% stale tool result snip
+	NoticeMechanicalFold NoticeKind = "compact_mechanical" // LLM summary failed, mechanical fallback
+	NoticeStuck          NoticeKind = "compact_stuck"      // re-compact loop latch tripped
+)
+
+// NoticeEvent carries a human-readable message to the renderer without
+// forcing a state transition. Detail carries structured context for logs
+// / debugging surfaces; UI surfaces typically only render Text.
+type NoticeEvent struct {
+	EventBase
+	Kind   NoticeKind
+	Text   string
+	Detail string
+}
+
+func (NoticeEvent) isAgentEvent()     {}
+func (NoticeEvent) EventName() string { return "notice" }
+
 // ContextUsageEvent reports the session's context occupancy after a run
 // completes; the renderer drives the context ring from this snapshot.
 type ContextUsageEvent struct {

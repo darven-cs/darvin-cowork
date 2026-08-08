@@ -490,13 +490,12 @@ func TestAlignTailBoundaryNoOpWhenAligned(t *testing.T) {
 // retained slice.
 func TestCompactRetainsToolPairInTail(t *testing.T) {
 	s := &fakeSummarizer{output: "compressed"}
-	// CompactTailKeep=2 with a 7-message conversation makes the proposed
+	// RecentKeep=2 with a 7-message conversation makes the proposed
 	// tail land on [tool{tc2}, u3] — orphan tool at tail[0]. After
 	// alignTailBoundary the tail must extend to [a2{tc2}, t2{tc2}, u3].
 	a := NewDefaultAssembler(Config{
-		TokenBudget:        1000,
-		CompactTailKeep:    2,
-		CompactMaxRetries:  0,
+		ContextWindow:      1000,
+		RecentKeep:         2,
 		SummarizeMaxTokens: 100,
 	}, fakeDeps{model: "m", logger: zapNopForTest()})
 	a.SetSummarizer(s)

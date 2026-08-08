@@ -33,10 +33,9 @@ agent:
   provider_name: anthropic
   model: claude-sonnet-4-5
   instructions: "be terse"
-  token_budget: 4096
-  compact_tail_keep: 9
+  context_window: 32000
+  recent_keep: 3
   tool_result_max_bytes: 2048
-  compact_max_retries: 2
   summarize_max_tokens: 512
   system_prompt_addition: "extra block"
   assembler_enabled: true
@@ -54,17 +53,14 @@ agent:
 		t.Errorf("SessionsDSN = %q, want :memory:", cfg.Database.SessionsDSN)
 	}
 	a := cfg.Agent
-	if a.TokenBudget != 4096 {
-		t.Errorf("TokenBudget = %d, want 4096", a.TokenBudget)
+	if a.ContextWindow != 32000 {
+		t.Errorf("ContextWindow = %d, want 32000", a.ContextWindow)
 	}
-	if a.CompactTailKeep != 9 {
-		t.Errorf("CompactTailKeep = %d, want 9", a.CompactTailKeep)
+	if a.RecentKeep != 3 {
+		t.Errorf("RecentKeep = %d, want 3", a.RecentKeep)
 	}
 	if a.ToolResultMaxBytes != 2048 {
 		t.Errorf("ToolResultMaxBytes = %d, want 2048", a.ToolResultMaxBytes)
-	}
-	if a.CompactMaxRetries != 2 {
-		t.Errorf("CompactMaxRetries = %d, want 2", a.CompactMaxRetries)
 	}
 	if a.SummarizeMaxTokens != 512 {
 		t.Errorf("SummarizeMaxTokens = %d, want 512", a.SummarizeMaxTokens)
@@ -117,8 +113,8 @@ agent:
 		t.Fatalf("Load: %v", err)
 	}
 	a := cfg.Agent
-	if a.TokenBudget != 0 || a.CompactTailKeep != 0 || a.ToolResultMaxBytes != 0 ||
-		a.CompactMaxRetries != 0 || a.SummarizeMaxTokens != 0 ||
+	if a.ContextWindow != 0 || a.RecentKeep != 0 || a.ToolResultMaxBytes != 0 ||
+		a.SummarizeMaxTokens != 0 ||
 		a.SystemPromptAddition != "" || a.AssemblerEnabled {
 		t.Errorf("expected all-zero defaults when ctxengine block omitted, got %+v", a)
 	}

@@ -48,7 +48,7 @@ type ModelRef struct {
 // Config is the runtime configuration for an Agent.
 //
 // The fields below MaxTurns/EventBuffer are agent-runtime knobs; the
-// ContextEngine block (TokenBudget … SystemPromptAddition) is forwarded
+// ContextEngine block (ContextWindow … SystemPromptAddition) is forwarded
 // to the auto-constructed DefaultAssembler at New() time. AssemblerEnabled
 // is the post-construction flag: zero means disabled (executor takes the
 // legacy d.Session().Messages() fallback); true means the executor
@@ -69,11 +69,15 @@ type Config struct {
 	// ContextEngine knobs (mirrors ctxengine.Config subset).
 	// Populated from the YAML front-end (cfg.yaml `agent:` section) and
 	// forwarded to ctxengine.NewDefaultAssembler at construction.
-	TokenBudget          int
-	CompactTailKeep      int
+	ContextWindow        int
+	SoftCompactRatio     float64
+	ToolResultSnipRatio  float64
+	CompactRatio         float64
+	CompactForceRatio    float64
 	CompactTailTokens    int
+	RecentKeep           int
+	ArchiveDir           string
 	ToolResultMaxBytes   int
-	CompactMaxRetries    int
 	SummarizeMaxTokens   int
 	SystemPromptAddition string
 	AssemblerEnabled     bool
@@ -317,11 +321,15 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		a.assembler = cfg.Assembler
 	} else {
 		a.assembler = ctxengine.NewDefaultAssembler(ctxengine.Config{
-			TokenBudget:          cfg.Config.TokenBudget,
-			CompactTailKeep:      cfg.Config.CompactTailKeep,
+			ContextWindow:        cfg.Config.ContextWindow,
+			SoftCompactRatio:     cfg.Config.SoftCompactRatio,
+			ToolResultSnipRatio:  cfg.Config.ToolResultSnipRatio,
+			CompactRatio:         cfg.Config.CompactRatio,
+			CompactForceRatio:    cfg.Config.CompactForceRatio,
 			CompactTailTokens:    cfg.Config.CompactTailTokens,
+			RecentKeep:           cfg.Config.RecentKeep,
+			ArchiveDir:           cfg.Config.ArchiveDir,
 			ToolResultMaxBytes:   cfg.Config.ToolResultMaxBytes,
-			CompactMaxRetries:    cfg.Config.CompactMaxRetries,
 			SummarizeMaxTokens:   cfg.Config.SummarizeMaxTokens,
 			SystemPromptAddition: cfg.Config.SystemPromptAddition,
 			AssemblerEnabled:     cfg.Config.AssemblerEnabled,
@@ -375,9 +383,9 @@ func (a *Agent) Instructions() string {
 }
 func (a *Agent) Config() executor.Config {
 	return executor.Config{
-		MaxTurns:    a.cfg.MaxTurns,
-		ToolTimeout: a.cfg.ToolTimeout,
-		TokenBudget: a.cfg.TokenBudget,
+		MaxTurns:      a.cfg.MaxTurns,
+		ToolTimeout:   a.cfg.ToolTimeout,
+		ContextWindow: a.cfg.ContextWindow,
 	}
 }
 func (a *Agent) Logger() *zap.Logger { return a.logger }

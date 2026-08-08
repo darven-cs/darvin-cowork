@@ -100,8 +100,8 @@ func TestNewAutoConstructsAssembler(t *testing.T) {
 		Provider: &scriptedProvider{},
 		Tools:    tool.NewRegistry(),
 		Config: Config{
-			TokenBudget:        12345,
-			CompactTailKeep:    7,
+			ContextWindow:      12345,
+			RecentKeep:         7,
 			ToolResultMaxBytes: 2048,
 		},
 	})
@@ -154,21 +154,21 @@ func TestNewAssemblerEnabledDefaultsToFalse(t *testing.T) {
 	}
 }
 
-// TestConfigForwardsTokenBudget verifies that Config().TokenBudget flows
-// from agent.Config to executor.Config so the assembler path receives the
-// configured budget.
-func TestConfigForwardsTokenBudget(t *testing.T) {
+// TestConfigForwardsContextWindow verifies that Config().ContextWindow
+// flows from agent.Config to executor.Config so the assembler path
+// receives the configured window for the FR-2 four-tier cascade.
+func TestConfigForwardsContextWindow(t *testing.T) {
 	a, err := New(NewAgentConfig{
 		Session:  session.NewSession("s"),
 		Provider: &scriptedProvider{},
 		Tools:    tool.NewRegistry(),
-		Config:   Config{TokenBudget: 7777},
+		Config:   Config{ContextWindow: 7777},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := a.Config().TokenBudget; got != 7777 {
-		t.Errorf("Config().TokenBudget = %d, want 7777", got)
+	if got := a.Config().ContextWindow; got != 7777 {
+		t.Errorf("Config().ContextWindow = %d, want 7777", got)
 	}
 }
 

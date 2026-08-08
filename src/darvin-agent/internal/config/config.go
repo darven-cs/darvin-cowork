@@ -52,12 +52,13 @@ type LLMConfig struct {
 // the file/shell tool sandbox; ShellAllowlist restricts shell commands;
 // EventBuffer is the per-subscriber channel size on the event bus.
 //
-// The ContextEngine block (TokenBudget … AssemblerEnabled) is forwarded to
+// The ContextEngine block (ContextWindow … AssemblerEnabled) is forwarded to
 // the auto-constructed DefaultAssembler at agent.New time. AssemblerEnabled
 // defaults to true at the YAML front-end so end users get the assembler
 // pipeline; Go callers using agent.Config directly get false (the bool zero
-// value) and must opt in explicitly. TokenBudget=0 disables the budget check
-// (executor takes the legacy d.Session().Messages() path).
+// value) and must opt in explicitly. ContextWindow=0 disables the entire
+// auto-compact pipeline (the FR-1 closed semantic that mirrors Reasonix
+// maybeCompact:86).
 type AgentConfig struct {
 	MaxTurns       int      `mapstructure:"max_turns"`
 	ToolTimeoutMS  int      `mapstructure:"tool_timeout_ms"`
@@ -68,28 +69,43 @@ type AgentConfig struct {
 	Model          string   `mapstructure:"model"`
 	Instructions   string   `mapstructure:"instructions"`
 
-	// TokenBudget is the soft cap for prompt assembly. 0 disables the
-	// budget check (assembler still runs, but never triggers Compact).
-	TokenBudget int `mapstructure:"token_budget"`
+	// ContextWindow is the LLM's hard context cap in tokens. 0
+	// disables the entire auto-compact pipeline (the assembler still
+	// runs the system-section / tool-truncation passes, but never
+	// triggers Compact).
+	ContextWindow int `mapstructure:"context_window"`
 
-	// CompactTailKeep is the number of trailing messages Compact must
-	// preserve verbatim when summarising. Defaults to 6 in
-	// ctxengine.NewDefaultAssembler when <=0.
-	CompactTailKeep int `mapstructure:"compact_tail_keep"`
+	// Four threshold ratios driving the FR-2 cascade:
+	//   SoftCompactRatio    — 50% soft notice
+	//   ToolResultSnipRatio — 60% stale tool result snip
+	//   CompactRatio        — 80% trigger LLM summarise
+	//   CompactForceRatio   — 90% force summarise (bypass foldEconomics)
+	// 0 falls back to the Reasonix default (0.5/0.6/0.8/0.9).
+	SoftCompactRatio    float64 `mapstructure:"soft_compact_ratio"`
+	ToolResultSnipRatio float64 `mapstructure:"tool_result_snip_ratio"`
+	CompactRatio        float64 `mapstructure:"compact_ratio"`
+	CompactForceRatio   float64 `mapstructure:"compact_force_ratio"`
 
-	// CompactTailTokens is the optional token-budget alternative to
-	// CompactTailKeep. When > 0, the assembler keeps as many trailing
-	// messages as fit under the budget instead of a fixed count. 0 =
-	// use CompactTailKeep.
+	// CompactTailTokens is the token budget the kept tail fits under.
+	// Mirrors Reasonix defaultTailTokens (16384). 0 falls back to the
+	// ctxengine default.
 	CompactTailTokens int `mapstructure:"compact_tail_tokens"`
+
+	// RecentKeep is the message-count floor on the kept tail —
+	// compaction never keeps fewer than this many recent messages even
+	// if the token budget allows more. Mirrors Reasonix minRecentKeep (2).
+	RecentKeep int `mapstructure:"recent_keep"`
+
+	// ArchiveDir, when non-empty, causes Compact to persist the fold
+	// region as a timestamped jsonl before the LLM call. Empty disables
+	// archive (the most common configuration in fresh installs).
+	// Best-effort: write failures emit a Notice but do not block
+	// compaction.
+	ArchiveDir string `mapstructure:"archive_dir"`
 
 	// ToolResultMaxBytes truncates individual tool outputs that exceed
 	// this size during assembly. 0 disables truncation.
 	ToolResultMaxBytes int `mapstructure:"tool_result_max_bytes"`
-
-	// CompactMaxRetries is how many times Compact may retry the
-	// summariser with progressively smaller inputs. 0 = no retries.
-	CompactMaxRetries int `mapstructure:"compact_max_retries"`
 
 	// SummarizeMaxTokens is the cap passed to the summariser LLM call.
 	// 0 lets the provider pick its own default.

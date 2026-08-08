@@ -537,7 +537,8 @@ func runManualCompact(a *agent.Agent, sessionID string) {
 	res := a.Assembler().Compact(ctx, ctxengine.CompactParams{
 		SessionID: sessionID,
 		Messages:  a.Session().Messages(),
-		Budget:    a.Config().TokenBudget,
+		Budget:    a.Config().ContextWindow,
+		Force:     true,
 		Reason:    "manual",
 		LastUsage: a.LastUsage(),
 	})

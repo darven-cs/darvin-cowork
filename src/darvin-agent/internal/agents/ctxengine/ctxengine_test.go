@@ -215,34 +215,33 @@ func TestInfo(t *testing.T) {
 func TestNewDefaultAssemblerDefaults(t *testing.T) {
 	a := NewDefaultAssembler(Config{}, fakeDeps{logger: zap.NewNop()})
 	cfg := a.Cfg()
-	if cfg.CompactTailKeep != 6 {
-		t.Errorf("CompactTailKeep default = %d, want 6", cfg.CompactTailKeep)
+	if cfg.RecentKeep != DefaultRecentKeep {
+		t.Errorf("RecentKeep default = %d, want %d", cfg.RecentKeep, DefaultRecentKeep)
 	}
-	if cfg.CompactMaxRetries != 0 {
-		t.Errorf("CompactMaxRetries default = %d, want 0", cfg.CompactMaxRetries)
+	if cfg.CompactTailTokens != DefaultTailTokens {
+		t.Errorf("CompactTailTokens default = %d, want %d", cfg.CompactTailTokens, DefaultTailTokens)
+	}
+	if cfg.CompactRatio != DefaultCompactRatio {
+		t.Errorf("CompactRatio default = %v, want %v", cfg.CompactRatio, DefaultCompactRatio)
 	}
 }
 
 // TestNewDefaultAssemblerOverrides verifies caller values are honoured.
 func TestNewDefaultAssemblerOverrides(t *testing.T) {
 	a := NewDefaultAssembler(Config{
-		CompactTailKeep:    12,
-		CompactMaxRetries:  3,
+		RecentKeep:         12,
 		ToolResultMaxBytes: 1024,
-		TokenBudget:        8000,
+		ContextWindow:      8000,
 	}, fakeDeps{logger: zap.NewNop()})
 	cfg := a.Cfg()
-	if cfg.CompactTailKeep != 12 {
-		t.Errorf("CompactTailKeep = %d, want 12", cfg.CompactTailKeep)
-	}
-	if cfg.CompactMaxRetries != 3 {
-		t.Errorf("CompactMaxRetries = %d, want 3", cfg.CompactMaxRetries)
+	if cfg.RecentKeep != 12 {
+		t.Errorf("RecentKeep = %d, want 12", cfg.RecentKeep)
 	}
 	if cfg.ToolResultMaxBytes != 1024 {
 		t.Errorf("ToolResultMaxBytes = %d, want 1024", cfg.ToolResultMaxBytes)
 	}
-	if cfg.TokenBudget != 8000 {
-		t.Errorf("TokenBudget = %d, want 8000", cfg.TokenBudget)
+	if cfg.ContextWindow != 8000 {
+		t.Errorf("ContextWindow = %d, want 8000", cfg.ContextWindow)
 	}
 }
 

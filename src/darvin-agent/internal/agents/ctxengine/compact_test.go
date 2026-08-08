@@ -57,9 +57,8 @@ func makeMessages(n int) []llm.Message {
 
 func newAssemblerWithSummarizer(s Summarizer) *DefaultAssembler {
 	a := NewDefaultAssembler(Config{
-		TokenBudget:        16000,
-		CompactTailKeep:    3,
-		CompactMaxRetries:  2,
+		ContextWindow:      16000,
+		RecentKeep:         3,
 		SummarizeMaxTokens: 100,
 	}, fakeDeps{model: "test-model", logger: zap.NewNop()})
 	a.SetSummarizer(s)
@@ -89,8 +88,12 @@ func TestCompact_BelowBudget_NoOp(t *testing.T) {
 	}
 }
 
-// TestCompact_Force_EvenBelowBudget verifies Force=true calls summarizer
-// even when tokens <= budget.
+// TestCompact_Force_EvenBelowBudget verifies Force=true bypasses the
+// budget no-op short-circuit. The summariser is only invoked when the
+// fold region is non-empty — a 3-message conversation that fits
+// entirely in the recent-tail budget has nothing to fold, so the
+// no-op-success path returns Success=true with the original messages
+// preserved.
 func TestCompact_Force_EvenBelowBudget(t *testing.T) {
 	s := &fakeSummarizer{output: "forced"}
 	a := newAssemblerWithSummarizer(s)
@@ -103,13 +106,10 @@ func TestCompact_Force_EvenBelowBudget(t *testing.T) {
 	})
 
 	if !res.Success {
-		t.Errorf("Success = false, want true")
+		t.Errorf("Success = false, want true (nothing to fold, but Force skips budget gate)")
 	}
-	if s.calls != 1 {
-		t.Errorf("summarizer called %d times, want 1", s.calls)
-	}
-	if !strings.Contains(res.Summary, "forced") {
-		t.Errorf("Summary should contain 'forced', got %q", res.Summary)
+	if len(res.RetainedMessages) != 3 {
+		t.Errorf("RetainedMessages length = %d, want 3", len(res.RetainedMessages))
 	}
 }
 
@@ -270,7 +270,7 @@ func TestCompact_AutoCheckpointID(t *testing.T) {
 // TestCompact_NoSummarizerWired verifies failure when summarizer is nil.
 func TestCompact_NoSummarizerWired(t *testing.T) {
 	a := NewDefaultAssembler(Config{
-		TokenBudget: 1,
+		ContextWindow: 1,
 	}, fakeDeps{logger: zap.NewNop()})
 	// a.summarizer stays nil because fakeDeps.Provider() returns nil
 
@@ -299,9 +299,8 @@ func TestCompact_RetryHalf_IfStillOverBudget(t *testing.T) {
 	s := &fakeSummarizer{output: "z"} // 1 token summary
 
 	a := NewDefaultAssembler(Config{
-		TokenBudget:        5, // tiny budget
-		CompactTailKeep:    1,
-		CompactMaxRetries:  3,
+		ContextWindow:      5, // tiny window
+		RecentKeep:         1,
 		SummarizeMaxTokens: 5,
 	}, fakeDeps{model: "m", logger: zap.NewNop()})
 	a.SetSummarizer(s)
@@ -377,13 +376,16 @@ func TestCompact_EmptyMessages(t *testing.T) {
 	}
 }
 
-// TestCompact_AllTail verifies the tail >= len(messages) edge case.
+// TestCompact_AllTail verifies the RecentKeep > len(messages) edge
+// case: when the tail floor exceeds the conversation length there is
+// nothing to fold. Compact returns Success=true with the original
+// messages preserved (the no-op path), and the summariser is not
+// invoked because the fold region would be empty.
 func TestCompact_AllTail(t *testing.T) {
 	s := &fakeSummarizer{}
 	a := NewDefaultAssembler(Config{
-		TokenBudget:       1,
-		CompactTailKeep:   100, // larger than len(messages)
-		CompactMaxRetries: 0,
+		ContextWindow: 1,
+		RecentKeep:    100, // larger than len(messages)
 	}, fakeDeps{model: "m", logger: zap.NewNop()})
 	a.SetSummarizer(s)
 
@@ -393,8 +395,14 @@ func TestCompact_AllTail(t *testing.T) {
 		Budget:    1,
 	})
 
-	if res.Success {
-		t.Errorf("Success = true, want false (span becomes empty)")
+	if !res.Success {
+		t.Errorf("Success = false, want true (no-op when nothing to fold)")
+	}
+	if len(res.RetainedMessages) != 3 {
+		t.Errorf("RetainedMessages length = %d, want 3 (original preserved)", len(res.RetainedMessages))
+	}
+	if s.calls != 0 {
+		t.Errorf("summarizer should not be called when fold is empty, got %d calls", s.calls)
 	}
 }
 

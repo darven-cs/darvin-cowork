@@ -8,8 +8,47 @@ import (
 	"strings"
 	"time"
 
+	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/protocol"
 )
+
+// summaryTimeout bounds one summarizer call so a stalled stream surfaces
+// a clear failure (then a mechanical fold) instead of hanging compaction
+// indefinitely. Mirrors Reasonix summaryTimeout.
+const summaryTimeout = 90 * time.Second
+
+// summarySystemPrompt steers the executor to distill older history into
+// a structured briefing it can keep relying on after the originals
+// are dropped. The section layout mirrors what a coding agent actually
+// needs to resume work mid-task: the goal verbatim, the concrete state
+// of the code, and an explicit next step — so the post-compaction turn
+// doesn't lose the thread or re-derive decisions already made.
+const summarySystemPrompt = `You are compacting the earlier part of a coding agent's conversation to save context.
+The agent keeps your summary alongside the user's own turns (kept verbatim) and the recent tail; your job is to fold the assistant/tool work into a briefing it can resume from.
+Write under these exact headings, omitting a heading only if it has no content:
+
+## Standing facts & constraints
+Everything the user stated that still governs the work — names, paths, IDs, versions, tokens, preferences, and hard "never do X" rules — in their own words. Be exhaustive; this is the durable contract, so prefer over- to under-including.
+
+## Goal
+The user's request and intent.
+
+## Decisions & rationale
+Key choices made so far and why — so they are not re-litigated or reversed.
+
+## Files & code
+Files read or modified, with the specific facts that matter: signatures, line locations, data shapes, and exact edits applied. Be concrete; this is what lets the agent act without re-reading everything.
+
+## Commands & outcomes
+Commands run (builds, tests, git) and their relevant results — what passed, what failed, and the error text that matters.
+
+## Errors & fixes
+Problems hit and how they were resolved (or not), so the same dead ends are not repeated.
+
+## Pending & next step
+What is still in progress or unstarted, and the single most concrete next action to take.
+
+Rules: be terse — bullet points and fragments, not prose. Preserve identifiers, paths, and numbers exactly. Do NOT invent anything not present in the messages; if something is unknown, leave it out rather than guessing.`
 
 // Compact runs the LLM-based compaction pipeline. It never mutates
 // p.Messages — the caller adopts RetainedMessages only on Success.
@@ -26,9 +65,23 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		}
 	}
 
+	// FR-4: stuck latch — once auto-compact has run on two consecutive
+	// turns, pause and surface a Notice so the user can fix the
+	// context window rather than pay repeated LLM summariser calls.
+	if !p.Force && a.Stuck() {
+		return CompactResult{
+			Success:          false,
+			RetainedMessages: p.Messages,
+			TokensBefore:     estimateMessages(p.Messages),
+			TokensAfter:      estimateMessages(p.Messages),
+			Reason:           "compact_paused_stuck",
+		}
+	}
+
 	a.mu.RLock()
 	cfg := a.cfg
 	summarizer := a.summarizer
+	archiver := a.archiver
 	var modelName string
 	if a.deps != nil {
 		modelName = a.deps.ModelName()
@@ -84,31 +137,67 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 	// passes don't re-summarise the original summary text (FR-4).
 	pinned, kept, fold := partitionFold(p.Messages)
 
-	tail := cfg.CompactTailKeep
-	if tail <= 0 {
-		tail = 6
-	}
-	// Honour an explicit CompactTailTokens budget (FR-3): pin as many
-	// trailing messages as fit under the budget.
-	if cfg.CompactTailTokens > 0 {
-		if n := pinnedPrefixLen(fold, cfg.CompactTailTokens, EstimateMessageTokens); n > 0 {
-			tail = n
+	// D9: tail uses two independent knobs — RecentKeep is the
+	// message-count floor, CompactTailTokens is the token budget.
+	// The tailStart helper below computes start = the index from
+	// which the verbatim tail begins; messages[head:start] is the
+	// region we hand to the summariser.
+	head := pinnedPrefixLen(p.Messages, 0, EstimateMessageTokens)
+	_ = head // head is informational here; partitionFold already split pinned/kept
+
+	start := tailStart(p.Messages, 0, cfg.CompactTailTokens, EstimateMessageTokens, cfg.RecentKeep)
+	// Adjust start so the tail doesn't split a tool_use/tool_result
+	// pair (Reasonix-equivalent of alignTailBoundary). Without this
+	// adjustment, the tail could start on a tool message whose
+	// tool_use lives in the fold region (or vice versa), producing
+	// an orphan tool_result that the Anthropic wire format rejects.
+	if start < len(p.Messages) {
+		tailLen := len(p.Messages) - start
+		if aligned := alignTailBoundary(p.Messages, tailLen); aligned > tailLen {
+			start = len(p.Messages) - aligned
 		}
 	}
-	if tail >= len(p.Messages) {
-		tail = len(p.Messages) - 1
-		if tail < 0 {
-			tail = 0
+	if start >= len(p.Messages) {
+		// Entire conversation fits in the tail — nothing to summarise.
+		return CompactResult{
+			Success:          false,
+			TokensBefore:     tokensBefore,
+			TokensAfter:      tokensBefore,
+			RetainedMessages: p.Messages,
+			Checkpoint:       snap,
+			Reason:           p.Reason,
 		}
 	}
-	// Adjust tail so the slice msgs[len-tail:] does not split a
-	// tool_use/tool_result pair — see alignTailBoundary. The pair-aware
-	// partitionFold keeps pairs atomic inside fold/kept, but the tail
-	// boundary itself can still cut a pair between the summarised span
-	// and the verbatim tail. Without this adjustment, an assistant with
-	// tool_use may end up in fold while its tool_result lands in tail
-	// (or vice versa), producing a 400 in anthropic/convert.go.
-	tail = alignTailBoundary(p.Messages, tail)
+	// Recompute fold in the D9 model: kept + summary + tail. We already
+	// have pinned / kept above; the fold region is the slice between
+	// (pinned + kept) and the tail boundary. The partitionFold / head
+	// cooperation keeps tool-use pairs atomic; tailStart only chooses
+	// the tail boundary by token budget.
+	if start <= len(pinned)+len(kept) {
+		// The tail budget covers the entire conversation — nothing
+		// to fold. Mirror the old `tail >= len(messages)` no-op:
+		// return the original messages with the budget satisfied
+		// (caller already bypassed this with Force, otherwise the
+		// early-out at line 107 would have caught it).
+		noopID, noopTS := firstKeptBoundary(p.Messages, len(p.Messages))
+		return CompactResult{
+			Success:            true,
+			TokensBefore:       tokensBefore,
+			TokensAfter:        tokensBefore,
+			RetainedMessages:   p.Messages,
+			FirstKeptID:        noopID,
+			FirstKeptTimestamp: noopTS,
+			Reason:             p.Reason,
+			Checkpoint:         snap,
+		}
+	}
+	fold = fold[:0]
+	keptEnd := len(pinned) + len(kept)
+	for i := keptEnd; i < start; {
+		size := pairAwareGroupSize(p.Messages, i)
+		fold = append(fold, p.Messages[i:i+size]...)
+		i += size
+	}
 
 	if len(fold) == 0 {
 		return CompactResult{
@@ -121,68 +210,85 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		}
 	}
 
-	summaryText, err := summarizer.Summarize(ctx, SummarizeRequest{
-		Model:     modelName,
-		Messages:  fold,
-		Hint:      "conversational summary; preserve tool input/output facts and decisions",
-		MaxTokens: cfg.SummarizeMaxTokens,
-	})
-	if err != nil {
-		return CompactResult{
-			Success:          false,
-			TokensBefore:     tokensBefore,
-			TokensAfter:      tokensBefore,
-			RetainedMessages: p.Messages,
-			Checkpoint:       snap,
-			Reason:           p.Reason,
+	// FR-6: archive the fold region before the LLM call so a summariser
+	// failure still leaves the originals on disk. Best-effort.
+	archived := ""
+	if archiver != nil {
+		if path, err := archiver.Archive(ctx, fold); err == nil {
+			archived = path
+		} else if a.deps != nil {
+			a.deps.Emit(event.NoticeEvent{
+				EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: p.SessionID}},
+				Kind:      event.NoticeMechanicalFold,
+				Text:      "Context was compacted without a generated summary.",
+				Detail:    "archive write failed: " + err.Error(),
+			})
 		}
+	}
+
+	// Run the LLM summary with the FR-3 7-section prompt. FR-5:
+	// a summary failure is no longer fatal — fall through to the
+	// mechanical fold so the caller still gets a compacted slice.
+	summaryText, err := a.callSummariser(ctx, summarizer, modelName, fold, cfg.SummarizeMaxTokens)
+	if err != nil {
+		if a.deps != nil {
+			a.deps.Emit(event.NoticeEvent{
+				EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: p.SessionID}},
+				Kind:      event.NoticeMechanicalFold,
+				Text:      "Context was compacted without a generated summary.",
+				Detail:    "compaction summary unavailable (" + err.Error() + "); folded mechanically",
+			})
+		}
+		summaryText = mechanicalFoldDigest(len(fold), archived)
 	}
 
 	summaryMsg := protocol.Message{
 		Role: protocol.RoleAssistant,
 		Content: "[Conversation Summary]\n" + summaryText +
 			fmt.Sprintf("\n\n(Compacted at %s; original %d messages → tail %d messages)",
-				time.Now().Format(time.RFC3339), len(p.Messages)-tail, tail),
+				time.Now().Format(time.RFC3339), len(p.Messages)-(len(p.Messages)-start), len(p.Messages)-start),
 	}
 
-	// retained = pinnedPrefix + kept (old digests / pinnable) + summaryMsg + tail
-	newMessages := make([]protocol.Message, 0, len(pinned)+len(kept)+1+tail)
+	tail := p.Messages[start:]
+	newMessages := make([]protocol.Message, 0, len(pinned)+len(kept)+1+len(tail))
 	newMessages = append(newMessages, pinned...)
 	newMessages = append(newMessages, kept...)
 	newMessages = append(newMessages, summaryMsg)
-	newMessages = append(newMessages, p.Messages[len(p.Messages)-tail:]...)
+	newMessages = append(newMessages, tail...)
 	tokensAfter := estimateMessages(newMessages)
 
-	firstKeptID, firstKeptTS := firstKeptBoundary(p.Messages, tail)
+	firstKeptID, firstKeptTS := firstKeptBoundary(p.Messages, len(tail))
 
-	retries := 0
-	for p.Budget > 0 && tokensAfter > p.Budget && retries < cfg.CompactMaxRetries {
+	// D8: re-compact loop is bounded by `tokensAfter <= Budget`. The
+	// mechanical fold fallback (FR-5) ensures every iteration lands a
+	// digest; the natural-exit condition keeps this bounded without
+	// a magic retry counter. Half-fold each iteration until the
+	// result fits, or the fold is empty.
+	for p.Budget > 0 && tokensAfter > p.Budget {
 		half := len(fold) / 2
 		if half == 0 {
 			break
 		}
 		fold = fold[:half]
-		newSpan, err := summarizer.Summarize(ctx, SummarizeRequest{
-			Model:     modelName,
-			Messages:  fold,
-			Hint:      "compress further",
-			MaxTokens: cfg.SummarizeMaxTokens,
-		})
+		newSpan, err := a.callSummariser(ctx, summarizer, modelName, fold, cfg.SummarizeMaxTokens)
 		if err != nil {
-			break
+			newSpan = mechanicalFoldDigest(len(fold), archived)
 		}
 		summaryMsg.Content = "[Conversation Summary]\n" + newSpan +
-			fmt.Sprintf("\n\n(Recompacted %d times)", retries+1)
-		newMessages = make([]protocol.Message, 0, len(pinned)+len(kept)+1+tail)
+			fmt.Sprintf("\n\n(Recompacted; fold=%d messages)", len(fold))
+		newMessages = make([]protocol.Message, 0, len(pinned)+len(kept)+1+len(tail))
 		newMessages = append(newMessages, pinned...)
 		newMessages = append(newMessages, kept...)
 		newMessages = append(newMessages, summaryMsg)
-		newMessages = append(newMessages, p.Messages[len(p.Messages)-tail:]...)
+		newMessages = append(newMessages, tail...)
 		tokensAfter = estimateMessages(newMessages)
-		retries++
 	}
 
 	if p.Budget > 0 && tokensAfter > p.Budget {
+		// Could not converge — return original messages, treat as
+		// failure so the caller keeps the live state. Caller is
+		// expected to log / surface; we don't penalise the stuck
+		// latch for an unrecoverable attempt.
 		return CompactResult{
 			Success:          false,
 			TokensBefore:     tokensBefore,
@@ -191,6 +297,20 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 			Checkpoint:       snap,
 			Reason:           p.Reason,
 		}
+	}
+
+	// FR-4 latch update — fire before returning so the next Assemble
+	// sees the latest count.
+	stuckNow := a.MarkConsecutiveCompact()
+	if stuckNow && a.deps != nil {
+		a.deps.Emit(event.NoticeEvent{
+			EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: p.SessionID}},
+			Kind:      event.NoticeStuck,
+			Text: "Automatic context cleanup paused because the context window is too small; " +
+				"raise context_window or shrink tool output.",
+			Detail: "compaction ran on consecutive turns; the system prompt plus one turn " +
+				"already exceeds the configured threshold. Auto-compaction paused until the prompt drops.",
+		})
 	}
 
 	return CompactResult{
@@ -206,8 +326,43 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 	}
 }
 
+// callSummariser is the timeout-bounded call to the LLM summary. A
+// stalled stream surfaces as context.DeadlineExceeded; the caller treats
+// any error as FR-5 mechanical-fold trigger.
+func (a *DefaultAssembler) callSummariser(
+	ctx context.Context,
+	summarizer Summarizer,
+	modelName string,
+	fold []protocol.Message,
+	maxTokens int,
+) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, summaryTimeout)
+	defer cancel()
+	return summarizer.Summarize(cctx, SummarizeRequest{
+		Model:     modelName,
+		Messages:  fold,
+		Hint:      "preserve identifiers, paths, and numbers exactly",
+		MaxTokens: maxTokens,
+	})
+}
+
+// mechanicalFoldDigest is the deterministic stand-in used when the
+// summariser is unreachable: the foldable region is already archived,
+// so the digest just notes the gap and points the model at the user
+// for anything it needs from before it.
+func mechanicalFoldDigest(n int, archive string) string {
+	where := "."
+	if archive != "" {
+		where = " (archived to " + archive + ")."
+	}
+	return fmt.Sprintf(
+		"%d earlier message(s) were folded here to free context, but the automatic summary was unavailable%s "+
+			"Ask the user if you need details from before this point.",
+		n, where)
+}
+
 // DefaultSummarizer is the default Summarizer: it wraps
-// protocol.ModelProvider.Complete with a summarisation-specific system prompt.
+// protocol.ModelProvider.Stream with the FR-3 7-section system prompt.
 // It deliberately does not reuse Agent.Session or Agent.EventBus so the
 // summary call does not pollute the agent's own conversation state.
 type DefaultSummarizer struct {
@@ -220,8 +375,10 @@ func NewDefaultSummarizer(provider protocol.ModelProvider) *DefaultSummarizer {
 	return &DefaultSummarizer{provider: provider}
 }
 
-// Summarize sends req.Messages to the provider with a summariser system
-// prompt and returns the assistant content.
+// Summarize sends req.Messages to the provider with the summariser system
+// prompt and returns the assistant content. Uses Stream (rather than
+// Complete) so long fold summaries do not bump against Complete's
+// hard token cap.
 func (s *DefaultSummarizer) Summarize(ctx context.Context, req SummarizeRequest) (string, error) {
 	if s.provider == nil {
 		return "", fmt.Errorf("ctxengine: summarizer provider is nil")
@@ -230,18 +387,42 @@ func (s *DefaultSummarizer) Summarize(ctx context.Context, req SummarizeRequest)
 	if maxTokens <= 0 {
 		maxTokens = 800
 	}
-	system := "You are a conversation summarizer. Output a concise summary preserving tool inputs/outputs, decisions, and context that future turns might need. " + req.Hint
-	resp, err := s.provider.Complete(ctx, &protocol.CompletionRequest{
+	system := summarySystemPrompt
+	if req.Hint != "" {
+		system = system + "\n\n" + req.Hint
+	}
+	stream, err := s.provider.Stream(ctx, &protocol.CompletionRequest{
 		Model:     req.Model,
 		Messages:  req.Messages,
 		System:    system,
 		MaxTokens: maxTokens,
-		Stream:    false,
+		Stream:    true,
 	})
 	if err != nil {
 		return "", err
 	}
-	return resp.Content, nil
+	defer stream.Close()
+	var content strings.Builder
+	for ev := range stream.Events {
+		switch e := ev.(type) {
+		case protocol.TextDeltaEvent:
+			content.WriteString(e.Delta)
+		case protocol.DoneEvent:
+			if e.Response.Content != "" && content.Len() == 0 {
+				content.WriteString(e.Response.Content)
+			}
+			return content.String(), nil
+		case protocol.ErrorEvent:
+			if e.Err != nil {
+				return "", e.Err
+			}
+			return "", stream.Err()
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return "", err
+	}
+	return content.String(), nil
 }
 
 // estimateMessages sums EstimateMessageTokens over a slice.
@@ -357,6 +538,58 @@ func pinnedPrefixLen(msgs []protocol.Message, budgetTokens int, estimate func(pr
 		used += cost
 	}
 	return len(msgs)
+}
+
+// tailStart returns the index at which the verbatim recent tail
+// begins. head is the (already computed) prefix the summariser skips;
+// tailTokens is the budget the kept tail fits under, estimate converts
+// a message to tokens, and recentKeep is the message-count floor (the
+// tail must always include at least this many trailing messages, even
+// if their token cost exceeds tailTokens).
+//
+// Walks back from the tail, accumulating tokens, until it has either
+// spent tailTokens or accumulated recentKeep messages — whichever
+// comes last. Returns len(msgs) when the tail budget covers the whole
+// conversation (caller treats that as "nothing to fold").
+func tailStart(msgs []protocol.Message, head, tailTokens int, estimate func(protocol.Message) int, recentKeep int) int {
+	if recentKeep <= 0 {
+		recentKeep = DefaultRecentKeep
+	}
+	if len(msgs) == 0 {
+		return 0
+	}
+	if head < 0 {
+		head = 0
+	}
+	if head >= len(msgs) {
+		return len(msgs)
+	}
+	if tailTokens <= 0 {
+		// No token budget — fall back to keeping recentKeep messages.
+		start := len(msgs) - recentKeep
+		if start < head {
+			start = head
+		}
+		return start
+	}
+	used := 0
+	count := 0
+	for i := len(msgs) - 1; i >= head; i-- {
+		cost := estimate(msgs[i])
+		used += cost
+		count++
+		if count >= recentKeep {
+			// RecentKeep is the floor — once we've collected that
+			// many trailing messages, stop regardless of the token
+			// budget. The budget acts as an upper bound on the tail,
+			// not as a "must spend" target: a conversation smaller
+			// than tailTokens keeps just the most recent
+			// recentKeep messages verbatim.
+			return i
+		}
+	}
+	// All remaining messages fit under the tail budget.
+	return head
 }
 
 // firstKeptBoundary returns the (ID, Timestamp) of the first message
