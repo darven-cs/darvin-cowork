@@ -5,6 +5,7 @@
 ## 先读
 
 1. 当前所在子目录的 `AGENTS.md`（如果有）
+2. `### darvin-agent Go 代码规范`(若改动 `src/darvin-agent/` 下的 Go 代码)
 
 ## 三句话总结
 
@@ -423,6 +424,105 @@ renderer **不下载 woff2 / 不引用 CDN**，全走系统字体栈，写在 `s
 - JSDoc 精简撰写，无冗余描述，不添加 `@example` 等非必要标签。
 - Vue `<template>` 内：完全禁止写 HTML 注释，模板结构语义自解释即可。
 - 标识符命名同样适用：避免 `ErrNotImplementedInV0` / `FixForV2` / `MockS5` 这类把版本号塞进 API 名字的做法。
+
+### darvin-agent Go 代码规范
+
+> 适用范围：`src/darvin-agent/` 下所有 Go 业务源代码。`docs/` / `specs/` / 子级 `AGENTS.md` 不受本规范约束。
+> 规则变更追踪见 `specs/refactors/agent-code-readability/2026-08-08-agent-code-readability-design.md` §3.3。
+
+#### 文件结构
+
+- **F1 单文件软上限 800 行** — 超过按业务域拆分；不应通过"加行"继续往一个文件堆逻辑。
+- **F2 god file 按业务域拆，不按语法元素** — 按"领域"拆（handlers / session / mcp / skill），不按"语法"拆（types / utils / interfaces）。`utils.go` / `helpers.go` / `common.go` 是垃圾抽屉的反面教材。
+- **F3 每个 `.go` 顶部必须有 package / file-level comment** — 包的主文件用 `// Package foo does X.`；同包其他文件用 file-level 注释说明该文件承担的职责。`staticcheck` ST1000 兜底。
+- **F4 文件名 `snake_case` 小写** — 例：`agent_run.go` / `compact_archive.go`。
+- **F5 文件按"类型 + 操作"组织，禁建 `types.go` / `utils.go` 垃圾抽屉** — struct / const / interface 跟它的领域逻辑放在一起；不建一个集中放类型的 `types.go`。
+- **F6 接口在调用方包定义，实现在被调方包** — 接口属于消费侧；对标 `agents/protocol/` 子包作为跨包契约层。
+- **F7 能力接口 + `init()` 自注册** — 新增能力走 `Register*` 工厂注册到 process-global map，main 端通过 `Registered*()` 拉取，避免改 main wiring。`internal/llm/` 已合规，`internal/tools/` 是已知违规点。
+
+#### 命名
+
+- **N1 包名小写、单数、短** — `agent` / `gateway` / `tools`；不 `agents` / `utilities` / `helpers`。`staticcheck` ST1003 兜底 initialism（`Id` → `ID`）。
+- **N2 导出 `PascalCase`，包内 `camelCase`，导出必须有 doc** — `staticcheck` ST1020+ 兜底 exported godoc。
+- **N3 接口名用职责动词，不带 `I` 前缀** — `Reader` / `Handler` / `Resolver`；不 `IReader` / `IHandler`。
+- **N3.1 接口位置遵守 F6** — 接口随消费侧；多包共享走独立 `protocol/` 子包。
+- **N4 JSON-RPC handler `handle<Domain>` 前缀** — `handleSessionCreate` / `handleMessageAppend`；不要 `doCreate` / `onSession` / `processXxx`。
+- **N5 wire 投影类型 `<Domain>Wire` 后缀** — `SessionCreateWire` / `MessageAppendWire`；区分内部业务类型与 IPC 协议类型。
+- **N6 常量值禁止 magic value 散落** — 重复出现的字符串 / 数字 / 边界值（超时、分页大小、重试上限）一律提到 const 块。
+
+#### 注释
+
+- **C1 禁阶段 / 版本 / FR-N / Reasonix / 代码复述 / 思考过程注释** — 黑名单见下表"违规注释模式黑名单"。
+- **C2 仅保留 doc / 非常规写法意图 / 架构边界 / 兜底注释** — 注释讲"为什么这么写"而非"做了什么"。
+- **C3 注释密度 ≤ 0.30（核心业务文件可放宽 0.35）** — `comments / (total - comments - blanks) ≤ 0.30`。**豁免**：<30 行小文件、纯接口包（如 `agents/protocol/`）、纯包 doc 文件。`scripts/check-agent-readability.sh` 自动扫描。
+- **C4 注释语言统一英文** — 全英文，不混中文行内注释。注释清理阶段一次性翻译。
+- **C5 godoc 精简，无 `@example`** — 一句话讲清入参 / 返回 / 不变量；不堆 `@example` / `@deprecated` / `@see`。`staticcheck` ST1020-1023 兜底。
+
+#### import
+
+- **I1 三段（stdlib / 第三方 / 内部），空行分隔，组内字母序**
+
+  ```go
+  import (
+      "context"
+      "fmt"
+
+      "github.com/anthropics/anthropic-sdk-go"
+
+      "darvin-cowork/backend/internal/gateway"
+  )
+  ```
+
+- **I2 `gofmt -s` + `goimports` 自动维护** — 改 import 顺序由工具负责，不手排。
+- **I3 禁 `.` import，别名 import 须说明** — `. import` 隐藏符号来源难定位；别名 import 在上方写一行注释说明为何重命名（`// 别名避免与 foo.Bar 冲突`）。
+- **I4 import 分组错误由 `goimports -w` 自动归一** — `goimports -w -local darvin-cowork/ .` 一次性归位。
+
+#### 错误
+
+- **E1 错误变量 `Err<Entity>` / `err<Entity>`** — 哨兵错误用 `Err` 前缀（`ErrSessionNotFound`），临时变量用 `err`。
+- **E2 `fmt.Errorf` 用 `%w`** — 包装错误保留链路，不丢原始 error；调用方可 `errors.Is` / `errors.As` 判别。
+- **E3 错误字符串小写开头、无尾标点** — `errors.New("connection refused")` 而非 `"Connection Refused."`。`staticcheck` ST1005 兜底。
+- **E4 `if err != nil` 不加注释** — 不写 `// 处理错误` / `// 出错了` 这类废话。
+
+#### 子包
+
+- **P1 新子包阈值（≥300 行 / 独立依赖边界 / 独立测试）** — 三条同时满足才建子包。理由：建子包是引入 import 边界、测试成本、读代码跳转成本的复合决策。
+- **P2 不满足 P1 的合并回父包** — 例：`agents/runtime`(78) / `agents/msgid`(85) / `agents/queue`(121) / `agents/usage`(124) / `harness/plugin`(229) / `harness/tooldridge`(311 行但子包反向依赖父包，典型该合的信号) 合并回父包。合并时改包名 + 改反向 import，逐个 commit。
+- **P3 `agents/` 下子包名避免与父包同义** — 不建 `agents/agent` / `agents/agents`，避免 import 路径混淆。
+
+#### 格式
+
+- **G1 `gofmt -s` 强制** — `gofmt -l .` 输出必须为空。
+- **G1.1 `goimports -l .` 强制** — `goimports -l .` 输出必须为空。
+- **G2 `go vet ./...` 零警告** — vet 不通过不允许 commit。
+- **G3 `golangci-lint` 聚合门** — `errcheck + govet + staticcheck + unused + ineffassign`，配置见 `src/darvin-agent/.golangci.yml`。
+- **G3.1 `staticcheck` ST10xx 强制** — ST1000(包注释) / ST1003(initialism) / ST1005(错误字符串) / ST1006(receiver 名) / ST1019(import 重复) / ST1020-1023(exported godoc) 全 0 告警。
+- **G4 Go 文件用 tab 缩进** — 不空格缩进。
+
+#### 违规注释模式黑名单
+
+| 模式 | 例 | 处理 |
+|---|---|---|
+| `Phase [0-9]` | `// Phase 5 default` | 删 |
+| `FR-[0-9]+` | `// FR-4 implementation` | 删，必要时链接 spec 文档路径 |
+| `D[0-9]+` | `// D10 archive` | 删 |
+| `Reasonix` | `// Reasonix summaryTimeout` | 删，描述实际行为 |
+| `v[0-9]+` / `S[0-9]+` | `// v0 placeholder` | 删 |
+| 大范围 `TODO` | `// TODO: future migration` | 删或缩小到具体函数级 |
+
+外部 spec 代号改写建议：用自然语言描述行为，或链接到 `specs/features/.../...md` 文档路径（相对仓库根）。
+
+#### 落地工具
+
+- `Makefile` target（位于 `src/darvin-agent/Makefile`）：
+  - `fmt`：跑 `gofmt -s -w . && goimports -w -local darvin-cowork/ .`
+  - `fmt-check`：`gofmt -l . && goimports -l .`（输出空为通过）
+  - `vet`：`go vet ./...`
+  - `lint-comments`：`staticcheck -checks 'ST10*' ./...`
+  - `lint`：`golangci-lint run ./...`
+  - `check`：聚合 `fmt-check + vet + lint-comments + lint + check-readability`
+- `scripts/check-agent-readability.sh`：本规范的一键校验脚本（行数 / 注释密度 / 违规模式 / F3 / ST10xx / baseline 比对）。
+- `.golangci-baseline.txt`：存量 lint 告警 baseline；新 PR 不允许新增同类告警。
 
 ## 遗留问题与小文件
 
