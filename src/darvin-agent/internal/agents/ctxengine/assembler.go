@@ -11,25 +11,23 @@ import (
 	"darvin-cowork/backend/internal/agents/protocol"
 )
 
-// DefaultContextWindow is the implicit context window used when
-// ctxengine.Config.ContextWindow is left at zero. darvin-cowork boots
-// without an explicit window during `go run` / unit tests, so a sane
-// default keeps the 4-tier cascade meaningful in development.
-// Production callers set context_window: <model_context_window> in
-// config.yaml.
+// DefaultContextWindow is the implicit context window when
+// ctxengine.Config.ContextWindow is left at zero (keeps `go run` /
+// unit tests meaningful). Production callers set
+// context_window: <model_context_window> in config.yaml.
 const DefaultContextWindow = 200000
 
 // Default tail knobs.
 const (
-	DefaultTailTokens    = 16384 // verbatim recent-tail budget, in tokens
-	DefaultRecentKeep    = 2     // minimum recent messages kept verbatim
-	DefaultMinFoldTokens = 400   // fold region below this size skips compaction unless forced
+	DefaultTailTokens    = 16384
+	DefaultRecentKeep    = 2
+	DefaultMinFoldTokens = 400
 )
 
-// minFoldFloor is the lower bound we let compactBudget fall to. The
+// minFoldFloor is the lower bound compactBudget falls to. The
 // Assemble-time target derives from cfg.ContextWindow / 2; for very
-// small windows (unit tests / dev), we clamp to this value so the
-// compact target always reflects a meaningful budget rather than 0.
+// small windows we clamp to this so the target reflects a meaningful
+// budget rather than 0.
 const minFoldFloor = 1000
 
 // Default ratio knobs.
@@ -41,38 +39,30 @@ const (
 )
 
 // Config is the assembler's runtime configuration. The fields mirror
-// the ctxengine-related subset of config.AgentConfig. agent.New copies
-// values from config.AgentConfig into a ctxengine.Config at
-// construction time so the assembler package does not import
+// the ctxengine-related subset of config.AgentConfig; agent.New copies
+// them at construction time so the assembler package does not import
 // internal/config.
 type Config struct {
-	// ContextWindow is the LLM's hard context cap in tokens. 0
-	// disables the entire auto-compact pipeline. When > 0 the
-	// four ratios below derive absolute trigger thresholds via
-	// `int(float64(ContextWindow) * ratio)`.
+	// ContextWindow is the LLM's hard cap in tokens; 0 disables the
+	// entire auto-compact pipeline. When > 0 the four ratios below
+	// derive absolute trigger thresholds.
 	ContextWindow int
 
-	// The four threshold ratios driving the cascade (see assemble.go).
-	// Defaults match the constants above; users override via config.yaml.
+	// The four threshold ratios driving the cascade. Defaults match
+	// the constants above; users override via config.yaml.
 	SoftCompactRatio    float64
 	ToolResultSnipRatio float64
 	CompactRatio        float64
 	CompactForceRatio   float64
 
-	// CompactTailTokens is the token budget the kept tail fits
-	// under. When 0 the assembler falls back to DefaultTailTokens.
+	// CompactTailTokens is the kept-tail budget; 0 falls back to DefaultTailTokens.
 	CompactTailTokens int
-	// RecentKeep is the message-count floor on the kept tail —
-	// compaction never keeps fewer than this many recent messages
-	// even if the token budget allows more. When 0 the assembler
-	// falls back to DefaultRecentKeep.
+	// RecentKeep is the message-count floor on the kept tail; 0 falls back to DefaultRecentKeep.
 	RecentKeep int
 
-	// ArchiveDir, when non-empty, causes Compact to persist the
-	// fold region as a timestamped jsonl before the LLM call. Empty
-	// disables archive (the most common configuration in fresh
-	// installs). Best-effort: write failures emit a Notice but do
-	// not block compaction.
+	// ArchiveDir, when non-empty, persists the fold region as jsonl before
+	// the LLM call. Empty disables archive. Best-effort: write failures
+	// emit a Notice but do not block compaction.
 	ArchiveDir string
 
 	ToolResultMaxBytes   int
@@ -80,48 +70,39 @@ type Config struct {
 	SystemPromptAddition string
 	AssemblerEnabled     bool
 
-	// MemoryFactsLimit clamps the MEMORY block FTS top-N. <= 0
-	// disables the MEMORY block.
+	// MemoryFactsLimit clamps the MEMORY block FTS top-N; <= 0 disables.
 	MemoryFactsLimit int
-	// MemoryFactsCacheTTL bounds the per-(sessionID, query) FTS cache.
-	// <= 0 disables caching — every Assemble re-queries FTS.
+	// MemoryFactsCacheTTL bounds the per-(sessionID, query) FTS cache; <= 0 disables.
 	MemoryFactsCacheTTL time.Duration
 }
 
-// Deps is the surface the assembler needs from its host (agent.Agent).
-// Defined here (rather than imported from agent) to break the cycle
+// Deps is the surface the assembler needs from its host. Defined here
+// (rather than imported from agent) to break the cycle
 // agent -> executor -> ctxengine -> agent.
 //
-// MemoryFacts / MemoryBootstrap are the FTS / bootstrap seams. The
-// assembler uses them only when AssembleParams.AvailableFacts is
-// empty (caller override wins).
+// MemoryFacts / MemoryBootstrap are the FTS / bootstrap seams; the
+// assembler uses them only when AssembleParams.AvailableFacts is empty.
 type Deps interface {
 	Provider() protocol.ModelProvider
 	ModelName() string
 	Logger() *zap.Logger
-	// Emit broadcasts agent lifecycle events. DefaultAssembler uses
-	// it after triggering Compact so EventLedger can push the
-	// compaction boundary to the renderer.
+	// Emit broadcasts agent lifecycle events (DefaultAssembler uses
+	// it after Compact so EventLedger pushes the compaction boundary).
 	Emit(ev event.Event)
 
-	// MemoryFacts returns the FTS hits for the agent's current
-	// session. nil/empty means "no MEMORY block". sessionID is
-	// implicit (Agent is per-session).
+	// MemoryFacts returns FTS hits for the current session. nil/empty = no MEMORY block.
 	MemoryFacts(ctx context.Context) []Fact
 
-	// MemoryBootstrap returns the cached workspace-level bootstrap
-	// file content (IDENTITY.md / SOUL.md / USER.md). Empty when the
-	// memory subsystem is disabled or the file is missing.
-	// Implementations MUST proxy through the workspace singleton so
-	// change-notification invalidation propagates.
+	// MemoryBootstrap returns cached workspace-level bootstrap file
+	// content (IDENTITY.md / SOUL.md / USER.md). Implementations MUST
+	// proxy through the workspace singleton for change-notification invalidation.
 	MemoryBootstrap(name string) string
 }
 
-// DefaultAssembler is the in-process ContextEngine implementation. It is
-// goroutine-safe: the outer mu guards cfg / sections / lastIngestAt /
+// DefaultAssembler is the in-process ContextEngine implementation.
+// Goroutine-safe: outer mu guards cfg / sections / lastIngestAt /
 // summarizer / estimator / softNotified / consecutiveCompacts /
-// compactStuck; projectionsMu guards the projections map. archiver
-// is set via SetArchiver so the constructor signature stays stable.
+// compactStuck; projectionsMu guards the projections map.
 type DefaultAssembler struct {
 	mu           sync.RWMutex
 	cfg          Config
@@ -132,21 +113,19 @@ type DefaultAssembler struct {
 	lastIngestAt map[string]time.Time
 	archiver     Archiver
 
-	softNotified        bool // soft 50% notice latch — emit once per window climb
-	snippedThisTurn     bool // 60% snip latch — at most once per turn
-	consecutiveCompacts int  // tracks repeated Compact successes → stuck latch
-	compactStuck        bool // pause auto-compact when system prompt + tail exceeds budget
+	softNotified        bool
+	snippedThisTurn     bool
+	consecutiveCompacts int
+	compactStuck        bool
 
 	projectionsMu sync.RWMutex
 	projections   map[string]ContextProjection
 }
 
-// NewDefaultAssembler constructs the assembler with cfg and deps. Defaults
-// are applied for the four ratios, RecentKeep, CompactTailTokens, and
-// ContextWindow (see each field's doc). When deps.Provider() is non-nil,
-// a DefaultSummarizer is auto-wired so Compact works out of the box;
-// tests that need a fake summarizer call SetSummarizer after construction
-// (overriding the default).
+// NewDefaultAssembler constructs the assembler. Defaults are applied for
+// the four ratios, RecentKeep, CompactTailTokens, and ContextWindow.
+// When deps.Provider() is non-nil, a DefaultSummarizer is auto-wired;
+// tests override via SetSummarizer.
 func NewDefaultAssembler(cfg Config, deps Deps) *DefaultAssembler {
 	if cfg.RecentKeep <= 0 {
 		cfg.RecentKeep = DefaultRecentKeep
@@ -171,9 +150,7 @@ func NewDefaultAssembler(cfg Config, deps Deps) *DefaultAssembler {
 	}
 	if cfg.ArchiveDir != "" {
 		// Wire the default file archiver; tests that want to suppress
-		// archive leave ArchiveDir empty. The archiver proxy is
-		// weak-typed (text, detail) so agent.Agent can hand its
-		// Emit channel through without depending on event.NoticeKind.
+		// archive leave ArchiveDir empty.
 		archiver := NewFileArchiver(cfg.ArchiveDir, nil)
 		cfg.ArchiveDir = archiver.dir // resolved lazily inside Archive
 		_ = archiver
@@ -194,14 +171,14 @@ func NewDefaultAssembler(cfg Config, deps Deps) *DefaultAssembler {
 	return a
 }
 
-// Cfg returns a copy of the assembler's config (read-only access).
+// Cfg returns a copy of the assembler's config.
 func (a *DefaultAssembler) Cfg() Config {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.cfg
 }
 
-// SetEstimator overrides the token estimator (test injection only).
+// SetEstimator overrides the token estimator (test injection).
 func (a *DefaultAssembler) SetEstimator(e TokenEstimator) {
 	if e == nil {
 		return
@@ -211,7 +188,7 @@ func (a *DefaultAssembler) SetEstimator(e TokenEstimator) {
 	a.mu.Unlock()
 }
 
-// SetSummarizer overrides the summarizer (test injection only).
+// SetSummarizer overrides the summarizer (test injection).
 func (a *DefaultAssembler) SetSummarizer(s Summarizer) {
 	if s == nil {
 		return
