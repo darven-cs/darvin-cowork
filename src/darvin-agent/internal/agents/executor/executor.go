@@ -86,8 +86,8 @@ func (c Config) compactBudget() int {
 	return c.ContextWindow / 2
 }
 
-// Deps is the surface of agent.Agent the executor consumes. The agent root
-// package satisfies this implicitly.
+// Deps is the surface of agent.Agent the executor consumes; the agent
+// root package satisfies it implicitly.
 type Deps interface {
 	Session() *session.Session
 	Tools() protocol.ToolRegistry
@@ -96,34 +96,23 @@ type Deps interface {
 	Instructions() string
 	Emit(event.Event)
 	Config() Config
-	// ContextEngine seam. May return
-	// nil / false to opt out of assembler-driven prompt construction and
-	// fall back to the legacy d.Session().Messages() path.
+	// Assembler is the ContextEngine seam; nil / false opts out to the
+	// legacy d.Session().Messages() path.
 	Assembler() ctxengine.ContextEngine
 	SystemSections() []ctxengine.SystemSection
 	AssemblerEnabled() bool
-	// Usage accounting: RecordUsage stores the API-reported Usage for the
-	// just-finished turn (model tags the snapshot so the persistence layer
-	// knows which context window to use on rehydrate); LastUsage returns
-	// the most recent Usage so the ContextEngine can prefer API token
-	// counts over the local estimator.
+	// RecordUsage stores the API-reported Usage for the just-finished
+	// turn; LastUsage returns the most recent Usage.
 	RecordUsage(u protocol.Usage, model string)
 	LastUsage() protocol.Usage
-	// CurrentMessageID returns the messageID the agent loop assigned to the
-	// prompt that triggered the in-flight run. The executor embeds it on
-	// every emitted event so downstream consumers (EventLedger, renderer)
-	// can correlate events back to the originating prompt.
+	// CurrentMessageID / CurrentRunID are the turn ids the executor
+	// embeds on every emitted event for correlation / abort.
 	CurrentMessageID() string
-	// CurrentRunID returns the caller-minted runID the agent loop assigned
-	// to the prompt that triggered the in-flight run. The executor embeds
-	// it on every emitted event so downstream consumers can abort a
-	// specific turn and demultiplex events by turn id.
 	CurrentRunID() string
-	// EvaluatePermission decides whether a tool call needs user approval
-	// (path escapes the authorized roots, or a destructive shell command).
+	// EvaluatePermission decides whether a tool call needs user approval.
 	EvaluatePermission(toolName string, args map[string]any) protocol.PermissionEval
-	// RequestPermission emits a permission_request event and blocks until
-	// the renderer answers (or ctx fires / 60s timeout → deny).
+	// RequestPermission emits a permission_request and blocks until the
+	// renderer answers (or ctx fires / 60s timeout → deny).
 	RequestPermission(ctx context.Context, req PermissionRequest) (PermissionResult, error)
 	// HasPermissionRule / AddPermissionRule back the "remember this session"
 	// auto-allow feature: identical (tool, level, reason) requests skip the
