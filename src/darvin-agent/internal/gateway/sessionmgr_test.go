@@ -65,12 +65,12 @@ func (n *nowCounter) advance(d time.Duration) {
 	n.t += d.Milliseconds()
 }
 
-func withFakeClock(maxSessions int, idleTtl time.Duration) (*SessionManager, *nowCounter) {
+func withFakeClock(maxSessions int, idleTTL time.Duration) (*SessionManager, *nowCounter) {
 	clk := &nowCounter{t: 1_700_000_000_000}
 	m := NewSessionManager()
 	m.nowMs = clk.now
 	m.maxSessions = maxSessions
-	m.idleTtl = idleTtl
+	m.idleTTL = idleTTL
 	return m, clk
 }
 

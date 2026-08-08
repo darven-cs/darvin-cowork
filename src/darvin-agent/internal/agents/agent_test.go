@@ -65,7 +65,7 @@ func TestNewRespectsCustomTools(t *testing.T) {
 }
 
 func TestNewRespectsCustomStore(t *testing.T) {
-	var s store.SessionStore = store.NewMemoryStore()
+	var s = store.NewMemoryStore()
 	if s == nil {
 		t.Fatal("NewMemoryStore returned nil SessionStore")
 	}

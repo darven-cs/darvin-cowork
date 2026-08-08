@@ -65,7 +65,7 @@ var (
 	// ErrSessionNotFound: Stop for an unknown sessionID.
 	ErrSessionNotFound = errors.New("sessionmgr: session not found")
 
-	// ErrRunMismatch: Stop's runId does not match the active run, or the
+	// ErrRunMismatch: Stop's runID does not match the active run, or the
 	// session has no AgentLoopSession yet. Stop is a no-op in both cases.
 	ErrRunMismatch = errors.New("sessionmgr: run id mismatch")
 
@@ -82,7 +82,7 @@ type SessionManager struct {
 	idleOrder *list.List
 
 	maxSessions int
-	idleTtl     time.Duration
+	idleTTL     time.Duration
 	stopWindow  time.Duration
 
 	nowMs func() int64
@@ -122,7 +122,7 @@ func NewSessionManager(opts ...SessionManagerOption) *SessionManager {
 		byID:        make(map[string]*SessionEntry),
 		idleOrder:   list.New(),
 		maxSessions: DefaultMaxSessions,
-		idleTtl:     DefaultIdleTTL,
+		idleTTL:     DefaultIdleTTL,
 		stopWindow:  DefaultStopWindow,
 		nowMs:       func() int64 { return time.Now().UnixMilli() },
 		idGen:       nanoid.MustCustomASCII(sessionAlphabet, sessionIDLen),
@@ -335,13 +335,13 @@ func (m *SessionManager) Get(id string) (*session.Session, string) {
 	return sess, msgID
 }
 
-// Stop aborts the turn matching (sessionID, runId).
+// Stop aborts the turn matching (sessionID, runID).
 //
 //   - session unknown → ErrSessionNotFound
 //   - no AgentLoopSession / Loop.Stop false → ErrRunMismatch
 //   - success: cancels the in-flight turn and pushes stoppedUntilMs to
 //     now()+StopWindow (prompts inside the window get ErrSessionStalled).
-func (m *SessionManager) Stop(sessionID, runId string) error {
+func (m *SessionManager) Stop(sessionID, runID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -352,7 +352,7 @@ func (m *SessionManager) Stop(sessionID, runId string) error {
 	if e.AgentLoop == nil {
 		return ErrRunMismatch
 	}
-	if !e.AgentLoop.Loop.Stop(runId) {
+	if !e.AgentLoop.Loop.Stop(runID) {
 		return ErrRunMismatch
 	}
 	e.stoppedUntilMs = m.nowMs() + m.stopWindow.Milliseconds()
@@ -378,7 +378,7 @@ func (m *SessionManager) Len() int {
 // stopping at the first active / unexpired one (younger LRU entries
 // wait for the next pass). Caller holds m.mu.
 func (m *SessionManager) reapIdleLocked() {
-	cutoff := m.nowMs() - m.idleTtl.Milliseconds()
+	cutoff := m.nowMs() - m.idleTTL.Milliseconds()
 	for {
 		elem := m.idleOrder.Back()
 		if elem == nil {

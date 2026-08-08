@@ -56,7 +56,7 @@ func (p *McpPlugin) Register(reg ToolRegistrar) error {
 					"error", truncate(err.Error(), 200))
 				continue
 			}
-			var stored json.RawMessage = canon
+			var stored = canon
 			if len(stored) == 0 {
 				stored = json.RawMessage(`{"type":"object"}`)
 			}

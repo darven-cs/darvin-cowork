@@ -250,9 +250,9 @@ type SearchSessionsResult struct {
 	Messages []SearchHitWire `json:"messages"`
 }
 
-// Handler bundles the shared dependencies the JSON-RPC dispatch layer
-// needs. Each per-connection *client carries a reference alongside its
-// own write state; the read loop pulls handler into dispatchRequest.
+// HandlerOptions bundles the shared dependencies the JSON-RPC dispatch
+// layer needs. Each per-connection *client carries a reference alongside
+// its own write state; the read loop pulls handler into dispatchRequest.
 //
 // Steer goes through h.Sessions to reach the per-session Loop; the
 // global Agent-level steer path is gone.

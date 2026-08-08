@@ -405,8 +405,8 @@ func (a *Agent) persistUsageSnapshot(ctx context.Context) {
 	}
 }
 
-// Session returns the agent's session (read-only access pattern; mutators
-// are reserved for the executor).
+// SessionHandle returns the agent's session (read-only access pattern;
+// mutators are reserved for the executor).
 func (a *Agent) SessionHandle() *session.Session { return a.session }
 
 // Subscribe registers a new event subscriber.
@@ -414,10 +414,11 @@ func (a *Agent) Subscribe(buffer int) *event.Subscription {
 	return a.bus.Subscribe(buffer)
 }
 
-// Attach*IDSrc wire the functions the executor / dispatcher query (via
-// Deps.CurrentMessageID / CurrentRunID / CurrentUserMessageID) to read
-// the in-flight ids; main.go passes method values of Loop so every
-// emitted event's EventCommon ids match the triggering prompt.
+// AttachMessageIDSrc wires the id source the executor / dispatcher
+// queries (via Deps.CurrentMessageID) to read the in-flight ids;
+// main.go passes method values of Loop so every emitted event's
+// EventCommon ids match the triggering prompt. AttachRunIDSrc /
+// AttachUserMessageIDSrc wire the run and user-message sources.
 func (a *Agent) AttachMessageIDSrc(src func() string) {
 	a.msgidBridge.AttachMessageID(src)
 }
@@ -428,8 +429,9 @@ func (a *Agent) AttachUserMessageIDSrc(src func() string) {
 	a.msgidBridge.AttachUserMessageID(src)
 }
 
-// Current*ID return the in-flight ids via the bridge, or "" when no
-// source is wired or the agent is idle.
+// CurrentMessageID returns the in-flight message id via the bridge, or
+// "" when no source is wired or the agent is idle. CurrentRunID /
+// CurrentUserMessageID return the matching run and user-message ids.
 func (a *Agent) CurrentMessageID() string { return a.msgidBridge.CurrentMessageID() }
 func (a *Agent) CurrentRunID() string     { return a.msgidBridge.CurrentRunID() }
 func (a *Agent) CurrentUserMessageID() string {
@@ -443,9 +445,10 @@ func (a *Agent) SetGrantedReads(paths []string) {
 	a.perm.SetGrantedReads(paths, a.tools)
 }
 
-// Permission-gate accessors for the permission modal flow: approve a path,
-// evaluate whether a call needs approval, request (blocking) / resolve the
-// renderer's answer, and query / record auto-allow rules.
+// ApprovePath approves a path in the permission modal flow. The sibling
+// methods expose the rest of the gate: EvaluatePermission classifies a
+// call, RequestPermission / ResolvePermission drive the renderer answer,
+// and HasPermissionRule / AddPermissionRule manage auto-allow rules.
 func (a *Agent) ApprovePath(path string) { a.perm.ApprovePath(path, a.tools) }
 func (a *Agent) EvaluatePermission(toolName string, args map[string]any) protocol.PermissionEval {
 	return a.perm.EvaluatePermission(toolName, args, a.tools)

@@ -236,11 +236,10 @@ func (c *HTTPClient) DoStream(
 	return nil, lastErr
 }
 
-// parseProviderError converts a raw error response body into a ProviderError.
-//
-// Each provider supplies its own decoder via ProviderErrorParser to extract
-// the canonical error type / code. If parsing fails we fall back to a
-// generic ErrCodeInternal with the raw body in Message.
+// ProviderErrorParser converts a raw error response body into the
+// canonical error type / code. Each provider supplies its own decoder;
+// if parsing fails the caller falls back to a generic ErrCodeInternal
+// with the raw body in Message.
 type ProviderErrorParser func(statusCode int, body []byte) (code, message string, ok bool)
 
 // parseProviderError delegates to the per-provider parser when set; the
