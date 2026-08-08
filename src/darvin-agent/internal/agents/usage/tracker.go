@@ -1,6 +1,5 @@
-// Package usage holds the API-reported token accounting. Readers (the
-// next turn's Assemble call, the snapshot persistence path) outnumber
-// writers (turn tail) heavily, so reads take the read side of an RWMutex.
+// Package usage holds the API-reported token accounting. Reads outnumber
+// writes so reads take the read side of an RWMutex.
 package usage
 
 import (
@@ -11,15 +10,8 @@ import (
 )
 
 // Tracker stores the most recent per-turn Usage plus session-cumulative
-// counters and the model that produced the most recent turn. The two
-// views support two distinct consumers:
-//
-//   - LastUsage returns just the latest Usage so the ContextEngine can
-//     prefer API token counts over the local rune/4 estimator.
-//   - Snapshot returns the full picture (Last + Total + model + count) so
-//     the agent's persistence layer can write a row that survives a
-//     process restart, and the renderer can rehydrate the context-window
-//     fill on session switch.
+// counters and the model that produced the most recent turn. LastUsage
+// supports the ContextEngine; Snapshot supports persistence + rehydrate.
 type Tracker struct {
 	mu        sync.RWMutex
 	last      *protocol.Usage
@@ -29,8 +21,7 @@ type Tracker struct {
 }
 
 // Snapshot is the persistable view of a Tracker at one point in time.
-// UpdatedAt is unix milliseconds, set by Snapshot itself so callers do
-// not have to plumb a clock through every layer.
+// UpdatedAt is unix ms, set by Snapshot itself.
 type Snapshot struct {
 	Last         *protocol.Usage
 	Total        *protocol.Usage
@@ -39,24 +30,17 @@ type Snapshot struct {
 	UpdatedAt    int64
 }
 
-// NewTracker returns an empty Tracker whose first reader gets the zero
-// Usage — the ContextEngine treats that as "fall back to the local
-// estimator".
+// NewTracker returns an empty Tracker.
 func NewTracker() *Tracker { return &Tracker{} }
 
-// Record stores the latest API-reported Usage. Replaces the previous
-// value wholesale (Last semantics). Kept as a thin wrapper around
-// RecordWithModel for callers that don't track the model name.
+// Record stores the latest API-reported Usage (replaces previous).
 func (t *Tracker) Record(u protocol.Usage) {
 	t.RecordWithModel(u, "")
 }
 
 // RecordWithModel is the full write path: covers the latest Usage in
-// last, accumulates the per-field deltas into total, and remembers the
-// model name so Snapshot can give the renderer the context-window fill
-// percentage without a separate registry lookup. The model argument is
-// the Deps.ModelName() value passed by the executor; "" is acceptable
-// when the caller doesn't know it.
+// last, accumulates per-field deltas into total, and remembers the
+// model name. The model arg comes from Deps.ModelName(); "" is allowed.
 func (t *Tracker) RecordWithModel(u protocol.Usage, model string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -72,8 +56,7 @@ func (t *Tracker) RecordWithModel(u protocol.Usage, model string) {
 	t.requests++
 }
 
-// Last returns the most recent Usage, or the zero value when nothing
-// has been recorded yet.
+// Last returns the most recent Usage, or zero when nothing recorded.
 func (t *Tracker) Last() protocol.Usage {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -83,18 +66,15 @@ func (t *Tracker) Last() protocol.Usage {
 	return *t.last
 }
 
-// LastModel returns the model name attached to the most recent Record
-// call. "" when nothing has been recorded or the caller didn't supply
-// the model.
+// LastModel returns the model name attached to the most recent Record.
 func (t *Tracker) LastModel() string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.lastModel
 }
 
-// Snapshot returns a value-copy of the Tracker's full state at this
-// instant. Nil Last / Total indicate an empty tracker (no record yet);
-// the persistence layer treats that as "skip the row write".
+// Snapshot returns a value-copy of the Tracker's full state. Nil Last /
+// Total indicate an empty tracker; the persistence layer skips the row.
 func (t *Tracker) Snapshot() Snapshot {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -112,9 +92,8 @@ func (t *Tracker) Snapshot() Snapshot {
 	}
 }
 
-// Reset clears both the per-turn last and the cumulative totals. Called
-// on session rebind so an old session's counters do not bleed into a
-// newly bound session.
+// Reset clears both last and totals (called on session rebind so old
+// counters do not bleed into a newly bound session).
 func (t *Tracker) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
