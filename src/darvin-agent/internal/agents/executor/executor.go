@@ -26,44 +26,6 @@ import (
 // this error upward unchanged via errors.Is.
 var ErrMaxTurns = errors.New("executor: max turns exceeded")
 
-// maxToolResultStoreBytes caps the tool result persisted into
-// ToolCall.Result. Bash / read output can reach the megabyte range;
-// the store only keeps the truncated prefix plus a tail marker; live
-// streaming events still push the full content to the renderer, so
-// truncation only affects tool-result display on reload.
-const maxToolResultStoreBytes = 64 * 1024
-
-const toolResultTruncatedSuffix = "\n…[truncated]"
-
-// PermissionRequest is a tool call the executor wants user approval for
-// before running. RequestID is minted by the Agent.
-type PermissionRequest struct {
-	ToolName    string
-	ToolInput   map[string]any
-	DangerLevel string // safe | caution | destructive
-	Reason      string
-}
-
-// PermissionResult is the renderer's answer (via agent.permission_response).
-type PermissionResult struct {
-	Behavior     string // "allow" | "deny"
-	UpdatedInput map[string]any
-	Message      string
-	Interrupt    bool
-	Remember     bool
-}
-
-func truncateForStore(content string) string {
-	if len(content) <= maxToolResultStoreBytes {
-		return content
-	}
-	keep := maxToolResultStoreBytes - len(toolResultTruncatedSuffix)
-	if keep < 0 {
-		keep = 0
-	}
-	return content[:keep] + toolResultTruncatedSuffix
-}
-
 // Config is the subset of agent configuration the executor needs.
 type Config struct {
 	MaxTurns    int
