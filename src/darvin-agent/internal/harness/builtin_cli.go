@@ -6,32 +6,23 @@ import (
 	"time"
 )
 
-// CLIDefaultPriority is the Supports priority the mock CLI harness reports.
-// Negative so the embedded runtime (priority 0) wins every tie; the CLI
-// harness is only picked when explicitly requested or when the embedded
-// runtime is absent / unhealthy.
+// CLIDefaultPriority is the mock CLI's Supports priority; negative so the
+// embedded runtime (priority 0) wins ties and the CLI is only picked when
+// explicitly requested or the embedded runtime is unhealthy.
 const CLIDefaultPriority = -100
 
-// CLIHarness is a mock CLI backend used to exercise selection and
-// the ctx-engine host gate without a real subprocess.
-//
-// It models a generic CLI host: it can bootstrap a session, run turns and
-// maintain state, but it cannot assemble a prompt before the model call and
-// it has no compact facility. A context engine whose operation requires
-// `assemble-before-prompt` therefore cannot run on it, and selection must
-// fall back to the embedded runtime.
-//
-// The real CLI backend is a future spec; this type stays as a test fixture
-// and a reference shape for that implementation.
+// CLIHarness is a mock CLI backend exercising selection and the ctx-engine
+// host gate without a real subprocess. It can bootstrap / run / maintain
+// but has no assemble-before-prompt or compact facility, so a demanding
+// context engine cannot run on it. Stays as a test fixture and a reference
+// shape for a future real CLI backend.
 type CLIHarness struct {
 	// Label overrides the default human-readable name.
 	Label string
-	// Run overrides the canned RunAttempt behaviour. nil uses a mock that
-	// echoes the prompt back.
+	// Run overrides the canned RunAttempt; nil echoes the prompt back.
 	Run func(ctx context.Context, params RunAttemptParams) (*AttemptResult, error)
 }
 
-// NewCLI builds the mock CLI harness.
 func NewCLI(cfg CLIHarness) Harness { return &cli{cfg: cfg} }
 
 type cli struct{ cfg CLIHarness }
@@ -46,9 +37,9 @@ func (c *cli) Label() string {
 	return "Mock CLI backend"
 }
 
-// Capabilities advertises the generic-CLI host verb set. Notably it omits
-// HostAssembleBeforePrompt and HostCompact, so a demanding context engine
-// cannot run here — that is exactly what the host gate exists for.
+// Capabilities advertises the generic-CLI host verb set, omitting
+// HostAssembleBeforePrompt and HostCompact — exactly what the host gate
+// rejects a demanding context engine for.
 func (c *cli) Capabilities() Capabilities {
 	return Capabilities{
 		Healthy: true,
@@ -71,8 +62,7 @@ func (c *cli) RunAttempt(ctx context.Context, params RunAttemptParams) (*Attempt
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	// Mock behaviour: the "CLI" consumes the prompt and returns a canned
-	// reply immediately, so a selection demo observes a settled turn.
+	// Mock: consume the prompt and reply immediately (a settled turn).
 	return &AttemptResult{
 		Status:        AttemptOK,
 		AssistantText: fmt.Sprintf("[mock cli] %s", params.Prompt),

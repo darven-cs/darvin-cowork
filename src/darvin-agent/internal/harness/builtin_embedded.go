@@ -9,36 +9,29 @@ const EmbeddedID = "embedded"
 type Runner func(ctx context.Context, params RunAttemptParams) (*AttemptResult, error)
 
 // EmbeddedConfig wires the in-process harness to the agent runtime.
-//
-// Every hook is optional: an unset hook leaves the matching capability
-// undeclared, and calling it returns ErrNotImplemented. This keeps the
-// harness constructible by the wiring layer before every capability has a
-// backing implementation, without the harness package importing the runtime.
+// Every hook is optional: an unset hook leaves the capability undeclared
+// and calling it returns ErrNotImplemented, keeping the harness
+// constructible before every capability has a backing implementation.
 type EmbeddedConfig struct {
 	// Label overrides the default human-readable name.
 	Label string
-	// Run executes an attempt. A nil Run makes RunAttempt return
-	// ErrNotImplemented.
+	// Run executes an attempt; nil makes RunAttempt return ErrNotImplemented.
 	Run Runner
 	// Compact shrinks the session context.
 	Compact func(ctx context.Context, params CompactParams) (*CompactResult, error)
-	// Reset drops per-session runtime state. The lifecycle generation is
-	// bumped regardless of whether this hook is set.
+	// Reset drops per-session state (generation bumped regardless).
 	Reset func(ctx context.Context, params ResetParams) error
 	// Dispose releases process-level resources.
 	Dispose func(ctx context.Context) error
 
-	// Providers restricts the harness to auto-selection for these provider
-	// ids. Empty leaves eligibility to Supports rather than marking the
-	// harness explicit-only.
+	// Providers restricts auto-selection to these provider ids; empty
+	// defers to Supports (not explicit-only).
 	Providers []string
-	// Priority biases auto-selection against other registered harnesses. It
-	// is reported through Supports, the single source of ranking priority.
+	// Priority biases auto-selection; reported via Supports.
 	Priority int
 	// ContextEngineHost lists the host facilities this harness provides.
 	ContextEngineHost []ContextEngineHostCapability
-	// DeliveryDefaults is the reply-delivery preference; nil leaves it
-	// undeclared.
+	// DeliveryDefaults is the reply-delivery preference; nil = undeclared.
 	DeliveryDefaults *DeliveryDefaults
 }
 
@@ -62,10 +55,9 @@ func (e *embedded) Label() string {
 }
 
 func (e *embedded) Capabilities() Capabilities {
-	// The embedded runtime satisfies every host verb the OpenClaw reference
-	// runtime does, except `thread-bootstrap-projection` (which is an
-	// OpenClaw-specific projection we have no analogue for). Wiring layers
-	// may override ContextEngineHost via EmbeddedConfig.
+	// The embedded runtime satisfies every host verb except
+	// thread-bootstrap-projection (an OpenClaw-specific projection with no
+	// analogue here); wiring may override via EmbeddedConfig.
 	host := e.cfg.ContextEngineHost
 	if host == nil {
 		host = []ContextEngineHostCapability{
@@ -85,9 +77,8 @@ func (e *embedded) Capabilities() Capabilities {
 	}
 }
 
-// AutoSelection returns nil when no allowlist is configured: an empty
-// Providers slice would mark the harness explicit-only, which is the opposite
-// of the in-process default.
+// AutoSelection returns nil when no allowlist is configured — an empty
+// slice would mark the in-process harness explicit-only.
 func (e *embedded) AutoSelection() *AutoSelectionHint {
 	if len(e.cfg.Providers) == 0 {
 		return nil
