@@ -2,8 +2,7 @@ package protocol
 
 import "sync"
 
-// APIKind names the wire protocol a ModelDescriptor is bound to. Used to
-// pick buildRequest / parseResponse / stream parsing at provider boundary.
+// APIKind names the wire protocol a ModelDescriptor is bound to.
 type APIKind string
 
 const (
@@ -21,8 +20,7 @@ const (
 )
 
 // ThinkingLevel is the unified reasoning-effort level accepted by every
-// provider. Providers map it to their native field (budget_tokens,
-// reasoning_effort, thinkingBudget) under the hood.
+// provider; each provider maps it to its native field.
 type ThinkingLevel string
 
 const (
@@ -33,9 +31,7 @@ const (
 	ThinkingMax    ThinkingLevel = "max"
 )
 
-// ModelCost holds per-million-token pricing components in USD. CacheRead
-// is typically the Input rate discounted; CacheWrite is typically 1.25x
-// Input for short-TTL caches.
+// ModelCost holds per-million-token pricing components in USD.
 type ModelCost struct {
 	Input      float64
 	Output     float64
@@ -43,8 +39,7 @@ type ModelCost struct {
 	CacheWrite float64
 }
 
-// Compat flags provider-specific capabilities consumed by the higher
-// layers (ContextEngine, executor) when deciding what to send.
+// Compat flags provider-specific capabilities consumed by higher layers.
 type Compat struct {
 	SupportsToolCalls      bool
 	SupportsImageInput     bool
@@ -53,9 +48,6 @@ type Compat struct {
 }
 
 // ModelDescriptor is the static metadata for a specific model instance.
-// It is registered at provider init() and consumed by the ContextEngine
-// (contextWindow / MaxTokens), the budget tracker (Cost) and the executor
-// (Compat) without any network call.
 type ModelDescriptor struct {
 	ID            string
 	Name          string
@@ -72,16 +64,15 @@ type ModelDescriptor struct {
 
 // ModelRegistry is a process-wide lookup table for ModelDescriptor keyed
 // by model ID. Providers populate it from init(); the rest of the agent
-// reads from it (ContextEngine for contextWindow, Settings UI for the
-// model picker, etc).
+// reads from it.
 type ModelRegistry struct {
 	mu     sync.RWMutex
 	byID   map[string]ModelDescriptor
 	byProv map[string][]string
 }
 
-// NewModelRegistry returns an empty registry. Tests use this to build
-// isolated instances; production code uses DefaultModelRegistry.
+// NewModelRegistry returns an empty registry; tests use it to isolate
+// state, production uses DefaultModelRegistry.
 func NewModelRegistry() *ModelRegistry {
 	return &ModelRegistry{
 		byID:   map[string]ModelDescriptor{},
@@ -89,14 +80,10 @@ func NewModelRegistry() *ModelRegistry {
 	}
 }
 
-// DefaultModelRegistry is the global registry populated by provider init()
-// functions. Callers should use it unless they have a reason to isolate
-// state (e.g. tests).
+// DefaultModelRegistry is the global registry populated by provider init().
 var DefaultModelRegistry = NewModelRegistry()
 
-// RegisterModel adds m to the registry. Duplicate IDs panic — concurrent
-// registrations of the same model usually indicate a copy-paste bug in
-// the provider package, so failing fast is preferable.
+// RegisterModel adds m to the registry. Duplicate IDs panic.
 func (r *ModelRegistry) RegisterModel(m ModelDescriptor) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -108,14 +95,12 @@ func (r *ModelRegistry) RegisterModel(m ModelDescriptor) {
 }
 
 // MustRegisterModel is the panic-on-duplicate convenience wrapper used
-// from init() blocks. Functionally identical to RegisterModel.
+// from init() blocks.
 func (r *ModelRegistry) MustRegisterModel(m ModelDescriptor) {
 	r.RegisterModel(m)
 }
 
-// Get returns the model descriptor for id and whether it exists. Returns
-// the zero ModelDescriptor and false for unknown IDs; callers decide
-// whether to treat misses as errors.
+// Get returns the model descriptor for id and whether it exists.
 func (r *ModelRegistry) Get(id string) (ModelDescriptor, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -124,9 +109,7 @@ func (r *ModelRegistry) Get(id string) (ModelDescriptor, bool) {
 }
 
 // ListByProvider returns every model registered against the given
-// provider name, in registration order. Unknown provider returns nil so
-// callers can distinguish "no such provider" from "provider with no
-// models registered".
+// provider name, in registration order.
 func (r *ModelRegistry) ListByProvider(name string) []ModelDescriptor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -141,7 +124,7 @@ func (r *ModelRegistry) ListByProvider(name string) []ModelDescriptor {
 	return out
 }
 
-// All returns every registered model. Order is not specified.
+// All returns every registered model; order is not specified.
 func (r *ModelRegistry) All() []ModelDescriptor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

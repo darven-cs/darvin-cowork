@@ -10,40 +10,21 @@ import (
 
 // ProviderFactory builds a ModelProvider from a ProviderConfig. Provider
 // packages register a factory in their init() so the llm package can
-// dispatch by name without importing each provider (which would create an
-// import cycle).
+// dispatch by name without importing each provider.
 type ProviderFactory func(cfg ProviderConfig) (ModelProvider, error)
 
-// ProviderConfig carries the credentials and endpoints needed to construct
-// a provider instance. Each field is optional except APIKey (which the
-// Anthropic / OpenAI / Gemini providers all require).
+// ProviderConfig carries credentials and endpoints for a provider.
 type ProviderConfig struct {
-	// APIKey is the provider-issued key. For Anthropic it goes in the
-	// x-api-key header; for OpenAI / Gemini it goes in Authorization /
-	// x-goog-api-key respectively.
-	APIKey string
-
-	// BaseURL overrides the provider's default endpoint. Useful for
-	// proxies and self-hosted gateways. Leave empty for production.
-	BaseURL string
-
-	// Extra is an opaque bag of provider-specific tuning knobs.
-	Extra map[string]any
-
-	// Logger is the optional logger to use for debug / warn lines. Nil is
-	// allowed and disables logging.
-	Logger Logger
+	APIKey   string
+	BaseURL  string
+	Extra    map[string]any
+	Logger   Logger
 }
 
 // Sentinel errors returned by NewProvider.
 var (
-	// ErrUnknownProvider is returned when the requested provider name has
-	// no registered implementation in this build.
 	ErrUnknownProvider = errors.New("llm: unknown provider")
-
-	// ErrMissingAPIKey is returned when the constructed config has no
-	// APIKey. Providers never issue requests with an empty key.
-	ErrMissingAPIKey = errors.New("llm: missing API key")
+	ErrMissingAPIKey   = errors.New("llm: missing API key")
 )
 
 var (
@@ -51,13 +32,9 @@ var (
 	registry   = map[string]ProviderFactory{}
 )
 
-// RegisterProvider makes a provider available under the given name. It is
-// intended to be called from provider packages' init() functions so the
-// set of supported providers expands by simply importing them.
-//
-// Registering the same name twice is a programmer error and panics —
-// duplicate names typically indicate a copy/paste bug in the provider
-// package.
+// RegisterProvider makes a provider available under the given name.
+// Intended to be called from provider packages' init(); duplicate names
+// panic.
 func RegisterProvider(name string, factory ProviderFactory) {
 	if name == "" {
 		panic("llm: RegisterProvider called with empty name")
@@ -74,7 +51,6 @@ func RegisterProvider(name string, factory ProviderFactory) {
 }
 
 // RegisteredProviders returns the sorted list of registered provider names.
-// Useful for diagnostics and /config dump endpoints.
 func RegisteredProviders() []string {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
@@ -86,12 +62,7 @@ func RegisteredProviders() []string {
 	return out
 }
 
-// NewProvider constructs a ModelProvider by name.
-//
-// The set of recognised names is determined by which provider packages
-// have been imported (and therefore called RegisterProvider from init()).
-// NewProvider does not perform network I/O; it only validates the
-// configuration and dispatches to the registered factory.
+// NewProvider constructs a ModelProvider by name (no network I/O).
 func NewProvider(ctx context.Context, name string, cfg ProviderConfig) (ModelProvider, error) {
 	registryMu.RLock()
 	factory, ok := registry[name]

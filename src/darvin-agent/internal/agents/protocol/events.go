@@ -1,76 +1,55 @@
 package protocol
 
 // StreamEvent is the unified streaming event emitted by every provider.
-//
-// The set of concrete event types is intentionally small. Providers translate
-// their native SSE / WebSocket frames into these shapes; the Agent loop
-// consumes them with a type switch and never touches provider vocabulary.
 type StreamEvent interface {
-	// isStreamEvent keeps the type closed to this package.
 	isStreamEvent()
 }
 
-// StartEvent marks the beginning of a streaming response.
-// Partial carries the initial AssistantMessage scaffold (model id, empty
-// content blocks) so the UI can render placeholders immediately.
+// StartEvent marks the start of a streaming response.
 type StartEvent struct {
 	Partial AssistantMessage
 }
 
-// AssistantMessage is the minimal assistant snapshot carried inside
-// StartEvent / partial event payloads. It is provider-agnostic and only
-// carries what the UI / Agent loop needs to render incrementally.
+// AssistantMessage is the minimal snapshot carried in StartEvent.
 type AssistantMessage struct {
 	Model string
 }
 
 // TextDeltaEvent carries an incremental chunk of assistant text.
-// Multiple TextDeltaEvents concatenate into the final assistant message.
 type TextDeltaEvent struct {
 	Delta string
 }
 
-// ThinkingDeltaEvent carries an incremental chunk of the model's
-// extended-thinking output, kept separate from TextDeltaEvent so the UI
-// can render it in a collapsed panel. Providers do not emit it yet.
+// ThinkingDeltaEvent carries an incremental chunk of extended-thinking output.
 type ThinkingDeltaEvent struct {
 	Delta string
 }
 
-// ToolCallStartEvent signals the beginning of a tool invocation.
-// The provider guarantees that a matching ToolCallEndEvent with the same
-// ID will follow (or an ErrorEvent terminating the stream).
+// ToolCallStartEvent signals the start of a tool invocation.
 type ToolCallStartEvent struct {
 	ID   string
 	Name string
 }
 
-// ToolCallDeltaEvent carries a fragment of the tool call's argument JSON.
-// Concatenated in arrival order, these reproduce the full argument payload.
+// ToolCallDeltaEvent carries a fragment of tool-call argument JSON.
 type ToolCallDeltaEvent struct {
 	ID    string
 	Delta string
 }
 
-// ToolCallEndEvent signals the completion of a tool invocation.
-// Arguments is already parsed from the concatenated delta JSON.
+// ToolCallEndEvent signals completion of a tool invocation.
 type ToolCallEndEvent struct {
 	ID        string
 	Name      string
 	Arguments map[string]any
 }
 
-// DoneEvent marks the successful end of the stream. The embedded
-// CompletionResponse contains the cumulative usage and final finish reason.
-//
-// DoneEvent is always the last event on the channel for a successful run.
+// DoneEvent marks the successful end of the stream.
 type DoneEvent struct {
 	Response CompletionResponse
 }
 
-// ErrorEvent signals an unrecoverable failure during streaming.
-// The channel is closed immediately after ErrorEvent; callers should check
-// StreamingResponse.Err() to retrieve the error after the channel drains.
+// ErrorEvent signals an unrecoverable failure; the channel closes after.
 type ErrorEvent struct {
 	Err error
 }
