@@ -1,43 +1,22 @@
-// Package tooldridge adapts darvin-cowork's existing protocol.ToolRegistry
-// to the harness-facing Surface shape and chains ResultMiddleware that
-// normalises tool output before it reaches the LLM.
-//
-// The package has two roles and keeps them separate on purpose:
-//
-//   - Bridge / Surface is the read side: harnesses ask "what tools are
-//     available?" without reaching into internal/agents/protocol.
-//   - ResultMiddleware is the write side: a Result goes through the chain
-//     before the executor forwards it on. middleware are pure functions;
-//     they do not observe or mutate the registry.
-//
-// The bridge never holds state of its own; it is a thin adapter around a
-// protocol.ToolRegistry the wiring layer passes in.
+// Package tooldridge adapts protocol.ToolRegistry to the harness-facing
+// Surface shape and chains ResultMiddleware that normalises tool output.
+// The bridge never holds state of its own.
 package tooldridge
 
 import (
 	"darvin-cowork/backend/internal/agents/protocol"
 )
 
-// ResultMiddleware is a pure function that transforms a tool result before
-// it is returned to the caller. Chained middleware compose right-to-left:
-// the last-added middleware sees the result first.
+// ResultMiddleware transforms a tool result before it is returned to
+// the caller. Chained middleware compose right-to-left.
 type ResultMiddleware func(protocol.Result) protocol.Result
 
 // Surface is the harness-facing view of the tool registry.
 type Surface interface {
-	// Specs returns the tool specs the LLM sees. Surface is the harness's
-	// only way to enumerate available tools without importing
-	// internal/agents/protocol.
 	Specs() []protocol.ToolSpec
-	// Names lists the registered tool names. Used by status / debug.
 	Names() []string
-	// GetEntry fetches one tool's metadata. The second return is false when
-	// the tool does not exist.
 	GetEntry(name string) (*protocol.Entry, bool)
-	// WithMiddleware returns a new Surface with the additional middleware
-	// appended to the existing chain. The receiver is not modified.
 	WithMiddleware(mw ...ResultMiddleware) Surface
-	// ApplyMiddleware runs the chain against one result.
 	ApplyMiddleware(r protocol.Result) protocol.Result
 }
 
@@ -60,8 +39,7 @@ func (b *bridge) Names() []string {
 }
 
 func (b *bridge) GetEntry(name string) (*protocol.Entry, bool) {
-	entry, ok := b.reg.GetEntry(name)
-	return entry, ok
+	return b.reg.GetEntry(name)
 }
 
 func (b *bridge) WithMiddleware(mw ...ResultMiddleware) Surface {
@@ -79,8 +57,7 @@ func (b *bridge) ApplyMiddleware(r protocol.Result) protocol.Result {
 	return cur
 }
 
-// Apply is a convenience helper for callers that hold a Surface but do not
-// want to type-assert the interface to its ApplyMiddleware method.
+// Apply is a convenience helper for callers that hold a Surface.
 func Apply(s Surface, r protocol.Result) protocol.Result {
 	if s == nil {
 		return r
