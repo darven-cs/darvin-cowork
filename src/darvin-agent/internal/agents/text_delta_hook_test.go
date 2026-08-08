@@ -41,7 +41,7 @@ func newTextDeltaHookStore(t *testing.T) *store.SQLiteMessageStore {
 	if err != nil {
 		t.Fatalf("gorm.Open: %v", err)
 	}
-	if err := db.AutoMigrate(&store.Session{}, &store.Message{}, &store.CompactionCheckpoint{}, &store.SkillSnapshot{}, &store.AppState{}); err != nil {
+	if err := db.AutoMigrate(&store.Session{}, &store.Message{}, &store.SessionDigest{}, &store.SkillSnapshot{}, &store.AppState{}); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
 	return store.NewSQLiteMessageStore(db)

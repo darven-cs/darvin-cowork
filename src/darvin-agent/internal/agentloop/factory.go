@@ -13,6 +13,7 @@ import (
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/memory"
 	"darvin-cowork/backend/internal/tools"
 )
 
@@ -28,6 +29,7 @@ type AgentFactory struct {
 	Store        store.SessionStore
 	MessageStore store.MessageStore
 	UsageStore   store.UsageStore
+	DigestStore  store.DigestStore
 	Logger       *zap.Logger
 	Config       agent.Config
 	Tools        *tool.Registry
@@ -42,6 +44,15 @@ type AgentFactory struct {
 	// 决定是否构造默认 Assembler,前者决定 executor 是否走 assembler
 	// 路径。factory 不替调用方合并这两条,各自由调用方决定。
 	AssemblerEnabled bool
+
+	// Memory feeds ctxengine.Deps.MemoryFacts; nil disables the MEMORY
+	// block (FR-12 graceful degrade).
+	Memory *memory.Manager
+	// WorkspaceBootstrap feeds ctxengine.Deps.MemoryBootstrap; nil
+	// means no IDENTITY/SOUL/USER blocks. Must be the workspace-level
+	// singleton so bootstrap.write invalidation propagates to every
+	// session.
+	WorkspaceBootstrap agent.BootstrapReader
 
 	// HarnessID pins a specific harness by id. An empty
 	// value defers to harness.SelectHarness at NewAgentLoopSession time.
@@ -124,19 +135,22 @@ func (f *AgentFactory) resolveHarnessFor(a *agent.Agent) (harness.Harness, error
 // 应用 Plugins,插件注册失败只记 warn,不阻塞 agent 可用。
 func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
 	a, err := agent.New(agent.NewAgentConfig{
-		Name:             f.Name,
-		Instructions:     f.Instructions,
-		Model:            f.Model,
-		Provider:         f.Provider,
-		Session:          session.NewSession(sessionID),
-		Store:            f.Store,
-		MessageStore:     f.MessageStore,
-		UsageStore:       f.UsageStore,
-		Logger:           f.Logger,
-		Config:           f.Config,
-		Tools:            f.Tools,
-		Assembler:        f.Assembler,
-		AssemblerEnabled: f.AssemblerEnabled,
+		Name:              f.Name,
+		Instructions:      f.Instructions,
+		Model:             f.Model,
+		Provider:          f.Provider,
+		Session:           session.NewSession(sessionID),
+		Store:             f.Store,
+		MessageStore:      f.MessageStore,
+		UsageStore:        f.UsageStore,
+		Logger:            f.Logger,
+		Config:            f.Config,
+		Tools:             f.Tools,
+		Assembler:         f.Assembler,
+		AssemblerEnabled:  f.AssemblerEnabled,
+		Memory:            f.Memory,
+		WorkspaceBootstrap: f.WorkspaceBootstrap,
+		DigestStore:       f.DigestStore,
 	})
 	if err != nil {
 		return nil, err

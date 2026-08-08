@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,9 +21,10 @@ import (
 // sequence of stream events. The script is consumed once per Stream call;
 // multiple Stream calls replay the same script.
 type scriptedProvider struct {
-	mu     sync.Mutex
-	script [][]llm.StreamEvent // outer = per-call; inner = events of one call
-	calls  int
+	mu      sync.Mutex
+	script  [][]llm.StreamEvent // outer = per-call; inner = events of one call
+	calls   int
+	gotReqs []*llm.CompletionRequest // most-recent first
 }
 
 func (s *scriptedProvider) Name() string { return "scripted" }
@@ -31,21 +33,23 @@ func (s *scriptedProvider) Complete(_ context.Context, _ *llm.CompletionRequest)
 	return nil, errors.New("not implemented")
 }
 
-func (s *scriptedProvider) Stream(_ context.Context, _ *llm.CompletionRequest) (*llm.StreamingResponse, error) {
+func (s *scriptedProvider) Stream(_ context.Context, req *llm.CompletionRequest) (*llm.StreamingResponse, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	idx := s.calls
 	s.calls++
+	s.gotReqs = append(s.gotReqs, req)
 	if idx >= len(s.script) {
 		idx = len(s.script) - 1
 	}
-	events := make(chan llm.StreamEvent, len(s.script[idx])+1)
-	for _, ev := range s.script[idx] {
+	evs := append([]llm.StreamEvent(nil), s.script[idx]...)
+	s.mu.Unlock()
+
+	events := make(chan llm.StreamEvent, len(evs)+1)
+	for _, ev := range evs {
 		events <- ev
 	}
 	close(events)
-	sr := llm.NewStreamingResponse(events, nil)
-	return sr, nil
+	return llm.NewStreamingResponse(events, nil), nil
 }
 
 // scriptedStreamErrProvider fails immediately with a given setup error.
@@ -68,24 +72,19 @@ type fakeDeps struct {
 	cfg          Config
 	bus          *event.Bus
 
-	// ContextEngine seam (executor.Deps extension).
-	// The default zero values (nil / false / nil / "") reproduce the
-	// legacy behaviour: assembler disabled, fallback path taken, no API
-	// usage to share with the assembler.
 	assemblerEnabled bool
 	assembler        ctxengine.ContextEngine
 	lastUsage        llm.Usage
 
-	// messageID is read via CurrentMessageID; tests inject one to assert
-	// the executor tags every emitted event with the right MessageID.
 	messageID string
-	// runID is read via CurrentRunID; tests inject one to assert the
-	// executor tags every emitted event with the right RunID.
-	runID string
+	runID     string
 
-	// transform is the optional tool result normaliser. Default nil so
-	// existing tests follow the legacy behaviour.
 	transform func(protocol.Result) protocol.Result
+
+	// persistCalls records PersistCompaction invocations for tests
+	// that exercise the auto-compact path.
+	persistCalls int32
+	lastCompact  ctxengine.CompactResult
 }
 
 // injectAssembler wires a non-nil ContextEngine into the fakeDeps so the
@@ -109,6 +108,11 @@ func (f *fakeDeps) Assembler() ctxengine.ContextEngine {
 }
 func (f *fakeDeps) SystemSections() []ctxengine.SystemSection { return nil }
 func (f *fakeDeps) AssemblerEnabled() bool                    { return f.assemblerEnabled }
+func (f *fakeDeps) PersistCompaction(_ context.Context, res ctxengine.CompactResult) error {
+	atomic.AddInt32(&f.persistCalls, 1)
+	f.lastCompact = res
+	return nil
+}
 func (f *fakeDeps) RecordUsage(u llm.Usage, _ string)        { f.lastUsage = u }
 func (f *fakeDeps) LastUsage() llm.Usage                      { return f.lastUsage }
 func (f *fakeDeps) CurrentMessageID() string                  { return f.messageID }

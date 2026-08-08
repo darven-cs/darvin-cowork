@@ -24,7 +24,7 @@ func newTestSQLiteStore(t *testing.T) *SQLiteStore {
 	if err != nil {
 		t.Fatalf("gorm.Open: %v", err)
 	}
-	if err := db.AutoMigrate(&Session{}, &Message{}, &CompactionCheckpoint{}, &SkillSnapshot{}, &AppState{}); err != nil {
+	if err := db.AutoMigrate(&Session{}, &Message{}, &SessionDigest{}, &SkillSnapshot{}, &AppState{}); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
 	return NewSQLiteStore(db)

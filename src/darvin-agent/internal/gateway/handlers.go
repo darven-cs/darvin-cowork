@@ -269,6 +269,9 @@ type HandlerOptions struct {
 	// UsageStore 支撑 agent.get_session_usage / session 级 cascade
 	// delete。nil 时 get_session_usage 返零值 Usage、delete 不级联删。
 	UsageStore *store.SQLiteUsageStore
+	// DigestStore 支撑 session_digests 写入 / 级联删除。nil 时
+	// runManualCompact 不落 digest,handleDeleteSession 不级联。
+	DigestStore store.DigestStore
 	// Mcp 是 MCP server registry。由 main.go 注入。
 	Mcp *mcp.Registry
 	// Log 是 skills handler 的日志出口;nil 时 handler 不打 warn。
@@ -283,6 +286,9 @@ type Handler struct {
 	// UsageStore 支撑 agent.get_session_usage;Run 末尾落库 / 切换会话时
 	// 读快照。nil 时 handler 返回空 Usage 对象(renderer 走空态分支)。
 	UsageStore store.UsageStore
+	// DigestStore 支撑 runManualCompact 落 digest + handleDeleteSession
+	// 级联删。nil 时两条路径都降级为空操作。
+	DigestStore store.DigestStore
 	// AppState 承载 active_session_id 持久化(get/set_active_session 与
 	// create_session / delete_session 的 active 推进)。nil 时 get_active
 	// 返 null、set/create 只做内存侧行为。
@@ -331,6 +337,7 @@ func NewHandler(
 		SessionStore:  sessStore,
 		MessageStore:  msgStore,
 		UsageStore:    o.UsageStore,
+		DigestStore:   o.DigestStore,
 		AppState:      appState,
 		ImportedFiles:   o.ImportedFiles,
 		WorkspaceRoot:   o.WorkspaceRoot,
@@ -538,6 +545,11 @@ func runManualCompact(a *agent.Agent, sessionID string) {
 		return
 	}
 	a.Session().ReplaceAll(res.RetainedMessages)
+	if persistErr := a.PersistCompaction(ctx, res); persistErr != nil && ctx.Err() == nil {
+		// Already logged by PersistCompaction; the live slice is in
+		// place, only the digest row failed to land.
+		_ = persistErr
+	}
 	a.Emit(event.CompactionEvent{
 		EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: sessionID}},
 		Before:    res.TokensBefore,
@@ -928,6 +940,14 @@ func handleDeleteSession(ctx context.Context, id json.RawMessage, params json.Ra
 	if h.UsageStore != nil {
 		if err := h.UsageStore.DeleteBySession(ctx, p.SessionID); err != nil {
 			return errorResp(id, CodeInternalError, "session usage delete", err)
+		}
+	}
+
+	// 级联删除 session_digests 行,避免 hydrate 时读到孤儿 digest
+	// 把会话重放到别的 session_id 上。
+	if h.DigestStore != nil {
+		if err := h.DigestStore.DeleteBySession(ctx, p.SessionID); err != nil {
+			return errorResp(id, CodeInternalError, "session digests delete", err)
 		}
 	}
 

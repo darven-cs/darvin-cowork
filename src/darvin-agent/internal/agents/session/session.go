@@ -137,6 +137,8 @@ func cloneMessage(m protocol.Message) protocol.Message {
 		Role:       m.Role,
 		Content:    m.Content,
 		ToolCallID: m.ToolCallID,
+		ID:         m.ID,
+		Timestamp:  m.Timestamp,
 	}
 	if len(m.ToolCalls) > 0 {
 		out.ToolCalls = make([]protocol.ToolCall, len(m.ToolCalls))

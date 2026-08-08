@@ -112,7 +112,13 @@ func (a *Agent) Run(ctx context.Context) error {
 			Content: msg.Content,
 			Mode:    event.Mode(mode),
 		})
-		a.session.Append(protocol.Message{Role: protocol.RoleUser, Content: msg.Content, Images: toLLMImages(msg.Images)})
+		a.session.Append(protocol.Message{
+			Role:      protocol.RoleUser,
+			Content:   msg.Content,
+			Images:    toLLMImages(msg.Images),
+			ID:        runUserMsgID,
+			Timestamp: time.Now().UnixMilli(),
+		})
 		// Hook 1 of 3: persist the user message before the LLM call so a
 		// crash mid-Run still leaves the question in sessions.db. The row is
 		// keyed by runUserMsgID (not runMsgID) so persistAssistantMessages

@@ -129,6 +129,10 @@ type Deps interface {
 	// <available_skills> / <available_mcp> blocks.
 	SkillSummaries() []ctxengine.SkillSummary
 	McpServers() []ctxengine.MCPServerInfo
+
+	// PersistCompaction records a compaction digest. Called after
+	// auto-compact persists the compacted slice to the live session.
+	PersistCompaction(ctx context.Context, res ctxengine.CompactResult) error
 }
 
 // Executor runs one "user message -> possibly many turns -> natural stop"
@@ -171,6 +175,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		//    d.Session().Messages() path when the assembler is not wired or
 		//    explicitly disabled).
 		var messages []protocol.Message
+		var systemAddition string
 		assemblerEnabled := d.Assembler() != nil && d.AssemblerEnabled()
 		if !assemblerEnabled {
 			messages = d.Session().Messages()
@@ -185,6 +190,26 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 				MCPServers:      d.McpServers(),
 			})
 			messages = assembled.Messages
+			systemAddition = assembled.SystemAddition
+			if assembled.Stats.CompactionTriggered {
+				d.Session().ReplaceAll(messages)
+				// Persist failures are warn-and-continue — the live
+				// slice is already in place, only the digest row
+				// failed to land.
+				_ = d.PersistCompaction(ctx, ctxengine.CompactResult{
+					Success:            true,
+					Summary:            assembled.CompactSummary,
+					TokensAfter:        assembled.EstimatedTokens,
+					FirstKeptID:        assembled.FirstKeptID,
+					FirstKeptTimestamp: assembled.FirstKeptTimestamp,
+					Reason:             "budget_exceeded",
+					Checkpoint: &ctxengine.CheckPoint{
+						ID:         "auto-" + assembled.FirstKeptID,
+						CapturedAt: time.Now(),
+						Snapshot:   messages,
+					},
+				})
+			}
 		}
 
 		// 2. LLM call
@@ -192,12 +217,19 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 			EventBase: event.EventBase{EventCommon: ec()},
 			Model:     d.ModelName(),
 		})
+		// System = Instructions() + SystemAddition. Both must reach
+		// the LLM; sending Instructions() alone silently drops
+		// bootstrap / skill / memory blocks.
+		system := d.Instructions()
+		if systemAddition != "" {
+			system += "\n\n" + systemAddition
+		}
 		req := &protocol.CompletionRequest{
 			Model:      d.ModelName(),
 			Messages:   messages,
 			Tools:      d.Tools().Specs(),
 			ToolChoice: protocol.ToolChoice{Type: "auto"},
-			System:     d.Instructions(),
+			System:     system,
 			Stream:     true,
 			MaxTokens:  4096,
 		}
@@ -212,7 +244,13 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		turnUsage, streamErr := drainStream(ctx, d, ec, stream, &text, &toolCalls)
 		if streamErr != nil {
 			if streamErr == context.Canceled || ctx.Err() != nil {
-				assistant := protocol.Message{Role: protocol.RoleAssistant, Content: text, ToolCalls: toolCalls}
+				assistant := protocol.Message{
+					Role:      protocol.RoleAssistant,
+					Content:   text,
+					ToolCalls: toolCalls,
+					ID:        d.CurrentMessageID(),
+					Timestamp: time.Now().UnixMilli(),
+				}
 				d.Session().Append(assistant)
 				d.Emit(event.TurnEndEvent{
 					EventBase:  event.EventBase{EventCommon: ec()},
@@ -232,7 +270,13 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 		totalUsage.PromptTokens += turnUsage.PromptTokens
 		totalUsage.CompletionTokens += turnUsage.CompletionTokens
 		totalUsage.TotalTokens += turnUsage.TotalTokens
-		assistant := protocol.Message{Role: protocol.RoleAssistant, Content: text, ToolCalls: toolCalls}
+		assistant := protocol.Message{
+			Role:      protocol.RoleAssistant,
+			Content:   text,
+			ToolCalls: toolCalls,
+			ID:        d.CurrentMessageID(),
+			Timestamp: time.Now().UnixMilli(),
+		}
 		d.Emit(event.LLMEndEvent{
 			EventBase: event.EventBase{EventCommon: ec()},
 			Assistant: assistant,
@@ -267,6 +311,7 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 				Role:       protocol.RoleTool,
 				Content:    results[i].Content,
 				ToolCallID: tc.ID,
+				Timestamp:  time.Now().UnixMilli(),
 			})
 		}
 		d.Emit(event.TurnEndEvent{

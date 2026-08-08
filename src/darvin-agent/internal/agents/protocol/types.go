@@ -32,6 +32,16 @@ type Message struct {
 	// ToolCallID is populated on tool messages to reference the
 	// originating ToolCall.ID.
 	ToolCallID string
+
+	// ID is the persistence-bound identifier minted when the dispatcher
+	// appends the message (msgID + "-" + index). Empty for transient
+	// messages that never reach the store; hydrate / compact boundary
+	// matching treats empty as "no anchor" and falls back to Timestamp.
+	ID string
+
+	// Timestamp is the unix-ms time the dispatcher appended the message.
+	// Falls back to the boundary match when an older row lacks ID.
+	Timestamp int64
 }
 
 // ImageBlock is a base64-encoded image sent to the provider as an image
