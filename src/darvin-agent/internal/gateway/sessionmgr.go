@@ -1,10 +1,9 @@
-// Package gateway: per-session state index for the gateway.
-// SessionManager holds an in-memory session id → *SessionEntry map;
-// persistence lives in agent/store and this package only carries the
-// "which sessions are currently active" view. Each entry lazily
-// builds AgentLoopSession on the first prompt; the subscribe path
-// only builds the SessionEntry so subscribing to historical sessions
-// from the renderer does not spin up 5000 Agents.
+// Package gateway: per-session state index. SessionManager holds an
+// in-memory session id → *SessionEntry map; persistence lives in
+// agent/store and this package only tracks "which sessions are active".
+// Entries lazily build AgentLoopSession on the first prompt; the
+// subscribe path builds only the SessionEntry so subscribing to
+// historical sessions does not spin up an Agent per session.
 package gateway
 
 import (
@@ -25,32 +24,25 @@ const (
 	sessionIDLen    = 21
 	sessionAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
-	// DefaultSessionID is the special id kept for compatibility /
-	// migration. The renderer may still send prompt / subscribe with
-	// this id; GetOrCreateEntry takes the unknown-id branch and the
-	// code path is identical to any other new id.
+	// DefaultSessionID is the compatibility / migration id.
 	DefaultSessionID = "default"
 
-	// DefaultMaxSessions is the soft cap for SessionManager. When
-	// exceeded we first reap / evict idle entries; only when every
-	// entry is an active run do we return ErrSessionsLimit.
+	// DefaultMaxSessions is the soft cap; we reap / evict idle entries
+	// first and return ErrSessionsLimit only when every entry is active.
 	DefaultMaxSessions = 5000
 
-	// DefaultIdleTTL is the maximum lifetime of an idle entry in
-	// memory.
+	// DefaultIdleTTL is the max lifetime of an idle in-memory entry.
 	DefaultIdleTTL = 24 * time.Hour
 
-	// DefaultStopWindow is the refusal window after Stop: prompts
-	// for the same session inside the window return ErrSessionStalled.
+	// DefaultStopWindow is the refusal window after Stop (prompts inside
+	// it return ErrSessionStalled).
 	DefaultStopWindow = 1000 * time.Millisecond
 )
 
-// SessionEntry is the per-session state held by SessionManager. Its
-// fields are protected by SessionManager's mutex; handlers do not
-// write them directly.
-//
-// AgentLoop is lazily built on the first prompt; an entry without
-// AgentLoop can only be subscribed to, not submitted to / stopped.
+// SessionEntry is the per-session state held by SessionManager; fields
+// are mutex-protected, handlers do not write them directly. AgentLoop
+// is lazily built on the first prompt; an entry without it can only be
+// subscribed to, not submitted to / stopped.
 type SessionEntry struct {
 	Session   *session.Session
 	AgentLoop *agentloop.AgentLoopSession
@@ -58,26 +50,23 @@ type SessionEntry struct {
 	lastTouchedMs  int64
 	stoppedUntilMs int64
 
-	// cancel triggers the background goroutine watching ctx to call
-	// AgentLoopSession.Loop.Close — see attachAgentLoopLocked. The
-	// evict path uses it.
+	// cancel triggers the background goroutine that calls
+	// AgentLoopSession.Loop.Close (see attachAgentLoopLocked).
 	cancel context.CancelFunc
 
 	idleElem *list.Element
 }
 
 var (
-	// ErrSessionsLimit is returned by GetOrCreateEntry when the cap
-	// is full and no idle entry can be evicted. We do not interrupt
-	// an active run to make room.
+	// ErrSessionsLimit: cap full and no idle entry evictable — we do not
+	// interrupt an active run to make room.
 	ErrSessionsLimit = errors.New("sessionmgr: sessions limit reached")
 
-	// ErrSessionNotFound is returned by Stop for an unknown sessionID.
+	// ErrSessionNotFound: Stop for an unknown sessionID.
 	ErrSessionNotFound = errors.New("sessionmgr: session not found")
 
-	// ErrRunMismatch is returned by Stop when runId does not match the
-	// current active run, or when the session has not built an
-	// AgentLoopSession yet. Stop is a no-op in both cases.
+	// ErrRunMismatch: Stop's runId does not match the active run, or the
+	// session has no AgentLoopSession yet. Stop is a no-op in both cases.
 	ErrRunMismatch = errors.New("sessionmgr: run id mismatch")
 
 	// ErrSessionStalled is returned when a prompt lands inside the
@@ -126,9 +115,8 @@ func WithEventLedger(l *EventLedger) SessionManagerOption {
 	return func(m *SessionManager) { m.ledger = l }
 }
 
-// NewSessionManager constructs an empty manager without pre-seeding the
-// default session. The renderer can still send prompt with
-// DefaultSessionID; GetOrCreateEntry takes the unknown-id path.
+// NewSessionManager constructs an empty manager (no pre-seeded default
+// session); prompt with DefaultSessionID takes the unknown-id path.
 func NewSessionManager(opts ...SessionManagerOption) *SessionManager {
 	m := &SessionManager{
 		byID:        make(map[string]*SessionEntry),
@@ -148,16 +136,13 @@ func NewSessionManager(opts ...SessionManagerOption) *SessionManager {
 // DefaultID returns DefaultSessionID.
 func (m *SessionManager) DefaultID() string { return DefaultSessionID }
 
-// MintSessionID returns a fresh session id (21-char nanoid, same
-// generator as the other ids). agent.create_session uses it.
+// MintSessionID returns a fresh 21-char nanoid (agent.create_session).
 func (m *SessionManager) MintSessionID() string { return m.idGen() }
 
-// Remove detaches a session from SessionManager: when an
-// AgentLoopSession is present we first Abort the in-flight run, then
-// cancel to trigger Close (DeltaHook + Loop), and finally delete the
-// byID / LRU entries. Unlike evictLocked, Remove does not skip active
-// runs — the delete semantics are precisely to force-end. Unknown id
-// returns ErrSessionNotFound.
+// Remove detaches a session: Abort the in-flight run, cancel to trigger
+// Close (DeltaHook + Loop), then delete byID / LRU. Unlike evictLocked,
+// Remove force-ends active runs (delete semantics). Unknown id →
+// ErrSessionNotFound.
 func (m *SessionManager) Remove(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -180,9 +165,8 @@ func (m *SessionManager) Remove(id string) error {
 	return nil
 }
 
-// Has reports whether id has been seen by SessionManager. The
-// subscribe handler uses it to fail fast on unknown ids before
-// touching the ledger.
+// Has reports whether id has been seen; the subscribe handler fails
+// fast on unknown ids before touching the ledger.
 func (m *SessionManager) Has(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -190,11 +174,9 @@ func (m *SessionManager) Has(id string) bool {
 	return ok
 }
 
-// RefreshAllTools re-runs the factory plugin step
-// (Unregister + Register) for every agent with an already-built
-// AgentLoopSession, so the tool surface tracks skill / mcp state
-// changes. Silently skips when factory is nil or a plugin step fails.
-// Returns the count of sessions refreshed.
+// RefreshAllTools re-runs the factory plugin step (Unregister + Register)
+// for every agent with an already-built AgentLoopSession so the tool
+// surface tracks skill / mcp changes. Returns the count refreshed.
 func (m *SessionManager) RefreshAllTools() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -224,16 +206,11 @@ func (m *SessionManager) RefreshAllTools() int {
 
 // GetOrCreateEntry returns the SessionEntry for id, creating it (and
 // lazily building AgentLoopSession when factory is wired) for unknown
-// ids.
-//
-// On a hit we first check stoppedUntilMs (return ErrSessionStalled
-// when inside the window), then refresh lastTouchedMs and bump the
-// entry to the head of the LRU. When subscribe has pre-created an
-// empty AgentLoop entry ahead of prompt, the first prompt triggers the
-// lazy AgentLoopSession build. On lazy-build failure we roll back
-// byID + LRU so a half-built entry cannot stall the next retry.
-// When the cap is full and every entry is an active run we return
-// ErrSessionsLimit — we never interrupt an active run.
+// ids. On a hit it checks stoppedUntilMs (ErrSessionStalled), refreshes
+// lastTouchedMs, bumps the LRU head, and lazily builds AgentLoop if
+// subscribe pre-created an empty entry. Lazy-build failure rolls back
+// byID + LRU so a half-built entry cannot stall the next retry; a full
+// cap of active runs returns ErrSessionsLimit (never interrupts a run).
 func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -264,14 +241,10 @@ func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {
 	return e, nil
 }
 
-// EnsureEntry returns the SessionEntry for id; for unknown ids it
-// only creates the SessionEntry without triggering the lazy
-// AgentLoopSession build. The subscribe handler uses it so subscribing
-// to historical sessions from the renderer does not spin up 5000
-// Agents / Loops / subscriptions.
-//
-// stoppedUntilMs / LRU / maxSessions behaviour is identical to
-// GetOrCreateEntry.
+// EnsureEntry returns the SessionEntry for id, creating it WITHOUT the
+// lazy AgentLoopSession build (the subscribe handler uses it so
+// subscribing to historical sessions does not spin up an Agent per
+// session). stoppedUntilMs / LRU / maxSessions match GetOrCreateEntry.
 func (m *SessionManager) EnsureEntry(id string) (*SessionEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -314,9 +287,8 @@ func (m *SessionManager) createEntryLocked(id string) (*SessionEntry, error) {
 }
 
 // attachAgentLoopLocked calls factory.NewAgentLoopSession and attaches
-// the result to e; when ledger is wired, the event subscription is
-// attached in the same step. On failure we roll back byID + LRU.
-// Caller holds m.mu.
+// the result (plus the ledger subscription); on failure it rolls back
+// byID + LRU. Caller holds m.mu.
 func (m *SessionManager) attachAgentLoopLocked(e *SessionEntry) error {
 	agentLoopSess, err := m.factory.NewAgentLoopSession(e.Session.ID)
 	if err != nil {
@@ -330,9 +302,8 @@ func (m *SessionManager) attachAgentLoopLocked(e *SessionEntry) error {
 	e.AgentLoop = agentLoopSess
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
-	// Close will close the DeltaHook subscription + Loop (blocking until
-	// the run goroutine exits). Run it in the background so evict is
-	// not held up.
+	// Close blocks until the run goroutine exits; run in background so
+	// evict is not held up.
 	go func() {
 		<-ctx.Done()
 		agentLoopSess.Close()
@@ -358,7 +329,7 @@ func (m *SessionManager) CreateOrGet(id string) (*session.Session, string, error
 	return e.Session, m.idGen(), nil
 }
 
-// Get is the err-less twin of CreateOrGet.
+// Get is CreateOrGet without the error.
 func (m *SessionManager) Get(id string) (*session.Session, string) {
 	sess, msgID, _ := m.CreateOrGet(id)
 	return sess, msgID
@@ -366,13 +337,10 @@ func (m *SessionManager) Get(id string) (*session.Session, string) {
 
 // Stop aborts the turn matching (sessionID, runId).
 //
-//   - session unknown: ErrSessionNotFound
-//   - entry has no AgentLoopSession (subscribe preceded prompt): ErrRunMismatch
-//   - entry's Loop.Stop(runId) reports false (runId mismatch or currently idle): ErrRunMismatch
-//   - success: Loop.Stop internally cancels the in-flight turn, this
-//     method pushes stoppedUntilMs to now()+StopWindow, and
-//     GetOrCreateEntry returns ErrSessionStalled inside that window.
-//     推到 now()+StopWindow,GetOrCreateEntry 在该窗口内会返 ErrSessionStalled
+//   - session unknown → ErrSessionNotFound
+//   - no AgentLoopSession / Loop.Stop false → ErrRunMismatch
+//   - success: cancels the in-flight turn and pushes stoppedUntilMs to
+//     now()+StopWindow (prompts inside the window get ErrSessionStalled).
 func (m *SessionManager) Stop(sessionID, runId string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -391,28 +359,24 @@ func (m *SessionManager) Stop(sessionID, runId string) error {
 	return nil
 }
 
-// reapIdleSessions is the timer-driven entry point. It evicts (from
-// byID + LRU) entries whose TTL has expired and that have no active
-// run; entries inside the Stop window or still running are left
-// alone.
+// reapIdleSessions is the timer entry point; it evicts TTL-expired
+// entries without an active run, leaving running / Stop-window entries.
 func (m *SessionManager) reapIdleSessions() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.reapIdleLocked()
 }
 
-// Len returns the current entry count. For tests.
+// Len returns the current entry count (tests).
 func (m *SessionManager) Len() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.byID)
 }
 
-// reapIdleLocked walks the LRU from the tail, dropping entries whose
-// TTL has expired and that have no active run. It stops on the first
-// active or unexpired entry — the "demarcation" on the LRU means
-// younger entries sit behind it and can wait for the next pass.
-// Caller holds m.mu.
+// reapIdleLocked drops TTL-expired entries without an active run,
+// stopping at the first active / unexpired one (younger LRU entries
+// wait for the next pass). Caller holds m.mu.
 func (m *SessionManager) reapIdleLocked() {
 	cutoff := m.nowMs() - m.idleTtl.Milliseconds()
 	for {
@@ -432,10 +396,8 @@ func (m *SessionManager) reapIdleLocked() {
 	}
 }
 
-// evictLRULocked scans the LRU tail for an entry without an active
-// run to evict. When every entry is active it returns false; callers
-// interpret this as "cannot shrink right now" and bubble the
-// responsibility back up.
+// evictLRULocked scans the LRU tail for an entry without an active run
+// to evict; false when every entry is active (caller bubbles the cap).
 func (m *SessionManager) evictLRULocked() bool {
 	for elem := m.idleOrder.Back(); elem != nil; elem = elem.Prev() {
 		id := elem.Value.(string)
@@ -448,9 +410,7 @@ func (m *SessionManager) evictLRULocked() bool {
 	return false
 }
 
-// evictLocked removes id from byID + LRU. When the entry has an
-// active run it is a no-op — this is a defensive backstop; callers
-// should check the active-run state first.
+// evictLocked removes id from byID + LRU; an active run is a no-op.
 func (m *SessionManager) evictLocked(id string) {
 	e, ok := m.byID[id]
 	if !ok {
@@ -473,7 +433,7 @@ func (m *SessionManager) evictLocked(id string) {
 	}
 }
 
-// touchLRU moves e to the head of the LRU. Caller holds m.mu.
+// touchLRU moves e to the LRU head. Caller holds m.mu.
 func (m *SessionManager) touchLRU(e *SessionEntry) {
 	if e.idleElem != nil {
 		m.idleOrder.MoveToFront(e.idleElem)
