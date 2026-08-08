@@ -315,9 +315,8 @@ func (a *Agent) Session() *session.Session        { return a.session }
 func (a *Agent) Provider() protocol.ModelProvider { return a.provider }
 func (a *Agent) ModelName() string                { return a.model.Model }
 
-// Tools returns the active tool registry. During a skill mini loop it is
-// the skill's scoped registry so the executor only sees the skill's allowed
-// surface; otherwise it is the agent's full registry.
+// Tools returns the active tool registry — the skill's scoped registry
+// during a mini loop, the agent's full registry otherwise.
 func (a *Agent) Tools() protocol.ToolRegistry {
 	if a.runSkillTools != nil {
 		return a.runSkillTools
@@ -325,9 +324,8 @@ func (a *Agent) Tools() protocol.ToolRegistry {
 	return a.tools
 }
 
-// Instructions returns the system prompt. During a skill mini loop it is the
-// skill's SKILL.md body (self-contained); otherwise the agent instructions,
-// plus the transient imported-files note for the current prompt.
+// Instructions returns the system prompt: the skill's SKILL.md body
+// during a mini loop, else the agent instructions plus the imported-files note.
 func (a *Agent) Instructions() string {
 	if a.runSkillPrompt != "" {
 		return a.runSkillPrompt
@@ -347,19 +345,15 @@ func (a *Agent) Config() executor.Config {
 func (a *Agent) Logger() *zap.Logger { return a.logger }
 func (a *Agent) Emit(ev event.Event) { a.bus.Emit(ev) }
 
-// Assembler returns the ContextEngine wired into the Agent, or nil if none
-// has been configured. Combined with AssemblerEnabled, this lets the
-// executor opt in / out of assembler-driven prompt construction.
+// Assembler returns the wired ContextEngine (nil if unconfigured).
 func (a *Agent) Assembler() ctxengine.ContextEngine { return a.assembler }
 
-// SystemSections returns caller-supplied system prompt sections merged
-// into the assembler's output. Returns nil today (no caller-supplied
-// sections; SystemPromptAddition is covered via cfg → default assembler).
+// SystemSections returns caller-supplied system sections for the
+// assembler. Returns nil today (SystemPromptAddition is covered via cfg).
 func (a *Agent) SystemSections() []ctxengine.SystemSection { return nil }
 
 // AssemblerEnabled reports whether the host opted into the assembler
-// pipeline. Returning false forces the executor to take the legacy
-// d.Session().Messages() path.
+// pipeline; false forces the legacy d.Session().Messages() path.
 func (a *Agent) AssemblerEnabled() bool { return a.assemblerEnabled }
 
 // IsRunning reports whether Agent.Run is currently in progress. The gateway
