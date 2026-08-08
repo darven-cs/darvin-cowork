@@ -1,7 +1,6 @@
-// Package queue is the inbound message queue for an Agent. It exposes
-// two channels (prompt, steer) with a strict priority order
-// (steer > prompt) and a non-blocking Dequeue that respects ctx
-// cancellation.
+// Package queue is the Agent's inbound message queue: two channels
+// (prompt, steer) with strict priority (steer > prompt) and a
+// non-blocking Dequeue that respects ctx cancellation.
 package queue
 
 import (
@@ -11,8 +10,7 @@ import (
 	"darvin-cowork/backend/internal/agents/event"
 )
 
-// Mode is a type alias for event.Mode so callers can use queue.Mode
-// without importing the event package directly.
+// Mode is a type alias for event.Mode so callers use queue.Mode directly.
 type Mode = event.Mode
 
 const (
@@ -20,30 +18,25 @@ const (
 	ModeSteer  = event.ModeSteer
 )
 
-// ErrQueueFull is returned by Enqueue when the corresponding channel
-// buffer is full. Both prompt and steer use buffer 1 (rejected if
-// busy); the harness closure immediately enqueues + dequeues one
-// message per turn, so a full channel means a previous prompt has
-// not yet been consumed.
+// ErrQueueFull is returned by Enqueue when the channel buffer is full
+// (both channels use buffer 1; the harness enqueues + dequeues one message
+// per turn, so a full channel means a previous prompt is unconsumed).
 var ErrQueueFull = errors.New("queue: channel full")
 
 // Message is the unit of work carried by the queue.
 type Message struct {
 	Content string
-	// Attachments carries absolute paths the user attached for this one
-	// message ("attach = authorize"): the dispatcher injects a system note so
-	// the LLM perceives them, and grants read_file access to them.
+	// Attachments are absolute paths staged for this message
+	// ("attach = authorize"): the dispatcher injects a system note and
+	// grants read_file access.
 	Attachments []string
-	// Images carries base64-encoded images attached for this message; the
-	// dispatcher converts each DataURL into an llm.ImageBlock so the provider
-	// receives a real image content block.
+	// Images are base64 attachments; the dispatcher converts each
+	// DataURL into an llm.ImageBlock.
 	Images []ImageRef
 }
 
-// ImageRef is a base64-encoded image attachment staged for one message.
-// DataURL has the `data:<mime>;base64,<data>` shape produced by the
-// renderer's readFileAsDataUrl; the dispatcher splits it into the LLM's
-// {MediaType, Data}.
+// ImageRef is a base64-encoded image staged for one message, in the
+// `data:<mime>;base64,<data>` shape the renderer produces.
 type ImageRef struct {
 	Path    string `json:"path"`
 	Name    string `json:"name"`
@@ -65,8 +58,8 @@ func New() *Queue {
 	}
 }
 
-// Enqueue places msg into the channel for the given mode. Returns
-// ErrQueueFull if the channel buffer is full.
+// Enqueue places msg into the channel for the given mode, or returns
+// ErrQueueFull when the buffer is full.
 func (q *Queue) Enqueue(mode Mode, msg Message) error {
 	switch mode {
 	case ModePrompt:
@@ -88,9 +81,8 @@ func (q *Queue) Enqueue(mode Mode, msg Message) error {
 	}
 }
 
-// Dequeue blocks until a message is available, ctx is cancelled, or
-// both channels return empty and ctx fires. Priority is steer over
-// prompt. On ctx cancel it returns (zero, "", false).
+// Dequeue blocks until a message is available (steer > prompt) or ctx
+// is cancelled, returning (zero, "", false) on cancel.
 func (q *Queue) Dequeue(ctx context.Context) (Message, Mode, bool) {
 	for {
 		select {
@@ -114,8 +106,7 @@ func (q *Queue) Dequeue(ctx context.Context) (Message, Mode, bool) {
 	}
 }
 
-// Len returns the total number of buffered messages across both
-// channels. Intended for diagnostics / tests.
+// Len returns the total buffered messages across both channels.
 func (q *Queue) Len() int {
 	return len(q.promptCh) + len(q.steerCh)
 }
