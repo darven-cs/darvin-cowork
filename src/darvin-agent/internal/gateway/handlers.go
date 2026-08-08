@@ -12,11 +12,12 @@ import (
 	"darvin-cowork/backend/internal/skills"
 )
 
-// PromptParams is the JSON-RPC params for agent.prompt. sessionId is
-// optional; when omitted the gateway allocates the default session.
-// runId is optional; when omitted the gateway mints one so the result
-// always carries a non-empty correlation token.
-// `sessions: [{id, title, createdAt, updatedAt, status, claudeSessionId}]`.
+// HandlerOptions bundles the shared dependencies the JSON-RPC dispatch
+// layer needs. Each per-connection *client carries a reference alongside
+// its own write state; the read loop pulls handler into dispatchRequest.
+//
+// Steer goes through h.Sessions to reach the per-session Loop; the
+// global Agent-level steer path is gone.
 type HandlerOptions struct {
 	ImportedFiles *store.ImportedFileStore
 	WorkspaceRoot string

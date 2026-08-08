@@ -39,27 +39,6 @@ func mkPlugin(id, version string, factory HarnessFactory, hooks *Hooks) *Plugin 
 	}
 }
 
-// stubHarness returns a Harness whose ID is whatever the test asks for,
-// since the embedded harness always reports EmbeddedID and the spec needs
-// plugins to bring their own ids.
-type pluginStubHarness struct {
-	id       string
-	pluginID string
-}
-
-func (s *pluginStubHarness) ID() string                 { return s.id }
-func (s *pluginStubHarness) Label() string              { return s.id }
-func (s *pluginStubHarness) PluginID() string           { return s.pluginID }
-func (s *pluginStubHarness) Capabilities() Capabilities { return Capabilities{Healthy: true} }
-func (s *pluginStubHarness) Supports(SupportContext) SupportResult {
-	return SupportResult{Supported: true, Priority: 1}
-}
-func (s *pluginStubHarness) RunAttempt(context.Context, RunAttemptParams) (*AttemptResult, error) {
-	return &AttemptResult{Status: AttemptOK}, nil
-}
-func (s *pluginStubHarness) Reset(context.Context, ResetParams) error { return nil }
-func (s *pluginStubHarness) Dispose(context.Context) error            { return nil }
-
 func mkHarness(id, pluginID string) Harness {
 	return &stubHarness{id: id, pluginID: pluginID}
 }

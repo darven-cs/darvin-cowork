@@ -1,4 +1,4 @@
-internal/agents/ctxengine/compact.go:392:20: Error return value of `stream.Close` is not checked (errcheck)
+internal/agents/ctxengine/compact.go:359:20: Error return value of `stream.Close` is not checked (errcheck)
 	defer stream.Close()
 	                  ^
 internal/agents/store/imported_file_store_test.go:140:10: Error return value of `s.Insert` is not checked (errcheck)
@@ -88,7 +88,7 @@ internal/tools/limitwriter_test.go:29:9: Error return value of `w.Write` is not 
 internal/agents/ctxengine/compact_partition_test.go:143:6: ineffectual assignment to ts (ineffassign)
 	id, ts = firstKeptBoundary(msgs, 100)
 	    ^
-internal/agentloop/helpers.go:58:8: QF1011: could omit type llm.ModelProvider from declaration; it will be inferred from the right-hand side (staticcheck)
+internal/agentloop/helpers.go:57:8: QF1011: could omit type llm.ModelProvider from declaration; it will be inferred from the right-hand side (staticcheck)
 	var _ llm.ModelProvider = p
 	      ^
 internal/agents/agent_ctx_test.go:111:8: QF1011: could omit type []ctxengine.SkillSummary from declaration; it will be inferred from the right-hand side (staticcheck)
@@ -103,10 +103,10 @@ internal/agents/perm/permission_gate_test.go:90:2: SA9003: empty branch (staticc
 internal/agents/store/message_store.go:112:21: S1016: should convert r (type Message) to MessageRecord instead of using struct literal (staticcheck)
 		out = append(out, MessageRecord{
 		                  ^
-internal/gateway/handlers.go:875:25: S1016: should convert p (type SetActiveSessionParams) to SetActiveSessionResult instead of using struct literal (staticcheck)
+internal/gateway/handler_session.go:407:25: S1016: should convert p (type SetActiveSessionParams) to SetActiveSessionResult instead of using struct literal (staticcheck)
 	return successResp(id, SetActiveSessionResult{SessionID: p.SessionID})
 	                       ^
-internal/gateway/handlers.go:1111:9: S1016: should convert r (type darvin-cowork/backend/internal/agents/store.Message) to darvin-cowork/backend/internal/agents/store.MessageRecord instead of using struct literal (staticcheck)
+internal/gateway/handler_session.go:585:9: S1016: should convert r (type darvin-cowork/backend/internal/agents/store.Message) to darvin-cowork/backend/internal/agents/store.MessageRecord instead of using struct literal (staticcheck)
 	return store.MessageRecord{
 	       ^
 internal/llm/anthropic/stream.go:173:8: SA4017: HasPrefix doesn't have side effects and its return value is ignored (staticcheck)
@@ -127,7 +127,7 @@ internal/llm/anthropic/stream.go:333:5: S1000: should use a simple channel send/
 internal/llm/anthropic/stream.go:351:4: S1000: should use a simple channel send/receive instead of select with a single case (staticcheck)
 			select {
 			^
-internal/mcp/transport/stdio.go:367:2: SA9003: empty branch (staticcheck)
+internal/mcp/transport/stdio.go:156:2: SA9003: empty branch (staticcheck)
 	if id == 0 {
 	^
 internal/skills/wire.go:47:46: S1016: should convert f (type SecurityFinding) to RiskFindingWire instead of using struct literal (staticcheck)
@@ -172,15 +172,6 @@ internal/tools/permission_test.go:93:9: S1040: type assertion to the same type: 
 internal/tools/permission_test.go:116:9: S1040: type assertion to the same type: r.Get("read_file") already has type Tool (staticcheck)
 	res := r.Get("read_file").(Tool).Execute(context.Background(), map[string]any{"path": outside})
 	       ^
-internal/agents/agent.go:198:6: type agentState is unused (unused)
-type agentState = int
-     ^
-internal/agents/agent.go:201:2: const stateIdle is unused (unused)
-	stateIdle agentState = 0
-	^
-internal/agents/agent.go:202:2: const stateRun is unused (unused)
-	stateRun  agentState = 1
-	^
 internal/gateway/client.go:175:6: func marshalIDLossy is unused (unused)
 func marshalIDLossy(id json.RawMessage) json.RawMessage {
      ^
@@ -193,16 +184,16 @@ func headerValue(v string) string { return strings.TrimSpace(v) }
 internal/mcp/launcher.go:66:27: func (*ResolverManager).run is unused (unused)
 func (r *ResolverManager) run(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
                           ^
-internal/mcp/registry.go:45:2: field beginSpawnMu is unused (unused)
+internal/mcp/registry.go:39:2: field beginSpawnMu is unused (unused)
 	beginSpawnMu sync.Mutex
 	^
-internal/mcp/registry.go:637:6: func spawnKey is unused (unused)
+internal/mcp/registry_resolve.go:337:6: func spawnKey is unused (unused)
 func spawnKey(cmd string, args []string) string {
      ^
-internal/mcp/transport/stdio.go:170:6: func buildWindowsProcAttr is unused (unused)
+internal/mcp/transport/stdio_io.go:65:6: func buildWindowsProcAttr is unused (unused)
 func buildWindowsProcAttr() *syscall.SysProcAttr {
      ^
-internal/mcp/transport/stdio.go:176:6: func initWindowsJob is unused (unused)
+internal/mcp/transport/stdio_io.go:71:6: func initWindowsJob is unused (unused)
 func initWindowsJob(proc *os.Process) (uintptr, error) {
      ^
 internal/mcp/transport/stdio_test.go:133:6: func newObservedLogger is unused (unused)
@@ -214,8 +205,8 @@ var credentialReplacer = regexp.MustCompile(
 internal/skills/loader_test.go:16:7: const missingNameSkill is unused (unused)
 const missingNameSkill = "---\ndescription: Missing name field entirely\n---\nbody"
       ^
-72 issues:
+69 issues:
 * errcheck: 29
 * ineffassign: 1
 * staticcheck: 28
-* unused: 14
+* unused: 11

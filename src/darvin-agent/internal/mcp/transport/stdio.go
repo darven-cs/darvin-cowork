@@ -119,9 +119,8 @@ func (s *StdioTransport) Connect(ctx context.Context) error {
 	return nil
 }
 
-// buildEnv merges the base environment with transport-specific vars and
-// applies private state-dir isolation so package-manager caches do not
-// pollute the user's home directory.
+// Send writes body to the child's stdin and waits for the matching
+// response to be routed back by the reader goroutine.
 func (s *StdioTransport) Send(ctx context.Context, body []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -197,8 +196,10 @@ func (s *StdioTransport) Send(ctx context.Context, body []byte) error {
 	}
 }
 
-// writeMessage writes raw JSON to stdin, prefixed with newline for
-// SDK 1.x compatibility.
+// Recv returns the frame that Send already collected via the pending
+// channel. Called by Client.Call after Send has returned; the Client
+// holds the mutex throughout the Send+Recv pair so lastFrame is safe
+// to access without locking here.
 func (s *StdioTransport) Recv(ctx context.Context) (Frame, error) {
 	if err := ctx.Err(); err != nil {
 		return Frame{}, err

@@ -189,15 +189,6 @@ type Agent struct {
 	toolTransformer func(protocol.Result) protocol.Result
 }
 
-// agentState / stateIdle / stateRun are local aliases for the run
-// lifecycle so helpers compare without importing runtime's State enum.
-type agentState = int
-
-const (
-	stateIdle agentState = 0
-	stateRun  agentState = 1
-)
-
 // ErrSessionRequired is returned by New when NewAgentConfig.Session is nil.
 var ErrSessionRequired = errors.New("agent: Session is required")
 

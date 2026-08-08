@@ -18,6 +18,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// buildEnv merges the base environment with transport-specific vars and
+// applies private state-dir isolation so package-manager caches do not
+// pollute the user's home directory.
 func buildEnv(env map[string]string) []string {
 	base := os.Environ()
 
@@ -221,10 +224,8 @@ func (s *StdioTransport) drainStderr() {
 	}
 }
 
-// Send writes one JSON-RPC request to the child. It serializes the
-// message as newline-delimited JSON (SDK 1.x compatible) and registers
-// a pending channel so the reader goroutine can dispatch the response.
-
+// writeMessage writes raw JSON to stdin, prefixed with newline for
+// SDK 1.x compatibility.
 func (s *StdioTransport) writeMessage(body []byte) error {
 	// SDK 1.x expects newline-delimited JSON with a trailing newline.
 	msg := append(append(body[:0], body...), '\n')
