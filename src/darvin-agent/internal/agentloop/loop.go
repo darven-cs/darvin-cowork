@@ -12,7 +12,6 @@ import (
 
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/agents/queue"
 	"darvin-cowork/backend/internal/harness"
 	tool "darvin-cowork/backend/internal/tools"
 )
@@ -36,7 +35,7 @@ type PromptRequest struct {
 	RunID       string
 	Content     string
 	Attachments []string
-	Images      []queue.ImageRef
+	Images      []agent.ImageRef
 }
 
 // RunTicket correlates a submitted turn with its events; Queued reports
@@ -63,7 +62,7 @@ type promptReq struct {
 	runID       string
 	content     string
 	attachments []string
-	images      []queue.ImageRef
+	images      []agent.ImageRef
 	skill       *SkillInvocation
 	msgID       string
 	userMsgID   string

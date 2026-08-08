@@ -15,7 +15,6 @@ import (
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/protocol"
-	"darvin-cowork/backend/internal/agents/queue"
 	"darvin-cowork/backend/internal/agents/store"
 )
 
@@ -24,12 +23,12 @@ import (
 // absolute paths staged for this message (LLM sees a transient system
 // note; read_file may access them via the run's granted-read set);
 // images become LLM image content blocks.
-func (a *Agent) Prompt(_ context.Context, content string, images []queue.ImageRef, attachments ...[]string) error {
+func (a *Agent) Prompt(_ context.Context, content string, images []ImageRef, attachments ...[]string) error {
 	var files []string
 	if len(attachments) > 0 {
 		files = attachments[0]
 	}
-	return a.enqueue(queue.ModePrompt, content, files, images)
+	return a.enqueue(ModePrompt, content, files, images)
 }
 
 // Abort cancels the current Run's context (no-op when idle). Queue untouched.
@@ -353,13 +352,13 @@ func formatImportedNote(files []string) string {
 
 // enqueue places content into the Agent's queue under the given mode.
 // Prompt is the only mode that requires the Agent to be idle.
-func (a *Agent) enqueue(mode queue.Mode, content string, attachments []string, images []queue.ImageRef) error {
-	if mode == queue.ModePrompt && a.controller.IsRunning() {
+func (a *Agent) enqueue(mode Mode, content string, attachments []string, images []ImageRef) error {
+	if mode == ModePrompt && a.controller.IsRunning() {
 		return ErrAgentBusy
 	}
-	err := a.queue.Enqueue(mode, queue.Message{Content: content, Attachments: attachments, Images: images})
+	err := a.queue.Enqueue(mode, Message{Content: content, Attachments: attachments, Images: images})
 	if err != nil {
-		if errors.Is(err, queue.ErrQueueFull) {
+		if errors.Is(err, ErrQueueFull) {
 			return ErrAgentBusy
 		}
 		return err
@@ -370,7 +369,7 @@ func (a *Agent) enqueue(mode queue.Mode, content string, attachments []string, i
 // toLLMImages converts base64 image data URLs into provider-facing image
 // blocks, splitting "data:<mime>;base64,<data>" into {MediaType, Data}.
 // Malformed URLs are skipped so a bad attachment cannot break a run.
-func toLLMImages(refs []queue.ImageRef) []protocol.ImageBlock {
+func toLLMImages(refs []ImageRef) []protocol.ImageBlock {
 	out := make([]protocol.ImageBlock, 0, len(refs))
 	for _, r := range refs {
 		mediaType, data := splitDataURL(r.DataURL)

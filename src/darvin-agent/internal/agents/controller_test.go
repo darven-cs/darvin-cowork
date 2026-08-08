@@ -1,6 +1,6 @@
 // Tests for the run-lifecycle controller.
 
-package runtime
+package agent
 
 import (
 	"context"

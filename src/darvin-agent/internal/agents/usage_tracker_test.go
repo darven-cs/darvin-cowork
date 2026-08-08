@@ -1,6 +1,6 @@
 // Tests for the token usage tracker.
 
-package usage
+package agent
 
 import (
 	"sync"

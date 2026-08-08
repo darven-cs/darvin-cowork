@@ -1,7 +1,8 @@
-// Package queue is the Agent's inbound message queue: two channels
-// (prompt, steer) with strict priority (steer > prompt) and a
-// non-blocking Dequeue that respects ctx cancellation.
-package queue
+// Inbound message queue for the Agent: prompt / steer channels with
+// strict steer priority and a non-blocking Dequeue that respects ctx
+// cancellation.
+
+package agent
 
 import (
 	"context"
@@ -10,7 +11,7 @@ import (
 	"darvin-cowork/backend/internal/agents/event"
 )
 
-// Mode is a type alias for event.Mode so callers use queue.Mode directly.
+// Mode is a type alias for event.Mode so callers use Mode directly.
 type Mode = event.Mode
 
 const (
@@ -50,8 +51,8 @@ type Queue struct {
 	steerCh  chan Message
 }
 
-// New constructs a Queue with buffer 1 on each channel.
-func New() *Queue {
+// NewQueue constructs a Queue with buffer 1 on each channel.
+func NewQueue() *Queue {
 	return &Queue{
 		promptCh: make(chan Message, 1),
 		steerCh:  make(chan Message, 1),

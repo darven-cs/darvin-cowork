@@ -13,7 +13,6 @@ import (
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
-	"darvin-cowork/backend/internal/agents/queue"
 )
 
 type PromptParams struct {
@@ -21,7 +20,7 @@ type PromptParams struct {
 	SessionID   string           `json:"sessionId,omitempty"`
 	RunID       string           `json:"runId,omitempty"`
 	Attachments []string         `json:"attachments,omitempty"`
-	Images      []queue.ImageRef `json:"images,omitempty"`
+	Images      []agent.ImageRef `json:"images,omitempty"`
 }
 
 // PromptResult is the JSON-RPC result for agent.prompt. sessionId and

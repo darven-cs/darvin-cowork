@@ -6,7 +6,6 @@ import (
 	"errors"
 
 	agent "darvin-cowork/backend/internal/agents"
-	"darvin-cowork/backend/internal/agents/queue"
 	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
 )
@@ -17,11 +16,11 @@ import (
 // explicit AgentErrorEvent or it stays in streaming state.
 var errNoHarness = errors.New("acp: session has no harness bound")
 
-// attachmentsToImages converts the queue.ImageRef slice the renderer sent
+// attachmentsToImages converts the agent.ImageRef slice the renderer sent
 // into the harness.ImageAttachment shape. Field-for-field conversion; the
 // DataURL is forwarded as-is and the harness defers splitting to the
 // executor (or the embedded harness's runner closure).
-func attachmentsToImages(refs []queue.ImageRef) []harness.ImageAttachment {
+func attachmentsToImages(refs []agent.ImageRef) []harness.ImageAttachment {
 	if len(refs) == 0 {
 		return nil
 	}

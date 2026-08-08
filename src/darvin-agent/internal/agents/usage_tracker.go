@@ -1,6 +1,8 @@
-// Package usage holds the API-reported token accounting. Reads outnumber
-// writes so reads take the read side of an RWMutex.
-package usage
+// API-reported token accounting: the most recent per-turn Usage plus
+// session-cumulative counters. Reads outnumber writes so reads take the
+// read side of an RWMutex.
+
+package agent
 
 import (
 	"sync"

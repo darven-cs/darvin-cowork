@@ -5,9 +5,9 @@ package agent
 
 import (
 	"context"
+
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/store"
-	"darvin-cowork/backend/internal/agents/usage"
 
 	"go.uber.org/zap"
 )
@@ -28,7 +28,7 @@ func (a *Agent) LastUsage() protocol.Usage { return a.tracker.Last() }
 
 // UsageSnapshot returns the Tracker's full state (last + cumulative +
 // model) for the persistence layer's Run-tail write.
-func (a *Agent) UsageSnapshot() usage.Snapshot { return a.tracker.Snapshot() }
+func (a *Agent) UsageSnapshot() Snapshot { return a.tracker.Snapshot() }
 
 // persistUsageSnapshot writes the current Tracker snapshot to SQLite
 // (Run-tail; failures are warn-and-continue). The percent / window reuse

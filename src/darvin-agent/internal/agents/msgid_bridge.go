@@ -1,9 +1,9 @@
-// Package msgid wires the in-flight turn ids (messageID, runID,
-// userMessageID) between the loop and the agent runtime.
-//
-// Bridge is pure plumbing: setters record a getter the runtime calls;
-// readers return whatever the most recent setter installed.
-package msgid
+// Wires the in-flight turn ids (messageID, runID, userMessageID) between
+// the loop and the agent runtime. Bridge is pure plumbing: setters record
+// a getter the runtime calls; readers return whatever the most recent
+// setter installed.
+
+package agent
 
 import "sync"
 

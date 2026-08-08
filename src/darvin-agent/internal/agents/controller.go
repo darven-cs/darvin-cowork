@@ -1,7 +1,7 @@
-// Package runtime holds the Agent's run-lifecycle state: whether a turn is
-// in flight, the cancel function bound to that turn, and the transition
-// rules Run follows.
-package runtime
+// Run-lifecycle state for the Agent: whether a turn is in flight and
+// the cancel function bound to that turn.
+
+package agent
 
 import (
 	"context"

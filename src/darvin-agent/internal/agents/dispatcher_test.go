@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"darvin-cowork/backend/internal/agents/queue"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/llm"
 	tool "darvin-cowork/backend/internal/tools"
@@ -90,7 +89,7 @@ func TestRunNaturalStop(t *testing.T) {
 }
 
 func TestToLLMImages_SplitsDataURL(t *testing.T) {
-	got := toLLMImages([]queue.ImageRef{
+	got := toLLMImages([]ImageRef{
 		{Path: "/a.png", DataURL: "data:image/png;base64,cG5nZGF0YQ=="},
 		{Path: "/bad", DataURL: "not-a-data-url"},
 		{Path: "/jpg", DataURL: "data:image/jpeg;base64,"}, // empty payload → skipped

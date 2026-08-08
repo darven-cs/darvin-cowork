@@ -1,6 +1,6 @@
 // Tests for the inbound message queue.
 
-package queue
+package agent
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 )
 
 func TestEnqueueAndDequeue(t *testing.T) {
-	q := New()
+	q := NewQueue()
 	if err := q.Enqueue(ModePrompt, Message{Content: "hello"}); err != nil {
 		t.Fatalf("Enqueue prompt: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestEnqueueAndDequeue(t *testing.T) {
 }
 
 func TestPrioritySteerOverPrompt(t *testing.T) {
-	q := New()
+	q := NewQueue()
 	if err := q.Enqueue(ModePrompt, Message{Content: "p"}); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestPrioritySteerOverPrompt(t *testing.T) {
 }
 
 func TestEnqueueFull(t *testing.T) {
-	q := New()
+	q := NewQueue()
 	// prompt buffer = 1
 	if err := q.Enqueue(ModePrompt, Message{Content: "a"}); err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestEnqueueFull(t *testing.T) {
 }
 
 func TestDequeueCancel(t *testing.T) {
-	q := New()
+	q := NewQueue()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, _, ok := q.Dequeue(ctx); ok {
@@ -73,7 +73,7 @@ func TestDequeueCancel(t *testing.T) {
 }
 
 func TestDequeueBlocksUntilMessage(t *testing.T) {
-	q := New()
+	q := NewQueue()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()

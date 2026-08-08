@@ -16,21 +16,17 @@ import (
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/executor"
-	"darvin-cowork/backend/internal/agents/msgid"
 	"darvin-cowork/backend/internal/agents/perm"
 	"darvin-cowork/backend/internal/agents/protocol"
-	"darvin-cowork/backend/internal/agents/queue"
-	"darvin-cowork/backend/internal/agents/runtime"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
-	"darvin-cowork/backend/internal/agents/usage"
 	"darvin-cowork/backend/internal/memory"
 )
 
 // BootstrapReader returns the workspace-level bootstrap file content
 // (IDENTITY.md / SOUL.md / USER.md). Declared as an interface here so
 // the agents package does not depend on the runtime package (which
-// already imports agents) — runtime.WorkspaceBootstrap satisfies it.
+// already imports agents) — WorkspaceBootstrap satisfies it.
 //
 // The implementation MUST be the workspace-level singleton so
 // bootstrap.write invalidation propagates to every session.
@@ -162,12 +158,12 @@ type Agent struct {
 	tools        protocol.ToolRegistry
 	exec         executor.Executor
 	bus          *event.Bus
-	queue        *queue.Queue
+	queue        *Queue
 
-	controller  *runtime.Controller
+	controller  *Controller
 	perm        *perm.Gate
-	msgidBridge *msgid.Bridge
-	tracker     *usage.Tracker
+	msgidBridge *Bridge
+	tracker     *Tracker
 
 	// runImportedNote is the current prompt's staged imported-files note
 	// (Instructions() appends it so the LLM perceives them); cleared after run.
@@ -242,8 +238,8 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		cfg.Config.EventBuffer = 64
 	}
 	bus := event.NewBus()
-	bridge := msgid.NewBridge()
-	tracker := usage.NewTracker()
+	bridge := NewBridge()
+	tracker := NewTracker()
 	a := &Agent{
 		name:           cfg.Name,
 		instructions:   cfg.Instructions,
@@ -260,8 +256,8 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		tools:          cfg.Tools,
 		exec:           cfg.Executor,
 		bus:            bus,
-		queue:          queue.New(),
-		controller:     runtime.NewController(),
+		queue:          NewQueue(),
+		controller:     NewController(),
 		perm:           perm.NewGate(bus, cfg.Logger, nil, perm.DefaultTimeout),
 		msgidBridge:    bridge,
 		tracker:        tracker,
