@@ -33,30 +33,24 @@ var (
 )
 
 // fsSandbox restricts file tool access to a single absolute root directory.
-// All file tool paths are resolved through Resolve / openRootFile; any path
-// that ends up outside the root (lexically or via symlinks) is rejected.
+// Any path that ends up outside the root (lexically or via symlinks) is
+// rejected.
 type fsSandbox struct {
 	root       string // lexical root (as passed at construction)
 	realRoot   string // EvalSymlinks(root)
 	exclusions []compiledExclusion
 
-	// grantedReads holds absolute paths the user attached for the current
-	// message; read_file may open them even though they sit outside the
-	// workspace root ("attach = authorize"). Mutated once per run by the
-	// dispatcher, read concurrently by tool goroutines.
+	// grantedReads are user-attached absolute paths read_file may open
+	// even outside the workspace root ("attach = authorize").
 	mu           sync.RWMutex
 	grantedReads []string
-	// approvedPaths holds paths the user approved one-shot via the
-	// permission modal during this run; they bypass containment for any
-	// operation (read AND write). Cleared at run start/end together with
-	// grantedReads.
+	// approvedPaths are paths user-approved one-shot via the permission
+	// modal this run; they bypass containment for any operation.
 	approvedPaths []string
 }
 
-// newFsSandbox creates a sandbox rooted at workdir. workdir is converted to
-// an absolute, cleaned path; its symlink-resolved form is stored as the
-// containment baseline. exclusions defaults to none when omitted; production
-// wiring passes DefaultPathExclusions via NewBuiltins.
+// newFsSandbox creates a sandbox rooted at workdir (absolute, cleaned;
+// symlink-resolved form is the containment baseline).
 func newFsSandbox(workdir string, exclusions ...string) (*fsSandbox, error) {
 	if workdir == "" {
 		wd, err := filepath.Abs(".")
@@ -81,21 +75,11 @@ func newFsSandbox(workdir string, exclusions ...string) (*fsSandbox, error) {
 	return &fsSandbox{root: abs, realRoot: real, exclusions: excl}, nil
 }
 
-// Resolve takes a path (absolute or relative) and returns its absolute,
-// cleaned form if and only if it is inside the sandbox root. Otherwise it
-// returns an error. Relative paths are anchored at the sandbox root, NOT at
-// the process's current working directory — that is the whole point of the
-// sandbox.
-//
-// Containment is checked against the symlink-resolved form of the path:
-// existing symlinks are followed (a target outside the root is rejected),
-// and for non-existent paths the deepest existing ancestor is resolved and
-// the literal remainder is appended. A non-existent path is not an error at
-// this layer (callers get the resolved abs and see ENOENT themselves).
-//
-// root / realRoot are read as a snapshot under the sandbox lock, so a
-// concurrent SetRoot (runtime workspace switch) cannot tear the two apart
-// mid-resolution.
+// Resolve returns the absolute cleaned form of p iff it is inside the
+// sandbox root; relative paths anchor at the root, not the process cwd.
+// Containment is checked against the symlink-resolved path (deepest
+// existing ancestor for non-existent paths). root / realRoot are read as
+// a snapshot under the lock so a concurrent SetRoot cannot tear them apart.
 func (s *fsSandbox) Resolve(p string) (string, error) {
 	root, realRoot := s.roots()
 	var abs string
@@ -138,10 +122,9 @@ func checkContained(real, realRoot string) error {
 	return nil
 }
 
-// openRootFile opens a file inside the root, re-evaluating its symlink
-// resolution immediately before Open so a swap between resolution and open
-// cannot redirect the fd to a different inode. The caller owns the returned
-// *os.File and must Close it.
+// openRootFile opens a file inside the root, re-evaluating symlink
+// resolution immediately before Open so a swap cannot redirect the fd to a
+// different inode. Caller owns the returned file.
 func (s *fsSandbox) openRootFile(p string, label string) (*os.File, string, error) {
 	abs, err := s.Resolve(p)
 	if err != nil {
@@ -161,11 +144,9 @@ func (s *fsSandbox) openRootFile(p string, label string) (*os.File, string, erro
 	return f, real, nil
 }
 
-// openRootFileLimited opens a file inside the root, seeks to offset, and
-// reads up to maxBytes bytes. offset semantics are preserved (a caller that
-// passes offset reads from there, not from the file start). The returned
-// fd is already positioned past the window; the caller owns it and must
-// Close it. truncated reports whether the window was cut short.
+// openRootFileLimited opens a file, seeks to offset, and reads up to
+// maxBytes. The returned fd is positioned past the window; the caller owns
+// it. truncated reports whether the window was cut short.
 func (s *fsSandbox) openRootFileLimited(p, label string, offset, maxBytes int64) (*os.File, []byte, bool, error) {
 	if maxBytes <= 0 || maxBytes > maxHardReadBytes {
 		return nil, nil, false, fmt.Errorf("%w: maxBytes=%d", ErrReadTooLarge, maxBytes)
@@ -195,10 +176,8 @@ func (s *fsSandbox) openRootFileLimited(p, label string, offset, maxBytes int64)
 	return f, data, truncated, nil
 }
 
-// setGrantedReads replaces the run's granted-read set (absolute paths the
-// user attached for the current message). Also resets the one-shot approved
-// paths so every run starts from a clean slate. Called by the dispatcher
-// before RunConversation and cleared after; safe for concurrent readers.
+// setGrantedReads replaces the run's granted-read set and resets the
+// one-shot approved paths. Called by the dispatcher before each run.
 func (s *fsSandbox) setGrantedReads(paths []string) {
 	s.mu.Lock()
 	s.grantedReads = append([]string(nil), paths...)
@@ -366,14 +345,10 @@ func DefaultPathExclusions() []string {
 	}
 }
 
-// SetRoot re-anchors the sandbox to a new absolute root at runtime. It
-// mirrors the root resolution in newFsSandbox (Abs + Clean + EvalSymlinks)
-// and swaps both root fields atomically under the lock. A workspace switch
-// (agent.set_workspace RPC) uses this instead of restarting the process.
-//
-// The new root must be an absolute path to an existing directory; callers
-// should validate that before calling so a bad root never lands in the
-// containment baseline.
+// SetRoot re-anchors the sandbox to a new absolute root at runtime,
+// swapping root / realRoot atomically under the lock (used by
+// agent.set_workspace instead of restarting the process). The new root
+// must be an existing directory.
 func (s *fsSandbox) SetRoot(newRoot string) error {
 	if newRoot == "" {
 		return errors.New("sandbox: SetRoot requires a non-empty root")
