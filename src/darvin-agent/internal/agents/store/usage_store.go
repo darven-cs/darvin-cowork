@@ -9,15 +9,9 @@ import (
 	"darvin-cowork/backend/internal/agents/protocol"
 )
 
-// UsageRecord is the wire-shape callers see when reading from / writing
-// to a UsageStore. It is intentionally distinct from store.SessionUsage
-// (the GORM row) so callers don't depend on the persistence type. Mapping
-// between UsageRecord and SessionUsage happens inside SQLiteUsageStore.Save.
-//
-// Last holds the most recent per-turn Usage (prompt + completion + cache
-// breakdown); Total holds the session-cumulative counters; LastModel and
-// RequestCount carry the snapshot metadata the renderer needs to compute
-// the context-window fill percentage on session switch.
+// UsageRecord is the wire-shape callers see from a UsageStore, distinct
+// from the GORM SessionUsage row (mapping happens inside Save). Last is
+// the most recent per-turn Usage; Total the cumulative counters.
 type UsageRecord struct {
 	SessionID         string
 	Last              *protocol.Usage
@@ -29,23 +23,11 @@ type UsageRecord struct {
 	UpdatedAt         int64
 }
 
-// UsageStore persists per-session usage snapshots. Implementations must be
-// safe for concurrent use from the agent loop and the gateway handler. A
-// nil UsageStore is treated as "do not persist" by the agent (Run tail
-// hook guards with `if a.usageStore != nil`).
+// UsageStore persists per-session usage snapshots. Must be safe for
+// concurrent use; a nil UsageStore means "do not persist" to the agent.
 type UsageStore interface {
-	// Save upserts one snapshot row by SessionID. Calling Save twice with
-	// the same SessionID replaces the previous row.
 	Save(ctx context.Context, rec *UsageRecord) error
-
-	// Get returns the snapshot for sessionID, or (nil, gorm.ErrRecordNotFound)
-	// when no row exists. Callers map the not-found case to a nil snapshot
-	// on the wire (renderer treats nil as "no usage yet").
 	Get(ctx context.Context, sessionID string) (*UsageRecord, error)
-
-	// DeleteBySession removes the snapshot row belonging to sessionID.
-	// Called by the session-delete handler so deleted sessions leave no
-	// stale usage rows behind.
 	DeleteBySession(ctx context.Context, sessionID string) error
 }
 

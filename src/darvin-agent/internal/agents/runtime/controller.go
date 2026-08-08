@@ -27,8 +27,7 @@ type Controller struct {
 // NewController returns a Controller in Idle state with no cancel bound.
 func NewController() *Controller { return &Controller{} }
 
-// TryStart transitions Idle → Running and returns true. Returns false when
-// the controller is already Running, so the caller can refuse a second Run.
+// TryStart transitions Idle → Running; false if already Running.
 func (c *Controller) TryStart() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -39,8 +38,7 @@ func (c *Controller) TryStart() bool {
 	return true
 }
 
-// End transitions Running → Idle and cancels any bound context. Safe when
-// the controller is Idle (no-op).
+// End transitions Running → Idle and cancels any bound context.
 func (c *Controller) End() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -51,16 +49,14 @@ func (c *Controller) End() {
 	}
 }
 
-// SetCancel binds the controller to a context's cancel function. The next
-// End (or Abort) will fire it. The previous binding, if any, is dropped.
+// SetCancel binds a context cancel function for the next End / Abort.
 func (c *Controller) SetCancel(cancel context.CancelFunc) {
 	c.mu.Lock()
 	c.cancelFn = cancel
 	c.mu.Unlock()
 }
 
-// Abort fires the bound cancel without changing state. A no-op when nothing
-// is bound.
+// Abort fires the bound cancel without changing state.
 func (c *Controller) Abort() {
 	c.mu.Lock()
 	cancel := c.cancelFn
