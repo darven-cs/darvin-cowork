@@ -1,0 +1,32 @@
+version: "2"
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - darvin-cowork/backend
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    staticcheck:
+      checks:
+        - all
+        - -ST1005  # error 字符串结尾标点(初期宽松)
+    errcheck:
+      check-type-assertions: false
+      exclude-functions:
+        - (*os.File).Close
+        - (io.Closer).Close
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
