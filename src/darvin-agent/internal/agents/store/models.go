@@ -47,20 +47,25 @@ type Message struct {
 
 func (Message) TableName() string { return "messages" }
 
-// CompactionCheckpoint records one compact() pass — how many tokens
-// were saved, the summary text, and the id of the first message
-// preserved verbatim after the cut.
-type CompactionCheckpoint struct {
-	ID           string    `gorm:"primaryKey"`
-	SessionID    string    `gorm:"index"`
-	Summary      string    `gorm:"type:text"`
-	TokensBefore int       `gorm:"not null"`
-	TokensAfter  int       `gorm:"not null"`
-	FirstKeptID  string    `gorm:"not null"`
-	CreatedAt    time.Time `gorm:"autoCreateTime"`
+// SessionDigest records one compact() pass — the summary text, token
+// savings, the id of the first message preserved verbatim after the
+// cut, and the per-session accumulation sequence. The latest sequence
+// row for a session is the current compaction checkpoint.
+type SessionDigest struct {
+	ID                 string `gorm:"primaryKey"`
+	SessionID          string `gorm:"index;uniqueIndex:idx_session_sequence"`
+	Sequence           int    `gorm:"not null;uniqueIndex:idx_session_sequence"`
+	Summary            string `gorm:"type:text"`
+	TokensBefore       int    `gorm:"not null"`
+	TokensAfter        int    `gorm:"not null"`
+	FirstKeptID        string
+	FirstKeptTimestamp int64
+	CompactReason      string `gorm:"not null"`
+	SourceCompactID    string `gorm:"not null"`
+	CreatedAt          int64  `gorm:"not null"`
 }
 
-func (CompactionCheckpoint) TableName() string { return "compaction_checkpoints" }
+func (SessionDigest) TableName() string { return "session_digests" }
 
 // SkillSnapshot is a row written each time a Skill is materialised into
 // a session's prompt. The table is created now so AutoMigrate covers it
