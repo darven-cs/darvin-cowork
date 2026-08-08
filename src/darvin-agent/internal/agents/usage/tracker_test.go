@@ -1,3 +1,5 @@
+// Tests for the token usage tracker.
+
 package usage
 
 import (

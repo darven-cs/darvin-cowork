@@ -1,3 +1,5 @@
+// Tests for the GORM-backed session store.
+
 package store
 
 import (

@@ -1,3 +1,5 @@
+// Tests for harness selection and ranking.
+
 package harness
 
 import (

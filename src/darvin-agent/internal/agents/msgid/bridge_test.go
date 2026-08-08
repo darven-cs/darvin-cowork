@@ -1,3 +1,5 @@
+// Tests for the msgid bridge attach / read round-trip.
+
 package msgid
 
 import (

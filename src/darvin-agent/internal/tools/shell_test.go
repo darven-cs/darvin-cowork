@@ -1,3 +1,5 @@
+// Tests for the shell tool and its command allowlist.
+
 package tool
 
 import (

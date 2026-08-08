@@ -1,3 +1,5 @@
+// Tests for tool permission classification.
+
 package tool
 
 import (

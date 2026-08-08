@@ -1,3 +1,5 @@
+// Implements the mock CLI harness backend used in selection and ctx-engine tests.
+
 package harness
 
 import (

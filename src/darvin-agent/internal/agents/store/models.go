@@ -1,3 +1,5 @@
+// GORM row models for sessions, messages, usage, and imported files.
+
 package store
 
 import "time"

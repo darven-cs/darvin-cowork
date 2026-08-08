@@ -1,3 +1,5 @@
+// Runs a skill-driven turn through the same executor as a normal prompt.
+
 package agent
 
 import (

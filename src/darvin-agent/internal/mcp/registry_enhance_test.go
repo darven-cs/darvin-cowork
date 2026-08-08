@@ -1,3 +1,5 @@
+// Tests for PATH enrichment and registry helpers.
+
 package mcp
 
 import (

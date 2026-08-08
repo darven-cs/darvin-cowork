@@ -1,3 +1,5 @@
+// Tests for the memory manager's bootstrap file facade.
+
 package memory
 
 import (

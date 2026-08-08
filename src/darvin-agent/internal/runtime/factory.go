@@ -1,3 +1,5 @@
+// Assembles the per-session agent factory and its dependencies.
+
 package runtime
 
 import (

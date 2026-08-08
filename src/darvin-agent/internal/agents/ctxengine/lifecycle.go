@@ -1,3 +1,5 @@
+// Lifecycle hooks (bootstrap / maintain) for the default assembler.
+
 package ctxengine
 
 import "context"

@@ -1,3 +1,5 @@
+// Tests for the MCP server tool bridge.
+
 package tool
 
 import (

@@ -1,3 +1,5 @@
+// Sub-agent interface seams that return ErrSubAgentUnsupported by default.
+
 package ctxengine
 
 import "context"

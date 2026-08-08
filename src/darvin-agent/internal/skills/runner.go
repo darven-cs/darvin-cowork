@@ -1,3 +1,5 @@
+// Runs a skill through the model with its system prompt and tool set.
+
 package skills
 
 import (

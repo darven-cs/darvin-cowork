@@ -1,3 +1,5 @@
+// Tests for tool argument schema validation.
+
 package tool
 
 import (

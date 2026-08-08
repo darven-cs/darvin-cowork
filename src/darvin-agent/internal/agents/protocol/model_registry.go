@@ -1,3 +1,5 @@
+// Model descriptor registry: API kind, modalities, and caps.
+
 package protocol
 
 import "sync"

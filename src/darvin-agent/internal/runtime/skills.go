@@ -1,3 +1,5 @@
+// Bootstraps the project and global skill registries at startup.
+
 package runtime
 
 import (

@@ -1,3 +1,5 @@
+// Tests for workspace sandbox path confinement.
+
 package tool
 
 import (

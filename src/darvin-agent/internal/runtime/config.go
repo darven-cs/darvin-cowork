@@ -1,3 +1,5 @@
+// Resolves the config.yaml location and loads the runtime configuration.
+
 package runtime
 
 import (

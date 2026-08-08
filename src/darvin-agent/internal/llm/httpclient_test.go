@@ -1,3 +1,5 @@
+// Tests for HTTP client error parsing, retries, and secret redaction.
+
 package llm
 
 import (

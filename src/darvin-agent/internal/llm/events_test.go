@@ -1,3 +1,5 @@
+// Tests asserting every stream event type satisfies the StreamEvent contract.
+
 package llm
 
 import "testing"

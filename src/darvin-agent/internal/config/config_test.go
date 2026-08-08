@@ -1,3 +1,5 @@
+// Tests for config loading, user overlay merging, and env overrides.
+
 package config
 
 import (

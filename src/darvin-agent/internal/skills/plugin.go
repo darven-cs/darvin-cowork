@@ -1,3 +1,5 @@
+// Exposes enabled skills to the agent as skill__<id> tools.
+
 package skills
 
 import (

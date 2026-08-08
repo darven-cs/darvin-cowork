@@ -1,3 +1,5 @@
+// Tests for the app-state store.
+
 package store
 
 import (

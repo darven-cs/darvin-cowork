@@ -1,3 +1,5 @@
+// Persists messages dropped by compaction to a side archive for debug / replay.
+
 package ctxengine
 
 import (

@@ -1,3 +1,4 @@
+// Package skills discovers, loads, registers, and runs user skills.
 package skills
 
 import (

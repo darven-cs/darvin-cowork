@@ -1,3 +1,5 @@
+// Tests for single-turn execution using a scripted LLM provider.
+
 package executor
 
 import (

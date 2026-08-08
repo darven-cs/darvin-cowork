@@ -1,3 +1,5 @@
+// Tests for the in-memory session history.
+
 package session
 
 import (

@@ -1,3 +1,5 @@
+// Tests for the in-memory session store.
+
 package store
 
 import (

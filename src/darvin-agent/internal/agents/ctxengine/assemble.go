@@ -1,3 +1,5 @@
+// Per-turn prompt construction pipeline with the compaction trigger cascade.
+
 package ctxengine
 
 import (

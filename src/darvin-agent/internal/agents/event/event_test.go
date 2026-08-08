@@ -1,3 +1,5 @@
+// Tests for the event bus fan-out.
+
 package event
 
 import (

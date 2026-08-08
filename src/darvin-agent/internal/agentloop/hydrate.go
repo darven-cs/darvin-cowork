@@ -1,3 +1,5 @@
+// Restores a session's persisted message history into the in-memory session before a turn.
+
 package agentloop
 
 import (

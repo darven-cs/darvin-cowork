@@ -1,3 +1,5 @@
+// Tests for the model registry lookup, listing, and concurrency safety.
+
 package llm_test
 
 import (

@@ -1,3 +1,5 @@
+// Constructs the registry of built-in file and shell tools behind a workspace sandbox.
+
 package tool
 
 import "errors"

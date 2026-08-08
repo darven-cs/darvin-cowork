@@ -1,3 +1,5 @@
+// Classifies tool calls by danger level and gates them behind user approval.
+
 package tool
 
 import (

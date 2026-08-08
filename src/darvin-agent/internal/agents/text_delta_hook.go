@@ -1,3 +1,5 @@
+// Persists streaming text deltas to the message store in real time.
+
 package agent
 
 import (

@@ -1,3 +1,5 @@
+// Bootstraps embedded and user skills into the registry at startup.
+
 package skills
 
 import (

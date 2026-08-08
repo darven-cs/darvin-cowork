@@ -1,3 +1,5 @@
+// Tests for WebSocket client frame writing and notification sends.
+
 package gateway
 
 import (

@@ -1,3 +1,5 @@
+// AgentFactory assembles the Agent, Harness, and Loop for a new session.
+
 package agentloop
 
 import (

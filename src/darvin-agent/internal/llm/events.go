@@ -1,3 +1,5 @@
+// Re-exports the protocol stream event types under the llm package.
+
 package llm
 
 import "darvin-cowork/backend/internal/agents/protocol"

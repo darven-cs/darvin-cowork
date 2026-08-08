@@ -1,3 +1,5 @@
+// DigestStore interface for compaction checkpoint persistence.
+
 package store
 
 import (

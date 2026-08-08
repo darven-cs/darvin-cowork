@@ -1,3 +1,5 @@
+// JSON-RPC method dispatch for session, message, skill, MCP, and workspace handlers.
+
 package gateway
 
 import (

@@ -1,3 +1,5 @@
+// Tests for the SQLite digest store.
+
 package store
 
 import (

@@ -1,3 +1,5 @@
+// Key-value app-state store backing active_session_id persistence.
+
 package store
 
 import (

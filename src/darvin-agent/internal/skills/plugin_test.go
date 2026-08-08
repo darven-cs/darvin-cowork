@@ -1,3 +1,5 @@
+// Tests for the skill tool plugin.
+
 package skills
 
 import (

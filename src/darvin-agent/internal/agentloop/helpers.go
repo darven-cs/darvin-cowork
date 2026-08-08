@@ -1,3 +1,5 @@
+// Shared helpers for image attachment conversion and provider / harness resolution.
+
 package agentloop
 
 import (

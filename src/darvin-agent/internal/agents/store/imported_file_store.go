@@ -1,3 +1,5 @@
+// Persists imported workspace files per session with a size cap.
+
 package store
 
 import (

@@ -1,3 +1,5 @@
+// Tests for the harness interface and capability stubs.
+
 package harness
 
 import (

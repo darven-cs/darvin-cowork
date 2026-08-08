@@ -1,3 +1,5 @@
+// Sentinel errors returned across the agent run / prompt lifecycle.
+
 package agent
 
 import "errors"

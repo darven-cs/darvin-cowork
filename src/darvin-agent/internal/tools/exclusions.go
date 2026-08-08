@@ -1,3 +1,5 @@
+// Compiles and applies workspace path exclusion patterns.
+
 package tool
 
 import (

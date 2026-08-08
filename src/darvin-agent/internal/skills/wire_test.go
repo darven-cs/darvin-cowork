@@ -1,3 +1,5 @@
+// Tests for the renderer-facing skill wire projections.
+
 package skills
 
 import (

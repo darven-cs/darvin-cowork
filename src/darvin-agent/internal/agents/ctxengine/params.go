@@ -1,3 +1,5 @@
+// Parameter structs for the ContextEngine interface methods.
+
 package ctxengine
 
 import (

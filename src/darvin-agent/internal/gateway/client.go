@@ -1,3 +1,5 @@
+// Per-connection WebSocket client that serialises writes and control frames.
+
 package gateway
 
 import (

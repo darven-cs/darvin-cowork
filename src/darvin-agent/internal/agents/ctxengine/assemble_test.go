@@ -1,3 +1,5 @@
+// Tests for the per-turn prompt assembly pipeline.
+
 package ctxengine
 
 import (

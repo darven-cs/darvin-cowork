@@ -1,3 +1,5 @@
+// Anthropic Provider that wires request building, transport, and streaming together.
+
 package anthropic
 
 import (

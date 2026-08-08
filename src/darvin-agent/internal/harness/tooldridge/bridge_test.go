@@ -1,3 +1,5 @@
+// Tests for the tool-registry bridge.
+
 package tooldridge
 
 import (

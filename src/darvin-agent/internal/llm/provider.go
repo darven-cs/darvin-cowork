@@ -1,3 +1,5 @@
+// Re-exports the ModelProvider contract and streaming response constructor.
+
 package llm
 
 import (

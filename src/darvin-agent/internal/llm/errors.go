@@ -1,3 +1,5 @@
+// ProviderError and helpers that map provider errors onto a unified code set.
+
 package llm
 
 import (

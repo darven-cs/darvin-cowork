@@ -1,3 +1,5 @@
+// Tests for the usage store.
+
 package store
 
 import (

@@ -1,3 +1,5 @@
+// Tests for the mock CLI harness and the explicit-selection demo.
+
 package harness
 
 import (

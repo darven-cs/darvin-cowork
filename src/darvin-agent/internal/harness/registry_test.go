@@ -1,3 +1,5 @@
+// Tests for the harness registry.
+
 package harness
 
 import (

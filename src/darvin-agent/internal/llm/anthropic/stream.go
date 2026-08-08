@@ -1,3 +1,5 @@
+// Parses Anthropic SSE stream frames into the unified StreamEvent contract.
+
 package anthropic
 
 import (

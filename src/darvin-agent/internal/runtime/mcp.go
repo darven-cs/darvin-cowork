@@ -1,3 +1,5 @@
+// Bootstraps the MCP registry and its package root at startup.
+
 package runtime
 
 import (

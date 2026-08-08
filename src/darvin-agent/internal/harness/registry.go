@@ -1,3 +1,5 @@
+// Maintains the process-global registry of registered harnesses.
+
 package harness
 
 import (

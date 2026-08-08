@@ -1,3 +1,5 @@
+// Tests for the HTTP transport.
+
 package transport
 
 import (

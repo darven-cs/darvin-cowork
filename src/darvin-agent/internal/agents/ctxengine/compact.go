@@ -1,3 +1,5 @@
+// Compacts older history back within the token budget via LLM summarisation.
+
 package ctxengine
 
 import (

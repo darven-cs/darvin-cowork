@@ -1,3 +1,5 @@
+// Tests for compaction using a fake summarizer.
+
 package ctxengine
 
 import (

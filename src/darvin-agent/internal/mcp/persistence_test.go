@@ -1,3 +1,5 @@
+// Tests for launch resolution persistence.
+
 package mcp
 
 import (

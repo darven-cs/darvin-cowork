@@ -1,3 +1,5 @@
+// Token estimation used to enforce the context window budget.
+
 package ctxengine
 
 import (

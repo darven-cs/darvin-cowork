@@ -1,3 +1,5 @@
+// Loads skill entries from bundled, project, and global skill sources.
+
 package skills
 
 import (

@@ -1,3 +1,5 @@
+// Bundles the Agent + Harness + Loop for a single active session.
+
 package agentloop
 
 import (

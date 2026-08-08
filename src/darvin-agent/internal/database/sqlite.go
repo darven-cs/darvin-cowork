@@ -1,3 +1,5 @@
+// Package database owns the process-wide SQLite handle shared by every
+// store.
 package database
 
 import (

@@ -1,3 +1,5 @@
+// Defines the callbacks fired when a server's connection state changes.
+
 package mcp
 
 // Notifier carries the optional callbacks Registry fires when server

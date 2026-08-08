@@ -1,3 +1,5 @@
+// Tests for the dispatcher's turn dispatch and event emission.
+
 package agent
 
 import (

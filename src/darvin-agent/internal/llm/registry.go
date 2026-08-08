@@ -1,3 +1,5 @@
+// Provider factory registry that dispatches provider construction by name.
+
 package llm
 
 import (

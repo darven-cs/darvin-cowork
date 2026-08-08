@@ -1,3 +1,5 @@
+// WebSocket server lifecycle: port discovery, accept loop, and shutdown.
+
 package gateway
 
 import (

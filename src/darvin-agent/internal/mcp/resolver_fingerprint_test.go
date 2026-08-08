@@ -1,3 +1,5 @@
+// Tests for the launch resolution fingerprint.
+
 package mcp
 
 import (

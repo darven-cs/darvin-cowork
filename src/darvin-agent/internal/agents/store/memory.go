@@ -1,3 +1,5 @@
+// In-memory SessionStore implementation.
+
 package store
 
 import (

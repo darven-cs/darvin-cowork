@@ -1,3 +1,5 @@
+// Integration tests running prompt / abort through a wired handler and harness.
+
 package gateway
 
 import (

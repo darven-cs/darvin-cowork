@@ -1,3 +1,5 @@
+// Tests for the permission gate's request / grant / deny flow.
+
 package perm
 
 import (

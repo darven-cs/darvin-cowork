@@ -1,3 +1,5 @@
+// Hashes server specs to decide which launch resolutions stay valid.
+
 package mcp
 
 import (

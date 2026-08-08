@@ -1,6 +1,6 @@
-// Package acp wraps the agent runtime in a minimal Agent-Client Protocol
-// surface used by the gateway handlers. Loop owns one session's turn queue
-// and the in-flight messageID.
+// Package agentloop wraps the agent runtime in a minimal per-session
+// surface used by the gateway handlers. Loop owns one session's turn
+// queue and the in-flight messageID.
 package agentloop
 
 import (

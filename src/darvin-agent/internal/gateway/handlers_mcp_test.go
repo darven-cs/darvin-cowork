@@ -1,3 +1,5 @@
+// Tests for the MCP JSON-RPC handlers and connection broadcasts.
+
 package gateway
 
 import (

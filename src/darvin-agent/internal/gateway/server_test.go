@@ -1,3 +1,5 @@
+// Tests for the WS server start, port output, and shutdown behavior.
+
 package gateway
 
 import (

@@ -1,3 +1,5 @@
+// Tool contract and the result shape returned to the agent loop.
+
 package protocol
 
 import (

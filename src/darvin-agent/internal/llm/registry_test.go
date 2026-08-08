@@ -1,3 +1,5 @@
+// Tests for provider registration, lookup, and construction errors.
+
 package llm_test
 
 import (

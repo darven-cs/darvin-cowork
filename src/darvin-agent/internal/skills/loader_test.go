@@ -1,3 +1,5 @@
+// Tests for the skill entry loader.
+
 package skills
 
 import (

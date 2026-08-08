@@ -1,3 +1,5 @@
+// Opens the SQLite database and constructs the store handles the runtime owns.
+
 package runtime
 
 import (

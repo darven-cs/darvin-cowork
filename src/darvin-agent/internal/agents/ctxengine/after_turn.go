@@ -1,3 +1,5 @@
+// Post-turn hook for the default assembler (currently a no-op).
+
 package ctxengine
 
 import "context"

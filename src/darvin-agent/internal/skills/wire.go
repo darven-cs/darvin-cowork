@@ -1,3 +1,5 @@
+// Projects skill registry entries into renderer-facing JSON wire shapes.
+
 package skills
 
 // SkillSummaryWire is the JSON shape main / renderer consume. Field tags

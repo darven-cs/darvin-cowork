@@ -1,3 +1,5 @@
+// Records per-session ingest timing (fact extraction is a no-op).
+
 package ctxengine
 
 import (

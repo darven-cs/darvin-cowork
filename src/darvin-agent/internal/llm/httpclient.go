@@ -1,3 +1,5 @@
+// Shared HTTP client with retries, provider error parsing, and log redaction.
+
 package llm
 
 import (

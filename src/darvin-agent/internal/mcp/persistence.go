@@ -1,3 +1,5 @@
+// Persists and reloads MCP server launch resolution records.
+
 package mcp
 
 import (

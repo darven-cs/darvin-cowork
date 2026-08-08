@@ -1,3 +1,5 @@
+// Tests for tool-call routing within a turn.
+
 package executor
 
 import (

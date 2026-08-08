@@ -1,3 +1,5 @@
+// Tests for compaction partition selection.
+
 package ctxengine
 
 import (

@@ -1,3 +1,5 @@
+// Tests for the output-capping writer.
+
 package tool
 
 import (

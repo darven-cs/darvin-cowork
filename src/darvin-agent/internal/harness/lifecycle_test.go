@@ -1,3 +1,5 @@
+// Tests for run-attempt lifecycle and superseded-turn detection.
+
 package harness
 
 import (

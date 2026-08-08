@@ -1,3 +1,5 @@
+// Streaming event union shared across all providers.
+
 package protocol
 
 // StreamEvent is the unified streaming event emitted by every provider.

@@ -1,3 +1,5 @@
+// Tests for the agent's context-assembly wiring (ctxengine / skills / mcp).
+
 package agent
 
 import (

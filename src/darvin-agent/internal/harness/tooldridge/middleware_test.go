@@ -1,3 +1,5 @@
+// Tests for tool-result normalisation middleware.
+
 package tooldridge
 
 import (

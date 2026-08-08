@@ -1,3 +1,5 @@
+// Tests for JSON-RPC frame parsing and response shaping.
+
 package gateway
 
 import (

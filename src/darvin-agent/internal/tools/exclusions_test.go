@@ -1,3 +1,5 @@
+// Tests for workspace path exclusion matching.
+
 package tool
 
 import "testing"

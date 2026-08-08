@@ -1,3 +1,5 @@
+// Resolves MCP package install paths at build time.
+
 package runtime
 
 import (

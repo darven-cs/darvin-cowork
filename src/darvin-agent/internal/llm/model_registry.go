@@ -1,3 +1,5 @@
+// Re-exports the protocol model registry and its default instance.
+
 package llm
 
 import "darvin-cowork/backend/internal/agents/protocol"

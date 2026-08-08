@@ -1,3 +1,5 @@
+// Dispatches one turn's LLM call and tool results to the event bus.
+
 package agent
 
 import (

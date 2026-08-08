@@ -1,3 +1,5 @@
+// Implements the tool registry: registration, lookup, and sandbox re-anchoring.
+
 package tool
 
 import (

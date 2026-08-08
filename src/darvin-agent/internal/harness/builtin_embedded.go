@@ -1,3 +1,5 @@
+// Implements the in-process embedded harness used to drive agent prompts.
+
 package harness
 
 import "context"

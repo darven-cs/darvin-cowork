@@ -1,3 +1,5 @@
+// Parses the configured harness-selection policy into a strict or auto model.
+
 package harness
 
 import (

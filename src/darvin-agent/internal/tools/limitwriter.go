@@ -1,3 +1,5 @@
+// Bounds command output by capping how many bytes a writer retains.
+
 package tool
 
 import "bytes"

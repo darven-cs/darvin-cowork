@@ -1,3 +1,5 @@
+// Resolves MCP server launch details, deduplicated and time-bounded per server.
+
 package mcp
 
 import (

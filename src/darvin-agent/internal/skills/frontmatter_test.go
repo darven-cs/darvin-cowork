@@ -1,3 +1,5 @@
+// Tests for SKILL.md frontmatter parsing.
+
 package skills
 
 import "testing"

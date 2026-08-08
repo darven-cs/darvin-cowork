@@ -1,3 +1,5 @@
+// Tests that the Loop drives turns through the harness path.
+
 package agentloop
 
 import (

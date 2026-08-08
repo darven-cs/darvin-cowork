@@ -1,3 +1,5 @@
+// Tests for registry connection and resolution change notifications.
+
 package mcp
 
 import (

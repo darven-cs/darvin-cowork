@@ -1,3 +1,5 @@
+// Tests for path sanitisation of server identifiers.
+
 package mcp
 
 import "testing"

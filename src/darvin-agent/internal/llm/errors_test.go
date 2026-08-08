@@ -1,3 +1,5 @@
+// Tests for ProviderError formatting, unwrapping, and code mapping.
+
 package llm
 
 import (

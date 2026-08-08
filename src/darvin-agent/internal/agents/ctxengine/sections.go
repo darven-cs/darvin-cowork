@@ -1,3 +1,5 @@
+// System-prompt section priorities and built-in section rendering.
+
 package ctxengine
 
 import (

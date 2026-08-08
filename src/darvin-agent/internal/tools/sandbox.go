@@ -1,3 +1,5 @@
+// Confines file tool paths to a workspace root and caps read/write sizes.
+
 package tool
 
 import (

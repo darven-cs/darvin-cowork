@@ -1,3 +1,4 @@
+// Command app is the darvin-agent process entry point.
 package main
 
 import (

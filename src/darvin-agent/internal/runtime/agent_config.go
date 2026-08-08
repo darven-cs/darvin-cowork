@@ -1,3 +1,5 @@
+// Maps the agent config section onto agent.Config.
+
 package runtime
 
 import (

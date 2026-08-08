@@ -1,3 +1,5 @@
+// Tests for MCP package path resolution.
+
 package runtime
 
 import (

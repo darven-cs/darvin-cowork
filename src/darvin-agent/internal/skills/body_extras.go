@@ -1,3 +1,5 @@
+// Appends a directory-layout skill's references/*.md siblings to its body.
+
 package skills
 
 import (

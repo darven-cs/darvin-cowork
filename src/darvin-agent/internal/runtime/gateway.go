@@ -1,3 +1,5 @@
+// Loads the shared built-in tool registry used across sessions.
+
 package runtime
 
 import (

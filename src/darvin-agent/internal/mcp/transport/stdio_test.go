@@ -1,3 +1,5 @@
+// Tests for the stdio transport.
+
 package transport
 
 import (

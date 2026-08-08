@@ -1,3 +1,5 @@
+// Core protocol types shared between the agent and capability packages.
+
 package protocol
 
 import "encoding/json"

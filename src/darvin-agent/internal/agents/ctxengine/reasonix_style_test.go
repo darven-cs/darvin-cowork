@@ -1,3 +1,5 @@
+// Tests for compaction-driven assembly using a recording summarizer.
+
 package ctxengine
 
 import (

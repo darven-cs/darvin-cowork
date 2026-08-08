@@ -1,3 +1,5 @@
+// Tests for the server spec JSON wire contract.
+
 package mcp
 
 import (

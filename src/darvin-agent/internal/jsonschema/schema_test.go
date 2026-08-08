@@ -1,3 +1,5 @@
+// Tests for schema canonicalization and tool-schema validation.
+
 package jsonschema
 
 import (

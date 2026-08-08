@@ -1,3 +1,5 @@
+// Tests for the plugin manager and runtime-loadable harness factories.
+
 package plugin
 
 import (

@@ -1,3 +1,5 @@
+// Logger configuration struct consumed by the logger package wiring.
+
 package logger
 
 type Config struct {

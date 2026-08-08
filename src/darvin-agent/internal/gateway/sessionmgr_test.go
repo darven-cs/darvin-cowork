@@ -1,3 +1,5 @@
+// Tests for the session index, lazy per-session builds, and idle reaping.
+
 package gateway
 
 import (

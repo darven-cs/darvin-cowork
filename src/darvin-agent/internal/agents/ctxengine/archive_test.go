@@ -1,3 +1,5 @@
+// Tests for the FileArchiver and archive-disabled paths.
+
 package ctxengine
 
 import (

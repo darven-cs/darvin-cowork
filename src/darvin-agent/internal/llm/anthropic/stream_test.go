@@ -1,3 +1,5 @@
+// Tests for Anthropic SSE parsing and stream dispatch.
+
 package anthropic
 
 import (

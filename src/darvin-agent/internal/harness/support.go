@@ -1,3 +1,5 @@
+// Verifies that a harness implements every capability it declares.
+
 package harness
 
 import (

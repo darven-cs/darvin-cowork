@@ -1,3 +1,5 @@
+// Tests for handler dispatch and session / message / workspace handlers.
+
 package gateway
 
 import (

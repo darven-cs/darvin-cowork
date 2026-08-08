@@ -1,3 +1,5 @@
+// Ranks and selects the harness that serves a session.
+
 package harness
 
 import (

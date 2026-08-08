@@ -1,3 +1,5 @@
+// Tests for the TextDeltaHook streaming persistence hook.
+
 package agent
 
 import (

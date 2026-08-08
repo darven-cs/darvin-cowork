@@ -1,3 +1,5 @@
+// Sanitises server identifiers into safe filesystem path components.
+
 package mcp
 
 import "strings"

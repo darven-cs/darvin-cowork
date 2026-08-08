@@ -1,3 +1,5 @@
+// Tests for the server resolution manager.
+
 package mcp
 
 import (

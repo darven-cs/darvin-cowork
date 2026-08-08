@@ -1,3 +1,5 @@
+// Package config loads and validates the agent's runtime configuration
+// via viper.
 package config
 
 import (

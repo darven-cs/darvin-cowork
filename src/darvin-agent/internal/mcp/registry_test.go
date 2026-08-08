@@ -1,3 +1,5 @@
+// Tests for the MCP server registry.
+
 package mcp
 
 import (

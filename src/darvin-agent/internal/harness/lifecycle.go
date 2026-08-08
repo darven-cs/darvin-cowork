@@ -1,3 +1,5 @@
+// Tracks per-session lifecycle generations and the process-wide diagnostic observer.
+
 package harness
 
 import (

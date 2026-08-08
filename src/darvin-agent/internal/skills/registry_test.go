@@ -1,3 +1,5 @@
+// Tests for the skill registry.
+
 package skills
 
 import (

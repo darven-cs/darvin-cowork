@@ -1,3 +1,5 @@
+// Tests for the inbound message queue.
+
 package queue
 
 import (

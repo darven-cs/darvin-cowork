@@ -1,3 +1,5 @@
+// Tests for Agent run / prompt behavior using a scripted LLM provider.
+
 package agent
 
 import (

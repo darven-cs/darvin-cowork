@@ -1,3 +1,5 @@
+// Tests for the imported-file store.
+
 package store
 
 import (

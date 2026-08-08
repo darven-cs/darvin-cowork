@@ -1,3 +1,5 @@
+// Tests for the Anthropic Provider config, headers, and init registration.
+
 package anthropic
 
 import (

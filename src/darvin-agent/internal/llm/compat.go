@@ -1,3 +1,5 @@
+// Default capability flags shared by the models each provider family ships.
+
 package llm
 
 // Default capability flags per provider family. Provider packages reuse

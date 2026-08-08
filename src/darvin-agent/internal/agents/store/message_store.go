@@ -1,3 +1,5 @@
+// Message persistence API and its wire-shape records.
+
 package store
 
 import (

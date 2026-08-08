@@ -1,3 +1,5 @@
+// Shared test helpers and utilities for the ctxengine package.
+
 package ctxengine
 
 import (

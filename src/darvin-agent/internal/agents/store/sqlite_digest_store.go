@@ -1,3 +1,5 @@
+// GORM-backed DigestStore with per-session sequence allocation.
+
 package store
 
 import (

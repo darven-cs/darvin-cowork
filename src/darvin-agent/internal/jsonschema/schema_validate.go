@@ -1,3 +1,5 @@
+// Validates canonicalized MCP tool parameter schemas with a strict JSON Schema compiler.
+
 package jsonschema
 
 import (

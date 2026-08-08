@@ -1,3 +1,5 @@
+// Indexes MCP servers and their live clients by server ID.
+
 package mcp
 
 import (

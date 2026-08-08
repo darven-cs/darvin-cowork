@@ -1,3 +1,5 @@
+// Tests for the event ledger subscription and event-to-wire mapping.
+
 package gateway
 
 import (

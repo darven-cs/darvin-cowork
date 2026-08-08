@@ -1,3 +1,5 @@
+// Parses and validates the YAML frontmatter block of a SKILL.md.
+
 package skills
 
 import (

@@ -1,3 +1,5 @@
+// Tests for the assembler lifecycle and ingest hooks.
+
 package ctxengine
 
 import (

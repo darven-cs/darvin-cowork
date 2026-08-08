@@ -1,3 +1,5 @@
+// Tests for the AgentFactory assembly and close behavior.
+
 package agentloop
 
 import (

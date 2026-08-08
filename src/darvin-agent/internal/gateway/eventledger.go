@@ -1,3 +1,5 @@
+// Per-session event subscription ledger that maps agent events to wire events.
+
 package gateway
 
 import (

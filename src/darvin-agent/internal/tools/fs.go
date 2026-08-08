@@ -1,3 +1,5 @@
+// Implements the built-in file read, write, edit, and list tools.
+
 package tool
 
 import (

@@ -1,3 +1,5 @@
+// Tests for capability verification on harnesses.
+
 package harness
 
 import (

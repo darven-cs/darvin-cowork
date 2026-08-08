@@ -1,3 +1,5 @@
+// Tests for session hydration and record-to-message conversion.
+
 package agentloop
 
 import (

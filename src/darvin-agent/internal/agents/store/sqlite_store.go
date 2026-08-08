@@ -1,3 +1,5 @@
+// GORM-backed SessionStore for session metadata.
+
 package store
 
 import (

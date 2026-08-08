@@ -1,3 +1,5 @@
+// Tests for the workspace bootstrap cache.
+
 package runtime
 
 import (

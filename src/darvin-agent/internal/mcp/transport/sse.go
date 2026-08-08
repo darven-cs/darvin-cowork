@@ -1,3 +1,5 @@
+// Speaks MCP over a long-lived SSE stream with POSTed outbound requests.
+
 package transport
 
 import (

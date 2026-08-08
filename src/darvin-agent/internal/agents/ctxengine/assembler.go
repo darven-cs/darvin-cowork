@@ -1,3 +1,5 @@
+// DefaultAssembler implementation and its default window / tail knobs.
+
 package ctxengine
 
 import (

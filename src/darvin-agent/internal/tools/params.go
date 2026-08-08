@@ -1,3 +1,5 @@
+// Serialises tool parameter schemas and validates call arguments against them.
+
 package tool
 
 import (

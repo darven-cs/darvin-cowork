@@ -1,3 +1,5 @@
+// Tests for the SQLite message store.
+
 package store
 
 import (

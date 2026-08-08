@@ -1,3 +1,5 @@
+// Caches the workspace bootstrap files used during session assembly.
+
 package runtime
 
 import (

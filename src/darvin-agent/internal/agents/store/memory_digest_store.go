@@ -1,3 +1,5 @@
+// In-memory DigestStore for tests and zero-disk stand-in.
+
 package store
 
 import (

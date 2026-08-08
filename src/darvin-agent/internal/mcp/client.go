@@ -1,3 +1,5 @@
+// Implements the JSON-RPC 2.0 client over a single transport.
+
 package mcp
 
 import (

@@ -1,3 +1,5 @@
+// Defines the core skill entry types, sources, and security risk levels.
+
 package skills
 
 import (

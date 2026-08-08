@@ -1,3 +1,5 @@
+// Backend-side context projection registry backed by an in-memory map.
+
 package ctxengine
 
 import (

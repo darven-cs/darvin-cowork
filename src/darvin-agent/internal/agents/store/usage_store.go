@@ -1,3 +1,5 @@
+// Per-session token usage persistence.
+
 package store
 
 import (

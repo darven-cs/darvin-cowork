@@ -1,3 +1,4 @@
+// Package logger wires the zap + lumberjack logger for the agent process.
 package logger
 
 import (

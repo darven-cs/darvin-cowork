@@ -1,3 +1,5 @@
+// Tests for the skill directory scanner.
+
 package skills
 
 import (

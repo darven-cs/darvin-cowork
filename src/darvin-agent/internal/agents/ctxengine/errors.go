@@ -1,3 +1,5 @@
+// Sentinel errors for the context engine seams.
+
 package ctxengine
 
 import (

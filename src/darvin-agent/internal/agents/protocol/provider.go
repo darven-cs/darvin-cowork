@@ -1,3 +1,5 @@
+// Unified LLM provider contract and streaming response handle.
+
 package protocol
 
 import (

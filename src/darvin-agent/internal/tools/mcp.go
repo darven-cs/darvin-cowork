@@ -1,3 +1,5 @@
+// Bridges connected MCP servers into the tool registry as KindMcp tools.
+
 package tool
 
 import (

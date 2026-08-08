@@ -1,3 +1,5 @@
+// Tests for system-prompt section rendering.
+
 package ctxengine
 
 import (

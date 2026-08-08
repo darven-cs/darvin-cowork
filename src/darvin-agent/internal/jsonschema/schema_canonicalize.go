@@ -1,3 +1,4 @@
+// Package jsonschema canonicalizes and validates MCP tool JSON Schemas.
 package jsonschema
 
 import (

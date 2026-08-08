@@ -1,3 +1,5 @@
+// Tests for the executor's compaction hand-off to the assembler.
+
 package executor
 
 import (

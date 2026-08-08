@@ -1,3 +1,5 @@
+// Wires the embedded harness that drives agent prompts and runs.
+
 package runtime
 
 import (

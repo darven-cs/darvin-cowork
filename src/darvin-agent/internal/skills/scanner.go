@@ -1,3 +1,5 @@
+// Scans skill directories for SKILL.md files and parses their contents.
+
 package skills
 
 import (

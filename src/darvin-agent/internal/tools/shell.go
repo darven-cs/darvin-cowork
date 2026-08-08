@@ -1,3 +1,5 @@
+// Implements the shell tool and its command allowlist.
+
 package tool
 
 import (

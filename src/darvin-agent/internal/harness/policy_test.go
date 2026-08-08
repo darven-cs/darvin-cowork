@@ -1,3 +1,5 @@
+// Tests for harness-selection policy parsing.
+
 package harness
 
 import (

@@ -1,3 +1,5 @@
+// Speaks MCP JSON-RPC over a child process's stdio.
+
 package transport
 
 import (

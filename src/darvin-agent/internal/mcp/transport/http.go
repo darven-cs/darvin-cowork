@@ -1,3 +1,5 @@
+// Speaks MCP JSON-RPC over one HTTP POST per request.
+
 package transport
 
 import (

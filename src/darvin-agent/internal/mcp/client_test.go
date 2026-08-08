@@ -1,3 +1,5 @@
+// Tests for the JSON-RPC client framing and serialization.
+
 package mcp
 
 import (

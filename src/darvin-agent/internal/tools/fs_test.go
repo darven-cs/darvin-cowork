@@ -1,3 +1,5 @@
+// Tests for the built-in file tools.
+
 package tool
 
 import (

@@ -1,3 +1,5 @@
+// Tests for client reconnection and buffered-frame recovery.
+
 package mcp
 
 import (
