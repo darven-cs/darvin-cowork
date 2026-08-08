@@ -25,8 +25,8 @@ type Archiver interface {
 }
 
 // FileArchiver writes one timestamped jsonl per Archive call. The
-// filename format mirrors Reasonix's archiveDir convention so external
-// tooling can ingest the files without a custom parser.
+// filename format follows the jsonl convention so external tooling can
+// ingest the files without a custom parser.
 //
 // The directory is created lazily on first use; an empty dir disables
 // archive (the most common configuration in fresh installs).

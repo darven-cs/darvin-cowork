@@ -179,9 +179,9 @@ agent:
 	}
 }
 
-// TestLoadMergesUserOverlay is FR-1.2: an existing user-level
-// darvin-cowork/config.yaml wins over the bundled file. The bundled
-// api_key is empty; the overlay sets it to "user-key-123".
+// TestLoadMergesUserOverlay checks the precedence rule: an existing
+// user-level darvin-cowork/config.yaml wins over the bundled file. The
+// bundled api_key is empty; the overlay sets it to "user-key-123".
 func TestLoadMergesUserOverlay(t *testing.T) {
 	defer resetViper()
 	dir := t.TempDir()

@@ -38,7 +38,7 @@ type Registry struct {
 
 	// beginSpawn tracks in-flight transport connects keyed by the spawn key
 	// (command+args, ignoring serverID). Concurrent connectServer calls for
-	// the same key share one transport instance (FR-8).
+	// the same key share one transport instance.
 	beginSpawn   map[string]chan struct{}
 	beginSpawnMu sync.Mutex
 
@@ -454,7 +454,7 @@ func (r *Registry) connectServer(serverID string) {
 	switch spec.Transport {
 	case TransportStdio:
 		// beginSpawn key dedups simultaneous connectServer calls for the
-		// same server (FR-8). Multiple users configuring the same server
+		// same server. Multiple users configuring the same server
 		// at the same time share one spawn.
 		t = r.buildStdioTransport(spec, res)
 	case TransportHTTP:
@@ -606,14 +606,14 @@ func (r *Registry) WithLogger(log *zap.Logger) *Registry {
 }
 
 // buildStdioTransport creates a StdioTransport with beginSpawn dedup
-// (FR-8) and PATH enrichment (FR-5). Concurrent connectServer calls
-// for the same spawn key share the same transport via the beginSpawn map.
+// and PATH enrichment. Concurrent connectServer calls for the same
+// spawn key share the same transport via the beginSpawn map.
 func (r *Registry) buildStdioTransport(spec ServerSpec, res LaunchResolution) *transport.StdioTransport {
 	env := mergeEnv(spec.Env, res.Env)
 
 	// Apply PATH enrichment so that commands found in shell PATH
 	// (npx, uvx, etc.) are discoverable even when spawned outside
-	// a shell session (FR-5).
+	// a shell session.
 	enriched := enrichPATH(env)
 	if len(enriched) > 0 {
 		env = enriched
@@ -638,7 +638,7 @@ func spawnKey(cmd string, args []string) string {
 }
 
 // enrichPATH extends the env with a richer PATH that includes
-// common shell-originated directories (FR-5). This is needed because
+// common shell-originated directories. This is needed because
 // GUI applications launched by Electron do not inherit the shell's
 // PATH, so npm/npx/uvx may not be found without this probe.
 // If env already contains a PATH entry, that is used as the base.

@@ -171,7 +171,7 @@ func TestLoopEnd2End(t *testing.T) {
 }
 
 // TestLoopPersistsUserAndAssistantWithDistinctIDs is the regression test
-// for the FR-4 user-message-loss bug: persistUserMessage used to key the
+// for the user-message-loss bug: persistUserMessage used to key the
 // user row with the same messageID persistAssistantMessages uses for the
 // assistant row, so the assistant upsert silently overwrote the user's
 // question. The Loop must mint a distinct user message id per turn.
@@ -367,7 +367,7 @@ func TestStopMatchesRunID(t *testing.T) {
 	}
 }
 
-// TestSubmitQueuesBehindActiveRun: FR-7 same-session serialisation. A
+// TestSubmitQueuesBehindActiveRun pins same-session serialisation: a
 // second Submit parks instead of being rejected, and runs once the first
 // turn ends — the messageID only flips at that point.
 func TestSubmitQueuesBehindActiveRun(t *testing.T) {

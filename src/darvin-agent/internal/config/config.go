@@ -57,8 +57,7 @@ type LLMConfig struct {
 // defaults to true at the YAML front-end so end users get the assembler
 // pipeline; Go callers using agent.Config directly get false (the bool zero
 // value) and must opt in explicitly. ContextWindow=0 disables the entire
-// auto-compact pipeline (the FR-1 closed semantic that mirrors Reasonix
-// maybeCompact:86).
+// auto-compact pipeline entirely.
 type AgentConfig struct {
 	MaxTurns       int      `mapstructure:"max_turns"`
 	ToolTimeoutMS  int      `mapstructure:"tool_timeout_ms"`
@@ -75,25 +74,24 @@ type AgentConfig struct {
 	// triggers Compact).
 	ContextWindow int `mapstructure:"context_window"`
 
-	// Four threshold ratios driving the FR-2 cascade:
+	// Four threshold ratios driving the soft-notice cascade:
 	//   SoftCompactRatio    — 50% soft notice
 	//   ToolResultSnipRatio — 60% stale tool result snip
 	//   CompactRatio        — 80% trigger LLM summarise
 	//   CompactForceRatio   — 90% force summarise (bypass foldEconomics)
-	// 0 falls back to the Reasonix default (0.5/0.6/0.8/0.9).
+	// 0 falls back to the default (0.5/0.6/0.8/0.9).
 	SoftCompactRatio    float64 `mapstructure:"soft_compact_ratio"`
 	ToolResultSnipRatio float64 `mapstructure:"tool_result_snip_ratio"`
 	CompactRatio        float64 `mapstructure:"compact_ratio"`
 	CompactForceRatio   float64 `mapstructure:"compact_force_ratio"`
 
 	// CompactTailTokens is the token budget the kept tail fits under.
-	// Mirrors Reasonix defaultTailTokens (16384). 0 falls back to the
-	// ctxengine default.
+	// 0 falls back to the ctxengine default (16384).
 	CompactTailTokens int `mapstructure:"compact_tail_tokens"`
 
 	// RecentKeep is the message-count floor on the kept tail —
 	// compaction never keeps fewer than this many recent messages even
-	// if the token budget allows more. Mirrors Reasonix minRecentKeep (2).
+	// if the token budget allows more. 0 falls back to the default (2).
 	RecentKeep int `mapstructure:"recent_keep"`
 
 	// ArchiveDir, when non-empty, causes Compact to persist the fold

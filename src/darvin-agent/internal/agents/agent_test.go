@@ -156,7 +156,7 @@ func TestNewAssemblerEnabledDefaultsToFalse(t *testing.T) {
 
 // TestConfigForwardsContextWindow verifies that Config().ContextWindow
 // flows from agent.Config to executor.Config so the assembler path
-// receives the configured window for the FR-2 four-tier cascade.
+// receives the configured window for the four-tier soft-notice cascade.
 func TestConfigForwardsContextWindow(t *testing.T) {
 	a, err := New(NewAgentConfig{
 		Session:  session.NewSession("s"),

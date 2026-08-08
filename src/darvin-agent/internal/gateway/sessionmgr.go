@@ -207,8 +207,8 @@ func (m *SessionManager) RefreshAllTools() int {
 // factory 注入时懒建 AgentLoopSession。
 //
 // 命中现有 entry 时先检查 stoppedUntilMs(落在窗口内返回 ErrSessionStalled),
-// 再刷新 lastTouchedMs 并把 entry 提到 LRU 头。FR-8 阶段 2:subscribe 早于
-// prompt 留下的空 AgentLoop entry 在首个 prompt 触发 AgentLoopSession 懒建。懒建失败
+// 再刷新 lastTouchedMs 并把 entry 提到 LRU 头。当 subscribe 在 prompt 之前
+// 留下空 AgentLoop entry 时,首个 prompt 触发 AgentLoopSession 懒建。懒建失败
 // 时回滚 byID + LRU 防止半残 entry 卡住下次重试。cap 已满且全是 active
 // run 时返回 ErrSessionsLimit —— 不主动打断 active run。
 func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {

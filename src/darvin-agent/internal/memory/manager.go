@@ -40,7 +40,7 @@ type SearchResult struct {
 
 // Manager is the long-term-memory facade. Disabled (empty
 // workspaceDir) when the memory subsystem is not wired; every method
-// returns "" / nil / nil-error in that case (FR-12 graceful degrade).
+// returns "" / nil / nil-error in that case.
 type Manager struct {
 	workspaceDir string
 
@@ -74,8 +74,8 @@ func (m *Manager) WorkspaceDir() string {
 
 // ReadBootstrap returns the content of the named bootstrap file.
 // Returns "" on any error: disabled Manager, unknown name, missing
-// file, or read failure. Empty-string return is the FR-12 graceful
-// degrade signal.
+// file, or read failure. Callers must treat the empty string as the
+// "memory subsystem not available" signal.
 func (m *Manager) ReadBootstrap(_ context.Context, name string) string {
 	if m == nil || !m.enabled {
 		return ""

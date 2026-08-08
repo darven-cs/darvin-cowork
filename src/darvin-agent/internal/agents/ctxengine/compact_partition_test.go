@@ -306,7 +306,7 @@ func toolPair(callID, text, result string) []protocol.Message {
 	}
 }
 
-// TestPartitionFoldKeepsToolPairsAtomic verifies Reasonix-style pair
+// TestPartitionFoldKeepsToolPairsAtomic verifies tool-call pair
 // atomicity: when an assistant with ToolCalls is followed by its
 // matching tool message, partitionFold must keep them in the same
 // bucket so the summariser never eats a tool_use without its result

@@ -127,11 +127,10 @@ type NewAgentConfig struct {
 	AssemblerEnabled bool
 
 	// Skills, when non-nil, feeds the assembler's AvailableSkills. nil
-	// means no skill registry is wired (Phase 5 default until the skill
-	// plugin ships its own registry).
+	// means the assembler skips skill discovery.
 	Skills SkillsLister
-	// Mcp, when non-nil, feeds the assembler's AvailableMcp. nil means no
-	// MCP registry is wired (Phase 5 default until the MCP plugin ships).
+	// Mcp, when non-nil, feeds the assembler's AvailableMcp. nil means
+	// the assembler skips MCP discovery.
 	Mcp McpLister
 
 	// Memory feeds ctxengine.MemoryFacts (FTS top-N hits). nil → no

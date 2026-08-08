@@ -536,9 +536,11 @@ func TestSessionManager_LazyBuildFailureRollsBack(t *testing.T) {
 	}
 }
 
-// FR-8 阶段 2 回归:renderer 启动期给历史 session 发 subscribe_events 留下
-// 大量 AgentLoopSession=nil 的 entry,首个 prompt 到该 id 时 GetOrCreateEntry 命中
-// "现有 entry"分支,需要补建 AgentLoopSession,不能直接返 CodeNoAgentLoopSession。
+// Regression for the subscription-then-prompt flow: when the renderer
+// subscribes to historical sessions during startup, AgentLoopSession is
+// nil on those entries. The first prompt on such an id must hit the
+// "existing entry" branch and lazily build AgentLoopSession, instead of
+// returning CodeNoAgentLoopSession.
 func TestSessionManager_PromptUpgradesEntryCreatedBySubscribe(t *testing.T) {
 	factory := &agentloop.AgentFactory{
 		Provider: &blockingProvider{},

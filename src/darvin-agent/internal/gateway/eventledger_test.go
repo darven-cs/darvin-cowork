@@ -181,9 +181,9 @@ func TestMapEventToTSOmitsEmptySessionAndRun(t *testing.T) {
 	}
 }
 
-// TestMapEventToTSDoneUsage pins down FR-4: when an LLMEndEvent carries
-// non-zero Usage, the resulting `done` notification gains a `usage`
-// block. When Usage is zero, the block is omitted (no
+// TestMapEventToTSDoneUsage pins the done-event Usage contract: when an
+// LLMEndEvent carries non-zero Usage, the resulting `done` notification
+// gains a `usage` block. When Usage is zero, the block is omitted (no
 // `{totalTokens: 0}` noise on every smoke-test turn).
 func TestMapEventToTSDoneUsage(t *testing.T) {
 	ec := event.EventBase{EventCommon: event.EventCommon{SessionID: "s1", MessageID: "m1"}}

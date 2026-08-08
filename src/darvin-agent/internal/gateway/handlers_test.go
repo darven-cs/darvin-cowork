@@ -636,10 +636,13 @@ func TestHandlePrompt_QueuedForActiveSession(t *testing.T) {
 	}
 }
 
-// TestHandleSubscribeEvents_BuildsEntryNotAgentLoop:FR-8 两阶段。subscribe
-// 只建 SessionEntry,不触发 AgentLoopSession 懒建 —— 否则 renderer 订历史
-// session 时会拉起 N 个 Agent / Loop / 订阅。检查走 byID 直读而不是
-// GetOrCreateEntry,后者会触发"阶段 2"补建,掩盖 subscribe 自己的行为。
+// TestHandleSubscribeEvents_BuildsEntryNotAgentLoop: subscribe runs in
+// two phases. It only creates the SessionEntry and must NOT lazily
+// build AgentLoopSession — otherwise subscribing to historical sessions
+// from the renderer would spin up N agents / loops / subscriptions.
+// The assertion reads byID directly instead of calling GetOrCreateEntry,
+// because the latter would trigger the "phase-2" upgrade and mask the
+// behaviour under test.
 func TestHandleSubscribeEvents_BuildsEntryNotAgentLoop(t *testing.T) {
 	_, c := newTestHandler(t)
 	resp := dispatchRequest(context.Background(), &Request{
@@ -659,7 +662,7 @@ func TestHandleSubscribeEvents_BuildsEntryNotAgentLoop(t *testing.T) {
 		t.Fatalf("entry vanished from byID")
 	}
 	if entry.AgentLoop != nil {
-		t.Fatalf("subscribe must NOT trigger AgentLoopSession build (FR-8 two-phase); got AgentLoop=%+v", entry.AgentLoop)
+		t.Fatalf("subscribe must NOT trigger AgentLoopSession build; got AgentLoop=%+v", entry.AgentLoop)
 	}
 }
 

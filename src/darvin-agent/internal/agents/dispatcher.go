@@ -151,7 +151,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		// the new updated_at.
 		a.persistSession(runCtx)
 		if err != nil {
-			// Sealing write (FR-4): persist done=true + error so a reload
+			// Sealing write: persist done=true + error so a reload
 			// paints an error bubble. Runs in the canceled branch too — an
 			// aborted turn is still a "sealed with error" row.
 			if a.msgStore != nil && runMsgID != "" {
@@ -182,7 +182,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			})
 			return err
 		}
-		// Sealing write (FR-4): mark the run's message done so a reload
+		// Sealing write: mark the run's message done so a reload
 		// sees done=true. RunEndEvent is still forwarded to the renderer
 		// via EventRouter; persistence is now purely a store concern.
 		if a.msgStore != nil && runMsgID != "" {
@@ -329,7 +329,7 @@ func (a *Agent) persistAssistantMessages(ctx context.Context, msgID string, befo
 }
 
 // persistSession is hook 3 of 3. It saves the session row so
-// list_sessions (FR-3) sees the new updated_at. Errors are logged and
+// list_sessions sees the new updated_at. Errors are logged and
 // swallowed so a transient DB lock doesn't abort an otherwise successful
 // Run — the in-memory session is the source of truth for the live agent.
 func (a *Agent) persistSession(ctx context.Context) {

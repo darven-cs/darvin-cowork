@@ -14,7 +14,7 @@ import (
 
 // summaryTimeout bounds one summarizer call so a stalled stream surfaces
 // a clear failure (then a mechanical fold) instead of hanging compaction
-// indefinitely. Mirrors Reasonix summaryTimeout.
+// indefinitely.
 const summaryTimeout = 90 * time.Second
 
 // summarySystemPrompt steers the executor to distill older history into
@@ -55,7 +55,7 @@ Rules: be terse — bullet points and fragments, not prose. Preserve identifiers
 //
 // Prior digests (matched by isCompactionSummary) stay verbatim in the
 // retained slice so repeated passes don't recursively re-summarise the
-// original summary text (FR-4).
+// original summary text.
 func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) CompactResult {
 	if err := ctx.Err(); err != nil {
 		return CompactResult{
@@ -65,7 +65,7 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		}
 	}
 
-	// FR-4: stuck latch — once auto-compact has run on two consecutive
+	// Stuck latch — once auto-compact has run on two consecutive
 	// turns, pause and surface a Notice so the user can fix the
 	// context window rather than pay repeated LLM summariser calls.
 	if !p.Force && a.Stuck() {
@@ -134,10 +134,10 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 	//   kept        — prior digests + pinnable user turns (verbatim)
 	//   fold        — the rest, fed to the summariser
 	// Old digests stay out of the LLM summary, so repeated Compact
-	// passes don't re-summarise the original summary text (FR-4).
+	// passes don't re-summarise the original summary text.
 	pinned, kept, fold := partitionFold(p.Messages)
 
-	// D9: tail uses two independent knobs — RecentKeep is the
+	// tail uses two independent knobs — RecentKeep is the
 	// message-count floor, CompactTailTokens is the token budget.
 	// The tailStart helper below computes start = the index from
 	// which the verbatim tail begins; messages[head:start] is the
@@ -147,7 +147,7 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 
 	start := tailStart(p.Messages, 0, cfg.CompactTailTokens, EstimateMessageTokens, cfg.RecentKeep)
 	// Adjust start so the tail doesn't split a tool_use/tool_result
-	// pair (Reasonix-equivalent of alignTailBoundary). Without this
+	// pair. Without this
 	// adjustment, the tail could start on a tool message whose
 	// tool_use lives in the fold region (or vice versa), producing
 	// an orphan tool_result that the Anthropic wire format rejects.
@@ -168,7 +168,7 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 			Reason:           p.Reason,
 		}
 	}
-	// Recompute fold in the D9 model: kept + summary + tail. We already
+	// Recompute fold as kept + summary + tail. We already
 	// have pinned / kept above; the fold region is the slice between
 	// (pinned + kept) and the tail boundary. The partitionFold / head
 	// cooperation keeps tool-use pairs atomic; tailStart only chooses
@@ -210,7 +210,7 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		}
 	}
 
-	// FR-6: archive the fold region before the LLM call so a summariser
+	// Archive the fold region before the LLM call so a summariser
 	// failure still leaves the originals on disk. Best-effort.
 	archived := ""
 	if archiver != nil {
@@ -226,9 +226,9 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		}
 	}
 
-	// Run the LLM summary with the FR-3 7-section prompt. FR-5:
-	// a summary failure is no longer fatal — fall through to the
-	// mechanical fold so the caller still gets a compacted slice.
+	// Run the LLM summary with the 7-section prompt. A summary failure
+	// is no longer fatal — fall through to the mechanical fold so the
+	// caller still gets a compacted slice.
 	summaryText, err := a.callSummariser(ctx, summarizer, modelName, fold, cfg.SummarizeMaxTokens)
 	if err != nil {
 		if a.deps != nil {
@@ -259,8 +259,8 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 
 	firstKeptID, firstKeptTS := firstKeptBoundary(p.Messages, len(tail))
 
-	// D8: re-compact loop is bounded by `tokensAfter <= Budget`. The
-	// mechanical fold fallback (FR-5) ensures every iteration lands a
+	// Re-compact loop is bounded by `tokensAfter <= Budget`. The
+	// mechanical fold fallback ensures every iteration lands a
 	// digest; the natural-exit condition keeps this bounded without
 	// a magic retry counter. Half-fold each iteration until the
 	// result fits, or the fold is empty.
@@ -299,7 +299,7 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 		}
 	}
 
-	// FR-4 latch update — fire before returning so the next Assemble
+	// Stuck-latch update — fire before returning so the next Assemble
 	// sees the latest count.
 	stuckNow := a.MarkConsecutiveCompact()
 	if stuckNow && a.deps != nil {
@@ -328,7 +328,7 @@ func (a *DefaultAssembler) Compact(ctx context.Context, p CompactParams) Compact
 
 // callSummariser is the timeout-bounded call to the LLM summary. A
 // stalled stream surfaces as context.DeadlineExceeded; the caller treats
-// any error as FR-5 mechanical-fold trigger.
+// any error as the mechanical-fold trigger.
 func (a *DefaultAssembler) callSummariser(
 	ctx context.Context,
 	summarizer Summarizer,
@@ -362,7 +362,7 @@ func mechanicalFoldDigest(n int, archive string) string {
 }
 
 // DefaultSummarizer is the default Summarizer: it wraps
-// protocol.ModelProvider.Stream with the FR-3 7-section system prompt.
+// protocol.ModelProvider.Stream with the 7-section system prompt.
 // It deliberately does not reuse Agent.Session or Agent.EventBus so the
 // summary call does not pollute the agent's own conversation state.
 type DefaultSummarizer struct {
@@ -507,7 +507,8 @@ func pairAwareGroupSize(msgs []protocol.Message, i int) int {
 
 // isCompactionSummary matches the "[Conversation Summary]\n..." prefix
 // both the assembler and the manual compact handler emit. Keeping
-// old digests out of the next summary pass is the FR-4 contract.
+// old digests out of the next summary pass is the contract enforced
+// by partitionFold.
 func isCompactionSummary(m protocol.Message) bool {
 	if m.Role != protocol.RoleAssistant {
 		return false

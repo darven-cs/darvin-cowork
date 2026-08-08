@@ -12,15 +12,14 @@ import (
 )
 
 // DefaultContextWindow is the implicit context window used when
-// ctxengine.Config.ContextWindow is left at zero. Reasonix doesn't
-// carry an absolute budget — it relies on contextWindow × ratio for
-// every threshold — but darvin-cowork boots without an explicit
-// window during `go run` / unit tests, so a sane default keeps the
-// 4-tier cascade meaningful in development. Production callers set
-// context_window: <model_context_window> in config.yaml.
+// ctxengine.Config.ContextWindow is left at zero. darvin-cowork boots
+// without an explicit window during `go run` / unit tests, so a sane
+// default keeps the 4-tier cascade meaningful in development.
+// Production callers set context_window: <model_context_window> in
+// config.yaml.
 const DefaultContextWindow = 200000
 
-// Default tail knobs (mirrors Reasonix defaultTailTokens / minRecentKeep).
+// Default tail knobs.
 const (
 	DefaultTailTokens    = 16384 // verbatim recent-tail budget, in tokens
 	DefaultRecentKeep    = 2     // minimum recent messages kept verbatim
@@ -33,7 +32,7 @@ const (
 // compact target always reflects a meaningful budget rather than 0.
 const minFoldFloor = 1000
 
-// Default ratio knobs (mirrors Reasonix defaultSoftCompactRatio / …).
+// Default ratio knobs.
 const (
 	DefaultSoftCompactRatio    = 0.5
 	DefaultToolResultSnipRatio = 0.6
@@ -48,27 +47,25 @@ const (
 // internal/config.
 type Config struct {
 	// ContextWindow is the LLM's hard context cap in tokens. 0
-	// disables the entire auto-compact pipeline (the FR-1 closed
-	// semantic that mirrors Reasonix maybeCompact:86). When > 0 the
+	// disables the entire auto-compact pipeline. When > 0 the
 	// four ratios below derive absolute trigger thresholds via
 	// `int(float64(ContextWindow) * ratio)`.
 	ContextWindow int
 
 	// The four threshold ratios driving the cascade (see assemble.go).
-	// Defaults align with Reasonix; users override via config.yaml.
+	// Defaults match the constants above; users override via config.yaml.
 	SoftCompactRatio    float64
 	ToolResultSnipRatio float64
 	CompactRatio        float64
 	CompactForceRatio   float64
 
 	// CompactTailTokens is the token budget the kept tail fits
-	// under. Aligned with Reasonix defaultTailTokens (16384). When
-	// 0 the assembler falls back to DefaultTailTokens.
+	// under. When 0 the assembler falls back to DefaultTailTokens.
 	CompactTailTokens int
 	// RecentKeep is the message-count floor on the kept tail —
 	// compaction never keeps fewer than this many recent messages
-	// even if the token budget allows more. Aligned with Reasonix
-	// minRecentKeep (2).
+	// even if the token budget allows more. When 0 the assembler
+	// falls back to DefaultRecentKeep.
 	RecentKeep int
 
 	// ArchiveDir, when non-empty, causes Compact to persist the
@@ -84,7 +81,7 @@ type Config struct {
 	AssemblerEnabled     bool
 
 	// MemoryFactsLimit clamps the MEMORY block FTS top-N. <= 0
-	// disables the MEMORY block (consistent with FR-12 degrade).
+	// disables the MEMORY block.
 	MemoryFactsLimit int
 	// MemoryFactsCacheTTL bounds the per-(sessionID, query) FTS cache.
 	// <= 0 disables caching — every Assemble re-queries FTS.

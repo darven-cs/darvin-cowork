@@ -26,7 +26,7 @@ import (
 //
 // The reader runs in a dedicated goroutine so that Recv never blocks on
 // ctx cancellation. All responses are routed through per-request-ID
-// pending channels, matching the DeepSeek-Reasonix pattern.
+// pending channels so concurrent calls do not block each other.
 type StdioTransport struct {
 	Command string
 	Args    []string

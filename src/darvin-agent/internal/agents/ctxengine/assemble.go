@@ -12,7 +12,7 @@ import (
 
 // Assemble runs the per-turn prompt construction pipeline.
 //
-// The trigger model is the Reasonix 4-tier cascade (see cfg.SoftCompactRatio
+// The trigger model is a four-tier cascade (see cfg.SoftCompactRatio
 // … cfg.CompactForceRatio):
 //
 //	50%  soft notice    — emit NoticeSoftCompact once; no rewriting.
@@ -22,7 +22,7 @@ import (
 //	90%  force          — same as 80% but bypass foldEconomics so a small
 //	                       fold still triggers a paid summarise call.
 //
-// contextWindow <= 0 disables the entire cascade (FR-1 / D10). When
+// contextWindow <= 0 disables the entire cascade. When
 // LastUsage.PromptTokens is zero (first turn / no API call yet) the
 // cascade is skipped — Assemble falls through to the result-assembly
 // path with the local rune/4 estimator.
@@ -39,10 +39,9 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 	stats := AssembleStats{}
 	result := AssembleResult{}
 
-	// FR-1 / D10: contextWindow == 0 disables the entire auto-compact
-	// cascade. The caller still receives the assembler output (system
-	// sections, tool truncation) but Compact / soft-notice / snip are
-	// all skipped. Aligns with Reasonix maybeCompact:86.
+	// contextWindow == 0 disables the entire auto-compact cascade. The
+	// caller still receives the assembler output (system sections, tool
+	// truncation) but Compact / soft-notice / snip are all skipped.
 	if cfg.ContextWindow <= 0 {
 		sections := a.BuildSystemSections(ctx, p.SessionID, p.AvailableSkills, p.AvailableFacts, p.MCPServers)
 		sections = append(sections, p.SystemSections...)
@@ -143,14 +142,14 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 	}
 
 	// Compact band (≥ 80%, force flag when ≥ 90%). The compactStuck
-	// latch from FR-4 short-circuits here. Budget is the post-compact
-	// target — Reasonix uses `contextWindow × compactTarget (default
-	// 0.5)`, so the fold lands well below the soft threshold rather
-	// than barely under the trigger. We use cfg.ContextWindow / 2 to
-	// keep the four-ratio model intact without exposing a fifth
-	// tuning knob. The minFoldFloor only applies to the derived
-	// target — a caller-supplied ToolBudget is honoured verbatim so
-	// existing tests / legacy paths stay stable.
+	// latch short-circuits here. Budget is the post-compact
+	// target — `contextWindow × compactTarget (default 0.5)` lands the
+	// fold well below the soft threshold rather than barely under
+	// the trigger. We use cfg.ContextWindow / 2 to keep the
+	// four-ratio model intact without exposing a fifth tuning knob.
+	// The minFoldFloor only applies to the derived target — a
+	// caller-supplied ToolBudget is honoured verbatim so existing
+	// tests / legacy paths stay stable.
 	compactBudget := p.ToolBudget
 	if compactBudget <= 0 {
 		compactBudget = cfg.ContextWindow / 2

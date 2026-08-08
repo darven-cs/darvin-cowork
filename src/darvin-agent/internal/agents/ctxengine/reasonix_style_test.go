@@ -41,14 +41,14 @@ func (r *recordingSummarizer) Summarize(_ context.Context, req SummarizeRequest)
 	return "ok", nil
 }
 
-// TestAssemble_BudgetZero_DisablesAutoCompact (FR-1 / D10) verifies that
-// when ContextWindow <= 0, Assemble skips the entire auto-compact
+// TestAssemble_BudgetZero_DisablesAutoCompact verifies that when
+// ContextWindow <= 0, Assemble skips the entire auto-compact
 // cascade (soft / snip / compact / force), even when the prompt
 // would otherwise exceed the trigger thresholds.
 func TestAssemble_BudgetZero_DisablesAutoCompact(t *testing.T) {
 	s := &fakeSummarizer{output: "should not be called"}
 	a := NewDefaultAssembler(Config{
-		ContextWindow: 0, // FR-1 closed semantic
+		ContextWindow: 0, // closed semantic: zero disables the cascade
 	}, fakeDeps{model: "m", logger: zap.NewNop()})
 	a.SetSummarizer(s)
 
@@ -72,7 +72,7 @@ func TestAssemble_BudgetZero_DisablesAutoCompact(t *testing.T) {
 	}
 }
 
-// TestAssemble_SoftNotice_FiresAt50Percent (FR-2) verifies the
+// TestAssemble_SoftNotice_FiresAt50Percent verifies the
 // 50%-of-window soft-notice band emits NoticeSoftCompact once per
 // window climb.
 func TestAssemble_SoftNotice_FiresAt50Percent(t *testing.T) {
@@ -124,7 +124,7 @@ func TestAssemble_SoftNotice_FiresAt50Percent(t *testing.T) {
 	}
 }
 
-// TestAssemble_ClearStuckLatch_AfterBudgetDrop (FR-4) verifies that
+// TestAssemble_ClearStuckLatch_AfterBudgetDrop verifies that
 // when the prompt drops back under the compact threshold, the stuck
 // latch and consecutive-compact counter reset.
 func TestAssemble_ClearStuckLatch_AfterBudgetDrop(t *testing.T) {
@@ -156,7 +156,7 @@ func TestAssemble_ClearStuckLatch_AfterBudgetDrop(t *testing.T) {
 	}
 }
 
-// TestCompact_StuckLatch_BypassesCompact (FR-4) verifies that once
+// TestCompact_StuckLatch_BypassesCompact verifies that once
 // the stuck latch is engaged, subsequent Compact calls return
 // Success=false with Reason="compact_paused_stuck".
 func TestCompact_StuckLatch_BypassesCompact(t *testing.T) {
@@ -183,7 +183,7 @@ func TestCompact_StuckLatch_BypassesCompact(t *testing.T) {
 	}
 }
 
-// TestCompact_StuckLatch_BypassedByForce (FR-4) verifies that
+// TestCompact_StuckLatch_BypassedByForce verifies that
 // manual /compact (Force=true) bypasses the stuck latch — the user
 // can always force a compact even when the auto-loop is paused.
 func TestCompact_StuckLatch_BypassedByForce(t *testing.T) {
@@ -211,7 +211,7 @@ func TestCompact_StuckLatch_BypassedByForce(t *testing.T) {
 	}
 }
 
-// TestCompact_MechanicalFold_OnSummarizerError (FR-5) verifies that
+// TestCompact_MechanicalFold_OnSummarizerError verifies that
 // when the LLM summariser fails (every call, not just the first), Compact
 // still returns Success=true with a deterministic mechanical-fold
 // digest in place of the LLM summary, and emits NoticeMechanicalFold.
@@ -247,10 +247,10 @@ func TestCompact_MechanicalFold_OnSummarizerError(t *testing.T) {
 	}
 }
 
-// TestCompact_SummarizerPrompt_Contains7Headings (FR-3) verifies the
-// summariser receives the 7-section system prompt that Reasonix
-// uses. We don't need a real LLM provider; the recordingSummarizer
-// captures the request so we can assert on its System field.
+// TestCompact_SummarizerPrompt_Contains7Headings verifies the
+// summariser receives the 7-section system prompt. We don't need
+// a real LLM provider; the recordingSummarizer captures the request
+// so we can assert on its System field.
 func TestCompact_SummarizerPrompt_Contains7Headings(t *testing.T) {
 	s := &recordingSummarizer{output: "ok"}
 	a := NewDefaultAssembler(Config{
@@ -284,7 +284,7 @@ func TestCompact_SummarizerPrompt_Contains7Headings(t *testing.T) {
 	}
 }
 
-// TestDefaultSummarizer_SystemPrompt_Headings (FR-3) verifies the
+// TestDefaultSummarizer_SystemPrompt_Headings verifies the
 // 7-section system prompt constants contain every required heading.
 func TestDefaultSummarizer_SystemPrompt_Headings(t *testing.T) {
 	required := []string{
@@ -303,7 +303,7 @@ func TestDefaultSummarizer_SystemPrompt_Headings(t *testing.T) {
 	}
 }
 
-// TestCompact_ArchiveWritesJsonl (FR-6) verifies Compact calls the
+// TestCompact_ArchiveWritesJsonl verifies Compact calls the
 // archiver with the fold region before the summariser, and embeds
 // the path in the digest when the LLM succeeds.
 func TestCompact_ArchiveWritesJsonl(t *testing.T) {
@@ -339,7 +339,7 @@ func TestCompact_ArchiveWritesJsonl(t *testing.T) {
 	}
 }
 
-// TestTailStart_RecentKeepFloor verifies D9: RecentKeep is the floor
+// TestTailStart_RecentKeepFloor verifies RecentKeep is the floor
 // on the message count, even when the token budget would allow more
 // trailing messages.
 func TestTailStart_RecentKeepFloor(t *testing.T) {
@@ -357,8 +357,8 @@ func TestTailStart_RecentKeepFloor(t *testing.T) {
 	}
 }
 
-// TestMechanicalFoldDigest_ContainsArchivePath ensures FR-5 embeds
-// the archive path so the model can point the user at it.
+// TestMechanicalFoldDigest_ContainsArchivePath ensures the digest
+// embeds the archive path so the model can point the user at it.
 func TestMechanicalFoldDigest_ContainsArchivePath(t *testing.T) {
 	got := mechanicalFoldDigest(7, "/tmp/x.jsonl")
 	if !strings.Contains(got, "archived to /tmp/x.jsonl") {

@@ -85,7 +85,7 @@ func NewSQLiteMessageStore(db *gorm.DB) *SQLiteMessageStore {
 
 // Save inserts (or replaces on PK conflict) one message row. Returns
 // the underlying GORM error verbatim so the caller can log it; callers
-// in the dispatch path treat errors as warn-and-continue per FR-2.2.
+// in the dispatch path treat errors as warn-and-continue.
 func (s *SQLiteMessageStore) Save(ctx context.Context, m *MessageRecord) error {
 	if m == nil {
 		return errors.New("store: nil MessageRecord")

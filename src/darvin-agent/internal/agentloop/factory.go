@@ -46,7 +46,7 @@ type AgentFactory struct {
 	AssemblerEnabled bool
 
 	// Memory feeds ctxengine.Deps.MemoryFacts; nil disables the MEMORY
-	// block (FR-12 graceful degrade).
+	// block instead of failing the run.
 	Memory *memory.Manager
 	// WorkspaceBootstrap feeds ctxengine.Deps.MemoryBootstrap; nil
 	// means no IDENTITY/SOUL/USER blocks. Must be the workspace-level

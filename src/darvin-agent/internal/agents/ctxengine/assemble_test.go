@@ -157,9 +157,8 @@ func TestAssemble_BudgetZero_FallsBackToCfg(t *testing.T) {
 		ToolBudget: 0,
 	})
 
-	// The compact target is half the context window (Reasonix's
-	// compactTarget = 0.5); the Budget returned is the post-compact
-	// target rather than the absolute window.
+	// The compact target is half the context window; the Budget returned
+	// is the post-compact target rather than the absolute window.
 	if res.Budget != 4000 {
 		t.Errorf("Budget = %d, want 4000 (contextWindow/2)", res.Budget)
 	}

@@ -85,7 +85,7 @@ type AssembleResult struct {
 //
 // SoftNoticeEmitted / SnipTriggered / PausedReCompactLoop extend the
 // pre-existing TruncatedTools / CompactionTriggered fields with the
-// three non-LLM stages of the FR-2 four-tier cascade. Renderers
+// three non-LLM stages of the four-tier soft-notice cascade. Renderers
 // typically only consume CompactionTriggered; the others power
 // telemetry / debug panels.
 type AssembleStats struct {
@@ -98,7 +98,7 @@ type AssembleStats struct {
 	SoftNoticeEmitted bool
 	// SnipTriggered is true when the 60% stale-tool-result snip ran.
 	SnipTriggered bool
-	// PausedReCompactLoop is true when the FR-4 stuck latch suppressed
+	// PausedReCompactLoop is true when the stuck latch suppressed
 	// auto-compact on this turn.
 	PausedReCompactLoop bool
 }

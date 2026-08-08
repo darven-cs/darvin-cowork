@@ -45,8 +45,7 @@ func NewWorkspaceBootstrap(memMgr *memory.Manager, log *zap.Logger) *WorkspaceBo
 }
 
 // Get returns the cached content for the named bootstrap file. Empty
-// string when missing or when the memory subsystem is disabled
-// (FR-12 graceful degrade).
+// string when missing or when the memory subsystem is disabled.
 func (wb *WorkspaceBootstrap) Get(name string) string {
 	if wb == nil {
 		return ""

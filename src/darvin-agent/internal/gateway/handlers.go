@@ -559,9 +559,11 @@ func runManualCompact(a *agent.Agent, sessionID string) {
 	})
 }
 
-// handleSubscribeEvents 走两阶段(FR-8):EnsureEntry 只建 SessionEntry
-// 不触发 AgentLoopSession 懒建,避免 renderer 订历史 session 时拉起 N 个 Agent /
-// Loop / 订阅。真正的事件源在首个 prompt 到达时才补建。
+// handleSubscribeEvents runs in two phases: EnsureEntry only creates the
+// SessionEntry and does not lazily build AgentLoopSession, so subscribing
+// to historical sessions from the renderer does not spin up N agents /
+// loops / subscriptions. The real event source is materialised on the
+// first prompt arrival.
 func handleSubscribeEvents(_ context.Context, id json.RawMessage, params json.RawMessage, c *client, _ *Handler) *Response {
 	if len(params) == 0 {
 		return errorResp(id, CodeInvalidParams, "params required", nil)

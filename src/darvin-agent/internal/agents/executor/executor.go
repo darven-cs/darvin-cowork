@@ -68,15 +68,15 @@ type Config struct {
 	ToolTimeout time.Duration
 	// ContextWindow is the LLM's hard context cap; forwarded to
 	// ContextEngine.Assemble as part of the assembler's auto-compact
-	// configuration. When <= 0 the FR-1 / D10 closed semantic
-	// disables the entire auto-compact pipeline.
+	// configuration. When <= 0 the assembler disables the entire
+	// auto-compact pipeline.
 	ContextWindow int
 }
 
 // compactBudget returns the post-compact token target for the
-// current run. Reasonix's default compactTarget is 0.5; we mirror it
-// so the assemble-time cascade compresses into the lower half of the
-// context window rather than barely under the trigger threshold.
+// current run. The 0.5 ratio keeps the cascade compressing into the
+// lower half of the context window rather than barely under the
+// trigger threshold.
 func (c Config) compactBudget() int {
 	if c.ContextWindow <= 0 {
 		return 0
