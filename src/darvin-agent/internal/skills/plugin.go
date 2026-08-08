@@ -29,10 +29,8 @@ func NewSkillPlugin(reg *SkillRegistry, runner *SkillRunner) *SkillPlugin {
 func (p *SkillPlugin) PluginID() string { return p.pluginID }
 
 // SetBootstrapResult swaps the registry + runner the plugin registers
-// tools from. Runtime workspace switches (agent.set_workspace) re-bootstrap
-// project skills against the new workspace and update the plugin in place,
-// then SessionManager.RefreshAllTools re-runs Register so the tool surface
-// follows the new project skill set.
+// tools from. Workspace switches re-bootstrap project skills and update
+// the plugin in place; RefreshAllTools re-runs Register afterwards.
 func (p *SkillPlugin) SetBootstrapResult(res *BootstrapResult) {
 	if res == nil {
 		return
@@ -61,24 +59,20 @@ func (p *SkillPlugin) Unregister(reg tool.ToolRegistrar) error {
 }
 
 // SkillTool adapts a skill entry to the Tool interface. Execute resolves
-// the skill through the runner and returns a summary of the resolved
-// context; driving the skill's own tools is the caller's responsibility.
+// the skill through the runner and returns a summary; driving the skill's
+// own tools is the caller's responsibility.
 type SkillTool struct {
 	skillEntry *SkillEntry
 	runner     *SkillRunner
 }
 
-// skillToolName maps a skill ID to its tool name. Double-underscore keeps
-// the name inside [a-zA-Z0-9_-] so Anthropic accepts it as a tool name.
+// skillToolName maps a skill ID to its tool name; double-underscore keeps
+// the name in [a-zA-Z0-9_-] so Anthropic accepts it.
 func skillToolName(skillID string) string { return "skill__" + skillID }
 
-// Name returns the tool name (skill__<id>).
-func (t *SkillTool) Name() string { return skillToolName(t.skillEntry.ID) }
-
-// Description returns the skill's description for the LLM.
+func (t *SkillTool) Name() string        { return skillToolName(t.skillEntry.ID) }
 func (t *SkillTool) Description() string { return t.skillEntry.Description }
 
-// Parameters declares a single free-form args string.
 func (t *SkillTool) Parameters() json.RawMessage {
 	return tool.MarshalSchema(llm.ParameterSchema{
 		Type: "object",
@@ -88,8 +82,8 @@ func (t *SkillTool) Parameters() json.RawMessage {
 	})
 }
 
-// Execute resolves the skill and reports the resolved context. Errors
-// (disabled / missing skill) surface as an IsError result.
+// Execute resolves the skill and reports the resolved context; errors
+// surface as an IsError result.
 func (t *SkillTool) Execute(ctx context.Context, args map[string]any) tool.Result {
 	meta := map[string]any{"skillID": t.skillEntry.ID}
 	if t.runner == nil {

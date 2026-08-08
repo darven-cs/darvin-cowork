@@ -6,8 +6,7 @@ import (
 )
 
 // Provider error codes. Every provider maps its native errors onto this
-// small set so the Agent loop can switch on Code without learning each
-// provider's vocabulary.
+// small set so the Agent loop can switch on Code.
 const (
 	ErrCodeRateLimit      = "rate_limit_error"
 	ErrCodeAuth           = "authentication_error"
@@ -16,11 +15,8 @@ const (
 )
 
 // ProviderError is the unified error returned by every ModelProvider.
-//
-// Providers are expected to wrap their native failures into a *ProviderError
-// before returning. Callers use errors.As to extract Code / StatusCode for
-// retry or user-facing reporting. Cause is the original error for log
-// diagnostics only; do not pattern-match on it across providers.
+// Callers use errors.As to extract Code / StatusCode for retry or
+// user-facing reporting. Cause is for log diagnostics only.
 type ProviderError struct {
 	Provider   string
 	Code       string
@@ -41,7 +37,6 @@ func (e *ProviderError) Error() string {
 func (e *ProviderError) Unwrap() error { return e.Cause }
 
 // IsCode reports whether err is a *ProviderError with the given code.
-// It returns false for nil or non-provider errors.
 func IsCode(err error, code string) bool {
 	var pe *ProviderError
 	if errors.As(err, &pe) {
