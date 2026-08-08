@@ -19,14 +19,11 @@ import (
 	"go.uber.org/zap"
 )
 
-// StdioTransport speaks MCP-over-stdio using the newline-delimited JSON
-// framing that @modelcontextprotocol/sdk 1.x+ expects.
-// It also responds to "Content-Length" headers for backward compatibility
-// with older servers that use LSP-style framing.
-//
-// The reader runs in a dedicated goroutine so that Recv never blocks on
-// ctx cancellation. All responses are routed through per-request-ID
-// pending channels so concurrent calls do not block each other.
+// StdioTransport speaks MCP-over-stdio using newline-delimited JSON
+// (SDK 1.x), and responds to Content-Length headers for legacy LSP-style
+// servers. The reader runs in a dedicated goroutine; responses are
+// routed through per-request-ID pending channels so concurrent calls do
+// not block each other.
 type StdioTransport struct {
 	Command string
 	Args    []string
@@ -125,14 +122,13 @@ func (s *StdioTransport) Connect(ctx context.Context) error {
 }
 
 // buildEnv merges the base environment with transport-specific vars and
-// applies private state directory isolation so that npm/uv/bun cache
-// writes do not pollute the user's home directory.
+// applies private state-dir isolation so package-manager caches do not
+// pollute the user's home directory.
 func buildEnv(env map[string]string) []string {
 	base := os.Environ()
 
-	// Private state: keep package-manager caches inside the agent's
-	// data dir so repeated installs for multiple MCP servers do not
-	// overwrite each other and do not touch the user's home dir.
+	// Keep package-manager caches inside the agent's data dir so repeated
+	// installs for multiple MCP servers do not touch the user's home.
 	xdgCache := os.Getenv("XDG_CACHE_HOME")
 	if xdgCache == "" {
 		if cacheHome := os.Getenv("HOME") + "/.cache"; cacheHome != "" {
@@ -140,7 +136,7 @@ func buildEnv(env map[string]string) []string {
 		}
 	}
 
-	// Ensure npm, yarn, and pnpm each use the same private cache location.
+	// npm / yarn / pnpm share the same private cache location.
 	base = append(base,
 		"npm_config_cache="+os.Getenv("XDG_CACHE_HOME")+"/npm",
 		"YARN_CACHE_FOLDER="+os.Getenv("XDG_CACHE_HOME")+"/yarn",
@@ -154,44 +150,31 @@ func buildEnv(env map[string]string) []string {
 	return base
 }
 
-// buildSysProcAttr creates platform-specific process group settings so
-// that killing the transport also kills any child processes the server
-// itself spawns. On Unix we use Setpgid to put the child in its own
-// process group; on Windows we use a Job Object (handled in connectServer
-// via a separate windows-specific init).
+// buildSysProcAttr puts the child in its own process group on Unix so a
+// SIGTERM to the group kills the child and any grandchildren. Windows
+// Job Object creation is deferred to initWindowsJob.
 func buildSysProcAttr() *syscall.SysProcAttr {
 	attr := &syscall.SysProcAttr{}
 	if runtime.GOOS == "windows" {
-		// Job Object creation is deferred to initWindowsJob so that this
-		// file compiles cleanly on non-Windows targets.
 		return attr
 	}
-	// Put the child in its own process group so SIGTERM sent to the
-	// process group kills both the child and any grandchildren.
 	attr.Setpgid = true
 	return attr
 }
 
-// buildWindowsProcAttr creates the Windows-specific SysProcAttr with
-// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE. It is called from connectServer
-// after we know we are on Windows; the runtime check avoids importing
-// golang.org/x/sys/windows on non-Windows builds.
+// buildWindowsProcAttr returns a Windows SysProcAttr. The real Job Object
+// wiring is deferred to initWindowsJob to keep this file compiling on
+// non-Windows targets.
 func buildWindowsProcAttr() *syscall.SysProcAttr {
-	// Defeated by cross-compilation: we cannot import golang.org/x/sys/windows
-	// at file-level without affecting non-Windows builds.
-	// Defer to the windows package only on GOOS=windows builds.
 	return &syscall.SysProcAttr{}
 }
 
-// initWindowsJob creates a Job Object on Windows, assigns the process
-// handle to it, and sets JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so that
-// closing the job kills all children. Returns the job handle.
+// initWindowsJob creates a Job Object on Windows that kills all children
+// on close. No-op on non-Windows builds.
 func initWindowsJob(proc *os.Process) (uintptr, error) {
-	// Guard with runtime check so this file compiles on non-Windows.
 	if runtime.GOOS != "windows" {
 		return 0, nil
 	}
-	// Dynamic import to avoid breaking cross-compilation.
 	type jobAPI struct{}
 	var job jobAPI
 	_ = job // placeholder; real implementation below
@@ -199,13 +182,11 @@ func initWindowsJob(proc *os.Process) (uintptr, error) {
 }
 
 // readerLoop reads messages from stdout and dispatches them to the
-// correct pending channel by JSON-RPC ID. The loop exits when stdout
-// is closed (EOF) or when Close is called.
+// matching pending channel by JSON-RPC ID. Exits on EOF or Close.
 func (s *StdioTransport) readerLoop(stdout io.Reader) {
 	defer close(s.readerDone)
 
-	// Use a large buffer to accommodate servers that emit very long lines
-	// (stack traces, etc.). The MCP spec does not limit message size.
+	// Large buffer for servers emitting very long lines (stack traces).
 	buf := bufio.NewReaderSize(stdout, 1<<20)
 
 	for {
@@ -248,11 +229,10 @@ func (s *StdioTransport) readerLoop(stdout io.Reader) {
 	}
 }
 
-// readMessage reads one newline-delimited JSON message, handling both
-// newline-delimited JSON (SDK 1.x) and LSP Content-Length framing
-// (legacy servers). It returns the raw JSON bytes of the message body.
+// readMessage reads one message, handling both newline-delimited JSON
+// (SDK 1.x) and LSP Content-Length framing (legacy servers).
 func (s *StdioTransport) readMessage(buf *bufio.Reader) ([]byte, error) {
-	// Read the first line to decide which framing is in use.
+	// First line decides which framing is in use.
 	lineBytes, err := buf.ReadBytes('\n')
 	if err != nil {
 		return nil, err

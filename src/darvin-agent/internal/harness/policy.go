@@ -6,8 +6,7 @@ import (
 )
 
 // Policy is the configured preference for which harness serves a session.
-// The zero Policy means "auto": rank every registered harness and take the
-// best candidate.
+// The zero Policy means "auto": rank every registered harness.
 type Policy struct {
 	// HarnessID pins one harness by id. Empty means auto-selection.
 	HarnessID string
@@ -16,10 +15,8 @@ type Policy struct {
 	AllowFallback bool
 }
 
-// ParsePolicy reads a configured policy string. A bare id pins that harness
-// and falls back to auto-selection when it is absent; a trailing "!" makes
-// the pin strict, so a missing harness is an error. "auto" and "" both mean
-// auto-selection.
+// ParsePolicy reads a configured policy string: a bare id pins with
+// fallback; a trailing "!" makes the pin strict; "" / "auto" select by rank.
 func ParsePolicy(raw string) Policy {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || strings.EqualFold(trimmed, "auto") {
@@ -42,11 +39,8 @@ func (p Policy) String() string {
 	return p.HarnessID + "!"
 }
 
-// Resolve picks the harness for sc.
-//
-// An explicit sc.RequestedHarnessID always wins and never falls back — a
-// caller naming a harness wants that harness or an error. Otherwise the
-// policy's pin is tried, then auto-selection via Rank.
+// Resolve picks the harness for sc. An explicit RequestedHarnessID wins
+// and never falls back; otherwise the policy's pin is tried, then Rank.
 func (p Policy) Resolve(sc SupportContext) (Harness, error) {
 	if id := strings.TrimSpace(sc.RequestedHarnessID); id != "" {
 		h, ok := Get(id)
