@@ -22,6 +22,7 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 
 	msgs := cloneMessages(p.Messages)
 	stats := AssembleStats{}
+	result := AssembleResult{}
 
 	budget := p.ToolBudget
 	if budget <= 0 {
@@ -66,6 +67,13 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 			msgs = compactRes.RetainedMessages
 			tokensBefore = compactRes.TokensAfter
 			stats.CompactionTriggered = true
+			// Forward the boundary so executor.RunConversation can
+			// (a) ReplaceAll the session with compacted messages and
+			// (b) hand it to Agent.PersistCompaction for the
+			// session_digests write.
+			result.CompactSummary = compactRes.Summary
+			result.FirstKeptID = compactRes.FirstKeptID
+			result.FirstKeptTimestamp = compactRes.FirstKeptTimestamp
 			if a.deps != nil {
 				a.deps.Emit(event.CompactionEvent{
 					EventBase: event.EventBase{EventCommon: event.EventCommon{SessionID: p.SessionID}},
@@ -77,22 +85,20 @@ func (a *DefaultAssembler) Assemble(ctx context.Context, p AssembleParams) Assem
 		}
 	}
 
-	// Built-in sections for skills / facts / MCP servers come first so
-	// caller-supplied sections (which usually carry higher-priority
-	// per-instruction additions) land above them in the priority order.
-	builtIns := BuiltInSections(p.AvailableSkills, p.AvailableFacts, p.MCPServers)
-	merged := make([]SystemSection, 0, len(builtIns)+len(p.SystemSections))
-	merged = append(merged, builtIns...)
-	merged = append(merged, p.SystemSections...)
-	sysAddition := a.composeSystemAddition(merged)
-
-	return AssembleResult{
-		Messages:        msgs,
-		EstimatedTokens: tokensBefore,
-		SystemAddition:  sysAddition,
-		Budget:          budget,
-		Stats:           stats,
-	}
+	// BuildSystemSections merges identity / soul / user / memory
+// bootstrap blocks (sourced from Deps) at the spec priority slots
+// (30/40/60/110). Caller-supplied AvailableFacts is honoured verbatim
+// when non-empty (test fakes / gateway overrides). p.SystemSections
+// merge on top so existing callers / tests see their per-turn
+// additions in the final concatenation.
+	sections := a.BuildSystemSections(ctx, p.SessionID, p.AvailableSkills, p.AvailableFacts, p.MCPServers)
+	sections = append(sections, p.SystemSections...)
+	result.Messages = msgs
+	result.EstimatedTokens = tokensBefore
+	result.SystemAddition = a.composeSystemAddition(sections)
+	result.Budget = budget
+	result.Stats = stats
+	return result
 }
 
 // composeSystemAddition merges registered + caller-supplied system

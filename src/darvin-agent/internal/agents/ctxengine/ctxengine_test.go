@@ -34,11 +34,18 @@ func errFromWarning(s string) error {
 
 // fakeDeps is a no-op Deps implementation for tests. Provider is nil so
 // methods that would dereference it (Summarize) must not be called.
+// memoryBootstrap / memoryFacts are wired through the optional fields
+// so tests that want to exercise the bootstrap / FTS path can supply
+// canned values; the default zero-value fallbacks are "no blocks".
 type fakeDeps struct {
 	provider llm.ModelProvider
 	model    string
 	logger   *zap.Logger
 	emit     func(event.Event)
+
+	memoryBootstrap map[string]string
+	memoryFacts     []Fact
+	memoryFactsFn   func(context.Context) []Fact
 }
 
 func (f fakeDeps) Provider() llm.ModelProvider { return f.provider }
@@ -48,6 +55,18 @@ func (f fakeDeps) Emit(ev event.Event) {
 	if f.emit != nil {
 		f.emit(ev)
 	}
+}
+func (f fakeDeps) MemoryBootstrap(name string) string {
+	if f.memoryBootstrap == nil {
+		return ""
+	}
+	return f.memoryBootstrap[name]
+}
+func (f fakeDeps) MemoryFacts(ctx context.Context) []Fact {
+	if f.memoryFactsFn != nil {
+		return f.memoryFactsFn(ctx)
+	}
+	return f.memoryFacts
 }
 
 // newTestAssembler builds an assembler wired to zap.NewNop().

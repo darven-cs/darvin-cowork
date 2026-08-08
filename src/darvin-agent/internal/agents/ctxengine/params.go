@@ -69,6 +69,16 @@ type AssembleResult struct {
 	SystemAddition  string
 	Budget          int
 	Stats           AssembleStats
+
+	// CompactSummary / FirstKeptID / FirstKeptTimestamp carry the
+	// auto-compaction outcome through Assemble so the executor can
+	// (a) ReplaceAll the session messages with the compacted slice and
+	// (b) hand the boundary to Agent.PersistCompaction for the
+	// session_digests write. Only populated when
+	// Stats.CompactionTriggered is true.
+	CompactSummary      string
+	FirstKeptID         string
+	FirstKeptTimestamp  int64
 }
 
 // AssembleStats is the diagnostic breakdown of what Assemble did.
@@ -100,7 +110,16 @@ type CompactResult struct {
 	TokensAfter      int
 	RetainedMessages []protocol.Message
 	Summary          string
-	Checkpoint       *CheckPoint
+	// FirstKeptID / FirstKeptTimestamp identify the first message
+	// preserved verbatim after Compact. Used by Agent.PersistCompaction
+	// to record the digest boundary (FirstKeptID == Message.ID, with
+	// FirstKeptTimestamp as fallback when older rows lack ID).
+	FirstKeptID        string
+	FirstKeptTimestamp int64
+	// Reason is the human-readable trigger: "budget_exceeded" | "manual"
+	// | "steer_triggered". Persisted as SessionDigest.CompactReason.
+	Reason   string
+	Checkpoint *CheckPoint
 }
 
 // CheckPoint is a snapshot of the messages at the entry of Compact; the

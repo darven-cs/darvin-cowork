@@ -5,10 +5,29 @@ import (
 	"strings"
 )
 
+// System prompt priority slots. Lower numbers land first in the
+// concatenated system addition.
+//
+//	30  <IDENTITY>          WorkspaceBootstrap.Get("IDENTITY.md")
+//	40  <SOUL>              WorkspaceBootstrap.Get("SOUL.md")
+//	50  <memory-policy>     registered by caller via SetSections
+//	60  <USER>              WorkspaceBootstrap.Get("USER.md")
+//	100 <available_skills>  BuiltInSections
+//	110 <MEMORY>            memory.Search() FTS hits — BuiltInSections
+//	120 <available_mcp>     BuiltInSections
+//	1000 addition           cfg.SystemPromptAddition
+const (
+	PriorityIdentity = 30
+	PrioritySoul     = 40
+	PriorityUser     = 60
+	PriorityMemory   = 110
+)
+
 // SystemSection is a named block appended to the system prompt at assemble
 // time. Sections are sorted by Priority ascending and concatenated.
-// No caller-supplied sections today; SystemPromptAddition (Config) is the
-// only fixed fragment that lands on the system prompt.
+// Caller-supplied sections (BuildSystemSections) and registered
+// sections (DefaultAssembler.SetSections) merge into the same sorted
+// list; SystemPromptAddition (Config) lands at priority 1000.
 type SystemSection struct {
 	Name     string
 	Content  string
@@ -128,21 +147,46 @@ func renderAvailableMCPSection(servers []MCPServerInfo) string {
 	return b.String()
 }
 
-// BuiltInSections returns the standard set of sections the assembler always
-// attaches to the system prompt. Empty registries are skipped so callers
-// that have not wired in skills / memory / MCP see no change to the
-// system addition. Callers can append their own SystemSections on top;
-// priorities keep the order stable.
+// BuiltInSections returns the standard skill / facts / MCP sections.
+// Empty registries are skipped. identity / soul / user / memory are
+// NOT emitted here — BuildSystemSections sources them from Deps so
+// bootstrap changes propagate through the workspace singleton.
 func BuiltInSections(skills []SkillSummary, facts []Fact, servers []MCPServerInfo) []SystemSection {
 	var out []SystemSection
 	if len(skills) > 0 {
 		out = append(out, SystemSection{Name: "available_skills", Content: renderAvailableSkillsSection(skills), Priority: 100})
 	}
 	if len(facts) > 0 {
-		out = append(out, SystemSection{Name: "available_facts", Content: renderAvailableFactsSection(facts), Priority: 110})
+		out = append(out, SystemSection{Name: "available_facts", Content: renderAvailableFactsSection(facts), Priority: PriorityMemory})
 	}
 	if len(servers) > 0 {
 		out = append(out, SystemSection{Name: "available_mcp", Content: renderAvailableMCPSection(servers), Priority: 120})
 	}
 	return out
+}
+
+// renderIdentitySection wraps IDENTITY.md content. Empty input → ""
+// so BuildSystemSections can skip the section (no misleading "(none
+// registered)" stub — a missing identity file is a normal state).
+func renderIdentitySection(content string) string {
+	if strings.TrimSpace(content) == "" {
+		return ""
+	}
+	return "<IDENTITY>\n" + strings.TrimSpace(content) + "\n</IDENTITY>"
+}
+
+// renderSoulSection wraps SOUL.md content.
+func renderSoulSection(content string) string {
+	if strings.TrimSpace(content) == "" {
+		return ""
+	}
+	return "<SOUL>\n" + strings.TrimSpace(content) + "\n</SOUL>"
+}
+
+// renderUserSection wraps USER.md content.
+func renderUserSection(content string) string {
+	if strings.TrimSpace(content) == "" {
+		return ""
+	}
+	return "<USER>\n" + strings.TrimSpace(content) + "\n</USER>"
 }

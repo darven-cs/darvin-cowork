@@ -24,7 +24,19 @@ import (
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/agents/usage"
+	"darvin-cowork/backend/internal/memory"
 )
+
+// BootstrapReader returns the workspace-level bootstrap file content
+// (IDENTITY.md / SOUL.md / USER.md). Declared as an interface here so
+// the agents package does not depend on the runtime package (which
+// already imports agents) — runtime.WorkspaceBootstrap satisfies it.
+//
+// The implementation MUST be the workspace-level singleton so
+// bootstrap.write invalidation propagates to every session.
+type BootstrapReader interface {
+	Get(name string) string
+}
 
 // ModelRef identifies a model on a specific provider. The provider name is
 // matched against registered ModelProvider implementations.
@@ -59,11 +71,19 @@ type Config struct {
 	// forwarded to ctxengine.NewDefaultAssembler at construction.
 	TokenBudget          int
 	CompactTailKeep      int
+	CompactTailTokens    int
 	ToolResultMaxBytes   int
 	CompactMaxRetries    int
 	SummarizeMaxTokens   int
 	SystemPromptAddition string
 	AssemblerEnabled     bool
+
+	// MemoryFactsLimit caps the FTS hits rendered into the <MEMORY>
+	// system block. <= 0 disables the MEMORY block.
+	MemoryFactsLimit int
+	// MemoryFactsCacheTTL bounds the per-(sessionID, query) FTS cache.
+	// <= 0 disables caching.
+	MemoryFactsCacheTTL time.Duration
 }
 
 // NewAgentConfig is the constructor input.
@@ -109,6 +129,16 @@ type NewAgentConfig struct {
 	// Mcp, when non-nil, feeds the assembler's AvailableMcp. nil means no
 	// MCP registry is wired (Phase 5 default until the MCP plugin ships).
 	Mcp McpLister
+
+	// Memory feeds ctxengine.MemoryFacts (FTS top-N hits). nil → no
+	// MEMORY block.
+	Memory *memory.Manager
+	// WorkspaceBootstrap feeds ctxengine.MemoryBootstrap (IDENTITY /
+	// SOUL / USER). nil → empty content for every block.
+	WorkspaceBootstrap BootstrapReader
+	// DigestStore persists compaction summaries. nil disables
+	// persistence (live compaction still works).
+	DigestStore store.DigestStore
 }
 
 // SkillsLister is the narrow surface the agent needs from a skills
@@ -185,6 +215,10 @@ type Agent struct {
 	skills SkillsLister
 	mcp    McpLister
 
+	memoryMgr        *memory.Manager
+	workspaceBstrp   BootstrapReader
+	digestStore      store.DigestStore
+
 	// toolTransformer normalises a tool result before the executor forwards
 	// it to the LLM. The harness's tooldridge middleware chain sets this
 	// through SetToolResultTransformer; the executor reads it via
@@ -249,26 +283,29 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 	bridge := msgid.NewBridge()
 	tracker := usage.NewTracker()
 	a := &Agent{
-		name:         cfg.Name,
-		instructions: cfg.Instructions,
-		model:        cfg.Model,
-		provider:     cfg.Provider,
-		session:      cfg.Session,
-		skills:       cfg.Skills,
-		mcp:          cfg.Mcp,
-		store:        cfg.Store,
-		msgStore:     cfg.MessageStore,
-		usageStore:   cfg.UsageStore,
-		logger:       cfg.Logger,
-		cfg:          cfg.Config,
-		tools:        cfg.Tools,
-		exec:         cfg.Executor,
-		bus:          bus,
-		queue:        queue.New(),
-		controller:   runtime.NewController(),
-		perm:         perm.NewGate(bus, cfg.Logger, nil, perm.DefaultTimeout),
-		msgidBridge:  bridge,
-		tracker:      tracker,
+		name:           cfg.Name,
+		instructions:   cfg.Instructions,
+		model:          cfg.Model,
+		provider:       cfg.Provider,
+		session:        cfg.Session,
+		skills:         cfg.Skills,
+		mcp:            cfg.Mcp,
+		store:          cfg.Store,
+		msgStore:       cfg.MessageStore,
+		usageStore:     cfg.UsageStore,
+		logger:         cfg.Logger,
+		cfg:            cfg.Config,
+		tools:          cfg.Tools,
+		exec:           cfg.Executor,
+		bus:            bus,
+		queue:          queue.New(),
+		controller:     runtime.NewController(),
+		perm:           perm.NewGate(bus, cfg.Logger, nil, perm.DefaultTimeout),
+		msgidBridge:    bridge,
+		tracker:        tracker,
+		memoryMgr:      cfg.Memory,
+		workspaceBstrp: cfg.WorkspaceBootstrap,
+		digestStore:    cfg.DigestStore,
 	}
 
 	// Auto-wire the ContextEngine. Two paths:
@@ -282,11 +319,14 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		a.assembler = ctxengine.NewDefaultAssembler(ctxengine.Config{
 			TokenBudget:          cfg.Config.TokenBudget,
 			CompactTailKeep:      cfg.Config.CompactTailKeep,
+			CompactTailTokens:    cfg.Config.CompactTailTokens,
 			ToolResultMaxBytes:   cfg.Config.ToolResultMaxBytes,
 			CompactMaxRetries:    cfg.Config.CompactMaxRetries,
 			SummarizeMaxTokens:   cfg.Config.SummarizeMaxTokens,
 			SystemPromptAddition: cfg.Config.SystemPromptAddition,
 			AssemblerEnabled:     cfg.Config.AssemblerEnabled,
+			MemoryFactsLimit:     cfg.Config.MemoryFactsLimit,
+			MemoryFactsCacheTTL:  cfg.Config.MemoryFactsCacheTTL,
 		}, a)
 	}
 	a.assemblerEnabled = cfg.AssemblerEnabled
@@ -355,8 +395,7 @@ func (a *Agent) SystemSections() []ctxengine.SystemSection { return nil }
 
 // AssemblerEnabled reports whether the host opted into the assembler
 // pipeline. Returning false forces the executor to take the legacy
-// d.Session().Messages() path; see cfg.AssemblerEnabled in
-// specs/features/agent-context-engine §FR-12.
+// d.Session().Messages() path.
 func (a *Agent) AssemblerEnabled() bool { return a.assemblerEnabled }
 
 // IsRunning reports whether Agent.Run is currently in progress. The gateway
@@ -545,6 +584,103 @@ func (a *Agent) McpServers() []ctxengine.MCPServerInfo {
 	out := make([]ctxengine.MCPServerInfo, 0, len(servers))
 	for _, s := range servers {
 		out = append(out, ctxengine.MCPServerInfo{Name: s.Name, Tools: s.Tools})
+	}
+	return out
+}
+
+// MemoryFacts satisfies ctxengine.Deps. nil manager / empty hits /
+// ctx error collapse to nil so BuiltInSections skips the MEMORY
+// block.
+func (a *Agent) MemoryFacts(ctx context.Context) []ctxengine.Fact {
+	if a.memoryMgr == nil || !a.memoryMgr.Enabled() {
+		return nil
+	}
+	q := a.recentUserQuery(3)
+	if q == "" {
+		return nil
+	}
+	hits := a.memoryMgr.Search(ctx, q, a.cfg.MemoryFactsLimit)
+	if len(hits) == 0 {
+		return nil
+	}
+	out := make([]ctxengine.Fact, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, ctxengine.Fact{Content: h.Text, Source: h.Section})
+	}
+	return out
+}
+
+// MemoryBootstrap satisfies ctxengine.Deps. MUST proxy through
+// workspaceBstrp.Get — bypassing the singleton (e.g. via
+// memoryMgr.ReadBootstrap) defeats the change-notification machinery
+// so bootstrap.write RPCs never reach the LLM.
+func (a *Agent) MemoryBootstrap(name string) string {
+	if a.workspaceBstrp == nil {
+		return ""
+	}
+	return a.workspaceBstrp.Get(name)
+}
+
+// PersistCompaction writes a new digest row to session_digests.
+// Sequence is allocated by DigestStore.Save so concurrent saves
+// cannot duplicate. Failures are warn-and-continue.
+func (a *Agent) PersistCompaction(ctx context.Context, res ctxengine.CompactResult) error {
+	if a.digestStore == nil || !res.Success {
+		return nil
+	}
+	checkpointID := ""
+	if res.Checkpoint != nil {
+		checkpointID = res.Checkpoint.ID
+	}
+	rec := &store.SessionDigest{
+		ID:                 "digest-" + checkpointID,
+		SessionID:          a.session.ID,
+		Summary:            res.Summary,
+		TokensBefore:       res.TokensBefore,
+		TokensAfter:        res.TokensAfter,
+		FirstKeptID:        res.FirstKeptID,
+		FirstKeptTimestamp: res.FirstKeptTimestamp,
+		CompactReason:      res.Reason,
+		SourceCompactID:    checkpointID,
+		CreatedAt:          time.Now().UnixMilli(),
+	}
+	if err := a.digestStore.Save(ctx, rec); err != nil && a.logger != nil {
+		a.logger.Warn("persist compaction failed",
+			zap.String("session_id", a.session.ID),
+			zap.String("digest_id", rec.ID),
+			zap.Error(err))
+		return err
+	}
+	return nil
+}
+
+// recentUserQuery concatenates the last n user messages' Content into a
+// single query string for MEMORY FTS. Empty when the session has no
+// user turns yet — the assembler skips the MEMORY block in that case.
+func (a *Agent) recentUserQuery(n int) string {
+	if n <= 0 || a.session == nil {
+		return ""
+	}
+	msgs := a.session.Messages()
+	parts := make([]string, 0, n)
+	for i := len(msgs) - 1; i >= 0 && len(parts) < n; i-- {
+		if msgs[i].Role == protocol.RoleUser && msgs[i].Content != "" {
+			parts = append(parts, msgs[i].Content)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	// Reverse to chronological order so the query reads naturally.
+	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
+		parts[i], parts[j] = parts[j], parts[i]
+	}
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += " "
+		}
+		out += p
 	}
 	return out
 }
