@@ -93,13 +93,15 @@ func waitForCondition(t *testing.T, cond func() bool) {
 	t.Fatal("condition not met within budget")
 }
 
-// installRunningAgentLoop 用 blocking provider 构 AgentLoopSession 并把一个 turn
-// 推入 in-flight 状态,然后手动挂到 m 的 entry 上 —— 等价于懒建路径
-// 跑完之后的样子,只是绕开 GetOrCreateEntry 的工厂调用,避免在不动
-// factory 的测试里双建。
+// installRunningAgentLoop builds an AgentLoopSession with a blocking
+// provider, pushes a turn into the in-flight state, and manually
+// attaches it to m's entry — equivalent to what the lazy build path
+// leaves behind, except it sidesteps GetOrCreateEntry's factory call
+// so factory-free tests do not build twice.
 //
-// 后台 goroutine 是镜像 attachAgentLoopLocked 的 cancel 监听;evict 测试
-// 靠 poll Submit 拿 ErrLoopClosed 验证 Loop 确实被关掉。
+// The background goroutine mirrors the cancel watcher in
+// attachAgentLoopLocked; evict tests poll Submit until they observe
+// ErrLoopClosed to confirm the Loop is actually shut down.
 func installRunningAgentLoop(t *testing.T, m *SessionManager, id, runID string) *agentloop.AgentLoopSession {
 	t.Helper()
 	// The factory's selector runs after Build, so it can wire a harness
@@ -515,8 +517,10 @@ func TestSessionManager_EvictClosesAgentLoopSession(t *testing.T) {
 	})
 }
 
-// Provider 故意为 nil 触发 agent.New 的 ErrProviderRequired —— 真实启动
-// 期会遇到的失败(配置错误 / 拿不到 key)比 mock factory 更贴实际。
+// Provider is intentionally nil to trigger agent.New's
+// ErrProviderRequired — the failure modes encountered at real
+// startup (misconfigured / missing key) are closer to reality than
+// a mock factory.
 func TestSessionManager_LazyBuildFailureRollsBack(t *testing.T) {
 	factory := &agentloop.AgentFactory{
 		Provider: nil,

@@ -37,9 +37,10 @@ type Message struct {
 	Timestamp  int64  `gorm:"index"`
 	StopReason string `gorm:"default:stop"`
 	ParentID   string `gorm:"index"`
-	// Done / Error / ToolLabel 是 renderer 依赖的"封口"字段：Done 把
-	// streaming→done 状态切开、Error 画错误泡、ToolLabel 画工具标签。
-	// 由 dispatcher 的 MarkDone / MarkError 和 get_messages 落 / 读。
+	// Done / Error / ToolLabel are the renderer-facing "sealing" fields:
+	// Done splits streaming → done, Error draws the error bubble,
+	// ToolLabel draws the tool chip. Persisted / read by the
+	// dispatcher's MarkDone / MarkError and get_messages.
 	Done      bool `gorm:"default:false"`
 	Error     *string
 	ToolLabel *string

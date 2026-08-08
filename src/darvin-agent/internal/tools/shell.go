@@ -20,8 +20,9 @@ var defaultShellAllowlist = []string{
 	"mkdir", "cp", "mv", "rm", "stat", "du", "df", "touch",
 	"tr", "cut", "sort", "uniq", "tee", "xargs", "basename", "dirname",
 	"sed", "awk", "test", "true", "false",
-	// 工作区可以是真实代码仓库：git + 常见构建/脚本运行时。危险子命令
-	// （git push --force / git reset --hard / rm -r 等）由权限门审批拦截。
+	// The workspace can be a real code repo: git + common build /
+// scripting runtimes. Dangerous subcommands (git push --force /
+// git reset --hard / rm -r …) are gated by the permission check.
 	"git", "node", "npm", "npx", "pnpm", "yarn",
 	"python", "python3", "pip", "pip3",
 	"go", "make", "tar", "unzip",

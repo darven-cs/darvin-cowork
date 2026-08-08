@@ -5,28 +5,33 @@ import (
 	"darvin-cowork/backend/internal/harness"
 )
 
-// AgentLoopSession 捆绑一个 session id 下的 Agent + Harness + Loop。
-// SessionManager 在首次 prompt 懒建,在 evict 时拆掉。
+// AgentLoopSession bundles the Agent + Harness + Loop for a single
+// session id. SessionManager lazily builds it on the first prompt
+// and tears it down on evict.
 //
-// Harness 是新引入的字段:Loop.executeTurn 通过它走
-// harness.RunAttemptWithLifecycle 驱动 prompt 路径,而不是直接调
-// Agent.Prompt + Agent.Run。skill 路径仍然直接调 Agent,因为 skill
-// 需要 Agent 持有的 transient state(RunSkillPrompt / RunSkillTools)。
+// Harness is the newer field: Loop.executeTurn routes the prompt
+// path through harness.RunAttemptWithLifecycle instead of calling
+// Agent.Prompt + Agent.Run directly. The skill path still calls
+// Agent directly because the skill flow needs Agent-held transient
+// state (RunSkillPrompt / RunSkillTools).
 type AgentLoopSession struct {
 	SessionID string
 	Agent     *agent.Agent
 	Harness   harness.Harness
 	Loop      *Loop
-	// DeltaHook 订阅 Agent bus 的 text_delta 做 streaming 落库。
-	// 可能为 nil(测试 / 未注入 MessageStore 的 factory)。
+	// DeltaHook subscribes to the Agent bus's text_delta events for
+	// streaming persistence. May be nil (tests / factories without a
+	// MessageStore wired).
 	DeltaHook *agent.TextDeltaHook
 }
 
-// Close 关闭 DeltaHook 订阅 + Loop 并等 run goroutine 退出。幂等。
+// Close shuts down the DeltaHook subscription + Loop and waits for
+// the run goroutine to exit. Idempotent.
 //
-// 注意:Loop.Close 会阻塞到 in-flight turn 退出,SessionManager 因此
-// 把 Close 放在后台 goroutine 跑 —— entry.cancel 触发的是 ctx.Done(),
-// 真正关 Loop 的是监听 ctx 的 goroutine,不是 cancel 路径本身。
+// Note: Loop.Close blocks until the in-flight turn exits, which is
+// why SessionManager runs Close on a background goroutine —
+// entry.cancel only triggers ctx.Done(); the actual Loop shutdown
+// comes from the goroutine watching ctx, not from cancel itself.
 func (s *AgentLoopSession) Close() {
 	if s == nil {
 		return

@@ -179,10 +179,11 @@ func TestSQLiteStoreSaveReplace(t *testing.T) {
 	}
 }
 
-// TestSessionStore_NewFieldsRoundTrip 覆盖统一数据库：Title /
-// ClaudeSessionID 写入后 GetByID 读回；且重新 Save（模拟 prompt 的元数据
-// 保存）不会把 title 清掉 —— title 归 RPC handler 管，agent 的 Save 只刷
-// metadata。
+// TestSessionStore_NewFieldsRoundTrip covers the unified-database
+// spec: write Title / ClaudeSessionID, GetByID round-trip; and
+// re-Save (simulating the prompt metadata save) must not clear the
+// title — title belongs to the RPC handler, agent's Save only
+// refreshes metadata.
 func TestSessionStore_NewFieldsRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	store := newTestSQLiteStore(t)
@@ -209,7 +210,8 @@ func TestSessionStore_NewFieldsRoundTrip(t *testing.T) {
 		t.Errorf("ClaudeSessionID = %v, want claude-abc", row.ClaudeSessionID)
 	}
 
-	// 重新 Save 不能清掉 title / claude_session_id（Save 保留现有行）。
+	// Re-Save must not clear title / claude_session_id (Save preserves the
+// existing row).
 	if err := store.Save(ctx, session.NewSession("s1")); err != nil {
 		t.Fatalf("re-Save: %v", err)
 	}
@@ -224,7 +226,7 @@ func TestSessionStore_NewFieldsRoundTrip(t *testing.T) {
 		t.Errorf("ClaudeSessionID after re-Save = %v, want claude-abc", row2.ClaudeSessionID)
 	}
 
-	// ListAll 也带 Title。
+	// ListAll also carries Title.
 	all, err := store.ListAll(ctx)
 	if err != nil {
 		t.Fatalf("ListAll: %v", err)
@@ -234,8 +236,8 @@ func TestSessionStore_NewFieldsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSessionStore_TouchUpdatesOnlyUpdatedAt 覆盖 Touch 只刷 updated_at、
-// 不碰 title。
+// TestSessionStore_TouchUpdatesOnlyUpdatedAt covers that Touch only
+// refreshes updated_at and never touches title.
 func TestSessionStore_TouchUpdatesOnlyUpdatedAt(t *testing.T) {
 	ctx := context.Background()
 	store := newTestSQLiteStore(t)
@@ -251,7 +253,8 @@ func TestSessionStore_TouchUpdatesOnlyUpdatedAt(t *testing.T) {
 		t.Fatalf("GetByID: %v", err)
 	}
 
-	// SQLite DATETIME 是秒精度，至少等 1.1s 保证 touch 后时间前进。
+	// SQLite DATETIME is second-precision; sleep at least 1.1s so the
+// post-touch timestamp is observably later.
 	time.Sleep(1100 * time.Millisecond)
 	now := time.Now().UnixMilli()
 	if err := store.Touch(ctx, "s1", now); err != nil {
@@ -270,8 +273,9 @@ func TestSessionStore_TouchUpdatesOnlyUpdatedAt(t *testing.T) {
 	}
 }
 
-// TestSessionStore_SearchByTitleAndContent 覆盖标题 + 内容两条搜索路径：
-// SQL 注入字符不报错，空 query 返空。
+// TestSessionStore_SearchByTitleAndContent covers both search
+// paths: title and content. SQL-injection characters must be
+// treated as literals, and an empty query returns empty results.
 func TestSessionStore_SearchByTitleAndContent(t *testing.T) {
 	ctx := context.Background()
 	store := newTestSQLiteStore(t)
@@ -297,7 +301,7 @@ func TestSessionStore_SearchByTitleAndContent(t *testing.T) {
 		t.Errorf("SearchByTitle = %+v, want session a", byTitle)
 	}
 
-	// 内容命中：给 session b 写一条含 kubernetes 的消息。
+	// Content hit: write one message containing "kubernetes" to session b.
 	msgStore := NewSQLiteMessageStore(store.db)
 	if err := msgStore.Save(ctx, &MessageRecord{
 		ID: "m1", SessionID: "b", Role: "assistant",
@@ -319,7 +323,7 @@ func TestSessionStore_SearchByTitleAndContent(t *testing.T) {
 		t.Errorf("hit SessionTitle = %q, want 日常闲聊", byContent[0].SessionTitle)
 	}
 
-	// SQL 注入字符当作字面量，不报错、不匹配。
+	// SQL injection characters are treated as literals — no error, no match.
 	inject := `'; DROP TABLE sessions; --`
 	if rows, err := store.SearchByTitle(ctx, inject); err != nil {
 		t.Fatalf("SearchByTitle with injection: %v", err)
@@ -332,7 +336,7 @@ func TestSessionStore_SearchByTitleAndContent(t *testing.T) {
 		t.Errorf("SearchByContent injection matched %d rows", len(hits))
 	}
 
-	// 空 query 返空。
+	// Empty query returns empty.
 	if rows, err := store.SearchByTitle(ctx, ""); err != nil {
 		t.Fatalf("SearchByTitle empty: %v", err)
 	} else if len(rows) != 0 {

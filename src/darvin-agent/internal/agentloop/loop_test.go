@@ -235,7 +235,7 @@ func TestLoopPersistsUserAndAssistantWithDistinctIDs(t *testing.T) {
 		t.Errorf("user content = %q, want the prompt", user.Content)
 	}
 	// The user row must be sealed (done=true) from the start: StreamingText
-	// renders the "思考中" pulse when done=false, so an unsealed persisted
+	// renders the "thinking" pulse when done=false, so an unsealed persisted
 	// user row would show as a spinner instead of the question after reload.
 	if !user.Done {
 		t.Errorf("user row done = false, want true so the reloaded renderer shows the question text")
@@ -292,8 +292,9 @@ func TestSubmitHonoursCallerRunID(t *testing.T) {
 	}
 }
 
-// TestLoop_ActiveRunID:idle 返 ""、in-flight 返当前 runID、turn 结束后
-// 重新返 "" —— 严格只反映 in-flight 状态。
+// TestLoop_ActiveRunID: idle returns "", in-flight returns the
+// current runID, and after the turn completes it returns "" again —
+// strictly reflects only the in-flight state.
 func TestLoop_ActiveRunID(t *testing.T) {
 	a, loop := newLoopForTest(t, &blockingProvider{})
 	sub := a.Subscribe(64)

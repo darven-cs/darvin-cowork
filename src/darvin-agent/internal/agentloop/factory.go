@@ -17,10 +17,12 @@ import (
 	"darvin-cowork/backend/internal/tools"
 )
 
-// AgentFactory 携带构建一个 *agent.Agent 所需的共享依赖;main.go 构造
-// 一次并注入 SessionManager,SessionManager 在懒建路径里调
-// NewAgentLoopSession。Provider / Store / Logger / Tools / Assembler 在 Agent
-// 看来都是只读,只有 conversation history 走 session.Session 自己的锁。
+// AgentFactory carries the shared dependencies needed to build an
+// *agent.Agent. main.go constructs one and injects it into
+// SessionManager, which calls NewAgentLoopSession on the lazy build
+// path. From Agent's perspective, Provider / Store / Logger / Tools /
+// Assembler are read-only; only the conversation history goes through
+// session.Session's own lock.
 type AgentFactory struct {
 	Name         string
 	Instructions string
@@ -35,14 +37,17 @@ type AgentFactory struct {
 	Tools        *tool.Registry
 	Assembler    ctxengine.ContextEngine
 
-	// Plugins 在每次 Build 后应用到该 agent 的 tool registry(skill /
-	// mcp 插件)。SessionManager.RefreshAllTools 复用同一组插件做全量
-	// Unregister + Register,让工具面跟随 skill / mcp 状态变化。
+	// Plugins are applied to the agent's tool registry after every Build
+	// (skill / mcp plugins). SessionManager.RefreshAllTools reuses the
+	// same plugin list for the bulk Unregister + Register pass so the
+	// tool surface tracks skill / mcp state changes.
 	Plugins []tool.Plugin
 
-	// AssemblerEnabled 与 Config.AssemblerEnabled 是两条独立开关:后者
-	// 决定是否构造默认 Assembler,前者决定 executor 是否走 assembler
-	// 路径。factory 不替调用方合并这两条,各自由调用方决定。
+	// AssemblerEnabled and Config.AssemblerEnabled are two independent
+	// switches: the latter controls whether a default Assembler is
+	// constructed; the former controls whether the executor takes the
+	// assembler path. The factory does not merge them for callers —
+	// each side decides on its own.
 	AssemblerEnabled bool
 
 	// Memory feeds ctxengine.Deps.MemoryFacts; nil disables the MEMORY
@@ -69,21 +74,25 @@ type AgentFactory struct {
 // implementation goes through harness.SelectHarness.
 type HarnessSelector func(a *agent.Agent, f *AgentFactory) (harness.Harness, error)
 
-// NewAgentLoopSession 一次构造 Agent + Harness + Loop,并把 Loop 的 CurrentMessageID /
-// CurrentRunID 挂到 Agent 上,确保事件带的 messageID / runID 与 Loop 当前
-// 状态一致。顺序必须先建 Loop 再 AttachMessageIDSrc,否则 executor
-// Deps.Current* 解析时会拿到空字符串。
+// NewAgentLoopSession constructs the Agent + Harness + Loop in one go
+// and attaches Loop's CurrentMessageID / CurrentRunID onto Agent so
+// the messageID / runID carried by events matches Loop's current
+// state. The order is important: build Loop first, then call
+// AttachMessageIDSrc — otherwise the executor Deps.Current* hooks
+// resolve to empty strings.
 //
-// MessageStore 注入时同时挂 TextDeltaHook(streaming 落库);
-// hook 的订阅由 AgentLoopSession.Close 在 evict 时清理。
+// When MessageStore is wired we also attach TextDeltaHook (streaming
+// persistence); the hook subscription is cleaned up by
+// AgentLoopSession.Close on evict.
 func (f *AgentFactory) NewAgentLoopSession(sessionID string) (*AgentLoopSession, error) {
 	a, err := f.Build(sessionID)
 	if err != nil {
 		return nil, err
 	}
-	// 从持久化 MessageStore 恢复该 session 的历史消息进内存 Session，
-	// 让重启 / entry 重建后的 agent 仍记得之前的对话。失败 warn-and-continue，
-	// 不阻塞 AgentLoopSession 构造。
+	// Replay historical messages from the persistent MessageStore into
+	// the in-memory Session so the agent remembers prior turns after
+	// restart / entry rebuild. Failures are warn-and-continue and do
+	// not block AgentLoopSession construction.
 	hydrateSession(context.Background(), f, a.Session())
 	h, err := f.resolveHarnessFor(a)
 	if err != nil {
@@ -129,10 +138,12 @@ func (f *AgentFactory) resolveHarnessFor(a *agent.Agent) (harness.Harness, error
 	return decision.Harness, nil
 }
 
-// Build 用传入的 sessionID 构造一个全新的 *agent.Agent。Agent 自己的
-// session.ID 是 dispatcher 给事件打 sessionId 字段的唯一来源 —— 错了
-// EventLedger.publishLocked 就会路由到错的桶。每个新 agent 建好后依次
-// 应用 Plugins,插件注册失败只记 warn,不阻塞 agent 可用。
+// Build constructs a fresh *agent.Agent with the given sessionID.
+// Agent's own session.ID is the only source of the sessionId field
+// that the dispatcher stamps on events — if it is wrong,
+// EventLedger.publishLocked routes to the wrong bucket. After each
+// new agent is built we apply Plugins in order; plugin registration
+// failures are logged as warnings and do not block agent availability.
 func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
 	a, err := agent.New(agent.NewAgentConfig{
 		Name:               f.Name,

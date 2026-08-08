@@ -115,7 +115,8 @@ func (s *fsSandbox) Resolve(p string) (string, error) {
 		return "", fmt.Errorf("%w: %q matches pattern %q", ErrPathExcluded, real, pattern)
 	}
 	if err := checkContained(real, realRoot); err != nil {
-		// 用户在权限弹窗里单次放行的路径允许越界（读或写）。
+		// Paths the user explicitly approved in a one-shot permission dialog
+	// may escape the sandbox (read or write).
 		if s.isApproved(abs) {
 			return abs, nil
 		}

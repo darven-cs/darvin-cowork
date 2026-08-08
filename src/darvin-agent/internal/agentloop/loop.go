@@ -278,9 +278,10 @@ func (l *Loop) CurrentRunID() string {
 	return l.curRunID
 }
 
-// ActiveRunID 返回当前 in-flight turn 的 runID,idle 时返 ""。与
-// CurrentRunID 的差别:CurrentRunID 在 turn 结束后保留最后一次的 runID
-// 直到下一次新 run 开始,ActiveRunID 严格只在有 turn 跑着时非空。
+// ActiveRunID returns the runID of the currently in-flight turn, or
+// "" when idle. The difference from CurrentRunID: CurrentRunID keeps
+// the last runID after a turn ends until the next run starts;
+// ActiveRunID is only non-empty while a turn is actually running.
 func (l *Loop) ActiveRunID() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()

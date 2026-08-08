@@ -1,8 +1,10 @@
-// Package gateway:Gateway 的 per-session 状态索引。SessionManager 持有
-// session id → *SessionEntry 的内存映射;持久化走 agent/store,这里
-// 只承载"当前活跃哪些 session"。每个 entry 在首次 prompt 触发懒建
-// AgentLoopSession,subscribe 路径只建 SessionEntry 不建 AgentLoopSession,避免
-// renderer 订历史 session 时拉起 5000 个 Agent。
+// Package gateway: per-session state index for the gateway.
+// SessionManager holds an in-memory session id → *SessionEntry map;
+// persistence lives in agent/store and this package only carries the
+// "which sessions are currently active" view. Each entry lazily
+// builds AgentLoopSession on the first prompt; the subscribe path
+// only builds the SessionEntry so subscribing to historical sessions
+// from the renderer does not spin up 5000 Agents.
 package gateway
 
 import (
@@ -23,28 +25,32 @@ const (
 	sessionIDLen    = 21
 	sessionAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
-	// DefaultSessionID 兼容 / 迁移期保留的特殊 id。renderer 仍可拿这个
-	// id 发 prompt / subscribe,GetOrCreateEntry 走未知 id 分支,与
-	// 任意新 id 走同一路径。
+	// DefaultSessionID is the special id kept for compatibility /
+	// migration. The renderer may still send prompt / subscribe with
+	// this id; GetOrCreateEntry takes the unknown-id branch and the
+	// code path is identical to any other new id.
 	DefaultSessionID = "default"
 
-	// DefaultMaxSessions 是 SessionManager 的软上限。超出时先 reap / evict
-	// idle entry,全是 active run 才返 ErrSessionsLimit。
+	// DefaultMaxSessions is the soft cap for SessionManager. When
+	// exceeded we first reap / evict idle entries; only when every
+	// entry is an active run do we return ErrSessionsLimit.
 	DefaultMaxSessions = 5000
 
-	// DefaultIdleTTL 是 idle entry 在内存中的最长存活时间。
+	// DefaultIdleTTL is the maximum lifetime of an idle entry in
+	// memory.
 	DefaultIdleTTL = 24 * time.Hour
 
-	// DefaultStopWindow 是 Stop 后的拒绝窗口:同一 session 在该窗口内
-	// 的新 prompt 返回 ErrSessionStalled。
+	// DefaultStopWindow is the refusal window after Stop: prompts
+	// for the same session inside the window return ErrSessionStalled.
 	DefaultStopWindow = 1000 * time.Millisecond
 )
 
-// SessionEntry 是 SessionManager 为单个 session 持有的状态,字段由
-// SessionManager 的 mutex 保护,handler 不直接写。
+// SessionEntry is the per-session state held by SessionManager. Its
+// fields are protected by SessionManager's mutex; handlers do not
+// write them directly.
 //
-// AgentLoop 在首次 prompt 触发懒建;空 AgentLoop 的 entry 只能订阅、不能 Submit
-// / Stop。
+// AgentLoop is lazily built on the first prompt; an entry without
+// AgentLoop can only be subscribed to, not submitted to / stopped.
 type SessionEntry struct {
 	Session   *session.Session
 	AgentLoop *agentloop.AgentLoopSession
@@ -52,30 +58,34 @@ type SessionEntry struct {
 	lastTouchedMs  int64
 	stoppedUntilMs int64
 
-	// cancel 触发监听 ctx 的后台 goroutine 调 AgentLoopSession.Loop.Close,
-	// 见 attachAgentLoopLocked。evict 路径调它。
+	// cancel triggers the background goroutine watching ctx to call
+	// AgentLoopSession.Loop.Close — see attachAgentLoopLocked. The
+	// evict path uses it.
 	cancel context.CancelFunc
 
 	idleElem *list.Element
 }
 
 var (
-	// ErrSessionsLimit:GetOrCreateEntry 在 cap 已满且无可驱逐 idle 时返回。
-	// 不要为了塞新 session 而打断 active run。
+	// ErrSessionsLimit is returned by GetOrCreateEntry when the cap
+	// is full and no idle entry can be evicted. We do not interrupt
+	// an active run to make room.
 	ErrSessionsLimit = errors.New("sessionmgr: sessions limit reached")
 
-	// ErrSessionNotFound:Stop 收到未知 sessionID。
+	// ErrSessionNotFound is returned by Stop for an unknown sessionID.
 	ErrSessionNotFound = errors.New("sessionmgr: session not found")
 
-	// ErrRunMismatch:Stop 收到与当前 active run 不匹配的 runId,或该
-	// session 还没建 AgentLoopSession。Stop 在这两种情况下都是 no-op。
+	// ErrRunMismatch is returned by Stop when runId does not match the
+	// current active run, or when the session has not built an
+	// AgentLoopSession yet. Stop is a no-op in both cases.
 	ErrRunMismatch = errors.New("sessionmgr: run id mismatch")
 
-	// ErrSessionStalled:prompt 落在 Stop 之后的拒绝窗口内。
+	// ErrSessionStalled is returned when a prompt lands inside the
+	// refusal window after Stop.
 	ErrSessionStalled = errors.New("sessionmgr: session stalled, retry after stop window")
 )
 
-// SessionManager 是 session id → *SessionEntry 的进程本地索引。
+// SessionManager is the process-local session id → *SessionEntry index.
 type SessionManager struct {
 	mu sync.Mutex
 
@@ -90,31 +100,35 @@ type SessionManager struct {
 
 	idGen func() string
 
-	// factory 在 GetOrCreateEntry 未知 id 分支里懒建 AgentLoopSession;nil 时
-	// 不建(handler 测试 / 老 main 走"只建 session"路径)。
+	// factory lazily builds AgentLoopSession on the unknown-id branch
+	// of GetOrCreateEntry. nil disables the lazy build (handler tests
+	// / legacy main take the "session only" path).
 	factory *agentloop.AgentFactory
 
-	// ledger 在懒建路径里挂该 AgentLoopSession 的事件 bus 订阅。
+	// ledger attaches the AgentLoopSession event-bus subscription on
+	// the lazy build path.
 	ledger *EventLedger
 }
 
-// SessionManagerOption 配置 NewSessionManager。
+// SessionManagerOption configures NewSessionManager.
 type SessionManagerOption func(*SessionManager)
 
-// WithAgentFactory 打开懒建路径:factory 注入后,GetOrCreateEntry 在未知
-// id 上调 factory.NewAgentLoopSession(id)。
+// WithAgentFactory enables the lazy build path: once factory is wired,
+// GetOrCreateEntry calls factory.NewAgentLoopSession(id) on unknown ids.
 func WithAgentFactory(f *agentloop.AgentFactory) SessionManagerOption {
 	return func(m *SessionManager) { m.factory = f }
 }
 
-// WithEventLedger 把新建 AgentLoopSession 的事件订阅挂到 WS 事件 ledger 上,
-// 该 AgentLoopSession 的事件会 fan-out 到订阅其 session id 的客户端。
+// WithEventLedger attaches the newly-built AgentLoopSession's event
+// subscription to the WS event ledger so its events fan out to
+// clients subscribed to that session id.
 func WithEventLedger(l *EventLedger) SessionManagerOption {
 	return func(m *SessionManager) { m.ledger = l }
 }
 
-// NewSessionManager 构造空 manager,不预置 default session。renderer 仍
-// 可拿 DefaultSessionID 发 prompt,GetOrCreateEntry 走未知 id 路径。
+// NewSessionManager constructs an empty manager without pre-seeding the
+// default session. The renderer can still send prompt with
+// DefaultSessionID; GetOrCreateEntry takes the unknown-id path.
 func NewSessionManager(opts ...SessionManagerOption) *SessionManager {
 	m := &SessionManager{
 		byID:        make(map[string]*SessionEntry),
@@ -131,17 +145,19 @@ func NewSessionManager(opts ...SessionManagerOption) *SessionManager {
 	return m
 }
 
-// DefaultID 返回 DefaultSessionID。
+// DefaultID returns DefaultSessionID.
 func (m *SessionManager) DefaultID() string { return DefaultSessionID }
 
-// MintSessionID 返回一个新会话 id(21 位 nanoid,与其它 id 同源)。
-// agent.create_session 用它生成 session id。
+// MintSessionID returns a fresh session id (21-char nanoid, same
+// generator as the other ids). agent.create_session uses it.
 func (m *SessionManager) MintSessionID() string { return m.idGen() }
 
-// Remove 把 session 从 SessionManager 中摘除:有 AgentLoopSession 时先 Abort
-// in-flight run,再 cancel 触发 Close(关 DeltaHook + Loop),最后从 byID
-// / LRU 删除。与 evictLocked 不同,Remove 不跳 active run —— 删除语义
-// 就是要强制结束。未知 id 返 ErrSessionNotFound。
+// Remove detaches a session from SessionManager: when an
+// AgentLoopSession is present we first Abort the in-flight run, then
+// cancel to trigger Close (DeltaHook + Loop), and finally delete the
+// byID / LRU entries. Unlike evictLocked, Remove does not skip active
+// runs — the delete semantics are precisely to force-end. Unknown id
+// returns ErrSessionNotFound.
 func (m *SessionManager) Remove(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -164,8 +180,9 @@ func (m *SessionManager) Remove(id string) error {
 	return nil
 }
 
-// Has 报告 id 是否已被 SessionManager 见过;subscribe handler 在触碰
-// ledger 前用它对未知 id 早失败。
+// Has reports whether id has been seen by SessionManager. The
+// subscribe handler uses it to fail fast on unknown ids before
+// touching the ledger.
 func (m *SessionManager) Has(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -173,9 +190,11 @@ func (m *SessionManager) Has(id string) bool {
 	return ok
 }
 
-// RefreshAllTools 对每个已建 AgentLoopSession 的 agent 重跑 factory 插件
-// (Unregister + Register),让工具面跟随 skill / mcp 状态变化。无 factory
-// 或某个插件失败时静默跳过。返回成功刷新的 session 数。
+// RefreshAllTools re-runs the factory plugin step
+// (Unregister + Register) for every agent with an already-built
+// AgentLoopSession, so the tool surface tracks skill / mcp state
+// changes. Silently skips when factory is nil or a plugin step fails.
+// Returns the count of sessions refreshed.
 func (m *SessionManager) RefreshAllTools() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -203,14 +222,18 @@ func (m *SessionManager) RefreshAllTools() int {
 	return n
 }
 
-// GetOrCreateEntry 返回 id 对应的 SessionEntry;未知 id 时创建并在
-// factory 注入时懒建 AgentLoopSession。
+// GetOrCreateEntry returns the SessionEntry for id, creating it (and
+// lazily building AgentLoopSession when factory is wired) for unknown
+// ids.
 //
-// 命中现有 entry 时先检查 stoppedUntilMs(落在窗口内返回 ErrSessionStalled),
-// 再刷新 lastTouchedMs 并把 entry 提到 LRU 头。当 subscribe 在 prompt 之前
-// 留下空 AgentLoop entry 时,首个 prompt 触发 AgentLoopSession 懒建。懒建失败
-// 时回滚 byID + LRU 防止半残 entry 卡住下次重试。cap 已满且全是 active
-// run 时返回 ErrSessionsLimit —— 不主动打断 active run。
+// On a hit we first check stoppedUntilMs (return ErrSessionStalled
+// when inside the window), then refresh lastTouchedMs and bump the
+// entry to the head of the LRU. When subscribe has pre-created an
+// empty AgentLoop entry ahead of prompt, the first prompt triggers the
+// lazy AgentLoopSession build. On lazy-build failure we roll back
+// byID + LRU so a half-built entry cannot stall the next retry.
+// When the cap is full and every entry is an active run we return
+// ErrSessionsLimit — we never interrupt an active run.
 func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -241,11 +264,14 @@ func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {
 	return e, nil
 }
 
-// EnsureEntry 返回 id 对应的 SessionEntry;未知 id 时只建 SessionEntry
-// 不触发 AgentLoopSession 懒建。subscribe handler 用它,避免 renderer 订
-// 历史 session 时拉起 5000 个 Agent / Loop / 订阅。
+// EnsureEntry returns the SessionEntry for id; for unknown ids it
+// only creates the SessionEntry without triggering the lazy
+// AgentLoopSession build. The subscribe handler uses it so subscribing
+// to historical sessions from the renderer does not spin up 5000
+// Agents / Loops / subscriptions.
 //
-// stoppedUntilMs / LRU / maxSessions 行为与 GetOrCreateEntry 一致。
+// stoppedUntilMs / LRU / maxSessions behaviour is identical to
+// GetOrCreateEntry.
 func (m *SessionManager) EnsureEntry(id string) (*SessionEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -261,9 +287,10 @@ func (m *SessionManager) EnsureEntry(id string) (*SessionEntry, error) {
 	return m.createEntryLocked(id)
 }
 
-// createEntryLocked 在 byID + LRU 上挂一份空的 SessionEntry。超出
-// maxSessions 时先 reap TTL 再 LRU 驱逐 idle,全 active 才返 ErrSessionsLimit。
-// 调用方持 m.mu。
+// createEntryLocked attaches a fresh empty SessionEntry on byID + LRU.
+// When over maxSessions we first reap TTL and then evict an idle LRU
+// entry; only when every entry is active do we return ErrSessionsLimit.
+// Caller holds m.mu.
 func (m *SessionManager) createEntryLocked(id string) (*SessionEntry, error) {
 	if len(m.byID) >= m.maxSessions {
 		m.reapIdleLocked()
@@ -286,8 +313,10 @@ func (m *SessionManager) createEntryLocked(id string) (*SessionEntry, error) {
 	return e, nil
 }
 
-// attachAgentLoopLocked 调 factory.NewAgentLoopSession 把结果挂到 e 上;ledger 注入
-// 时同时挂事件订阅。失败时回滚 byID + LRU。调用方持 m.mu。
+// attachAgentLoopLocked calls factory.NewAgentLoopSession and attaches
+// the result to e; when ledger is wired, the event subscription is
+// attached in the same step. On failure we roll back byID + LRU.
+// Caller holds m.mu.
 func (m *SessionManager) attachAgentLoopLocked(e *SessionEntry) error {
 	agentLoopSess, err := m.factory.NewAgentLoopSession(e.Session.ID)
 	if err != nil {
@@ -301,8 +330,9 @@ func (m *SessionManager) attachAgentLoopLocked(e *SessionEntry) error {
 	e.AgentLoop = agentLoopSess
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
-	// Close 会关 DeltaHook 订阅 + Loop(阻塞到 run goroutine 退出),
-	// 放后台跑避免拖 evict。
+	// Close will close the DeltaHook subscription + Loop (blocking until
+	// the run goroutine exits). Run it in the background so evict is
+	// not held up.
 	go func() {
 		<-ctx.Done()
 		agentLoopSess.Close()
@@ -314,8 +344,9 @@ func (m *SessionManager) attachAgentLoopLocked(e *SessionEntry) error {
 	return nil
 }
 
-// CreateOrGet 保留 (*session.Session, msgID) 的旧 API。空 id 视为
-// DefaultSessionID。handler 切到 GetOrCreateEntry 后这个方法可以删。
+// CreateOrGet preserves the legacy (*session.Session, msgID) API.
+// Empty id is treated as DefaultSessionID. Once handlers move over
+// to GetOrCreateEntry this method can be deleted.
 func (m *SessionManager) CreateOrGet(id string) (*session.Session, string, error) {
 	if id == "" {
 		id = DefaultSessionID
@@ -327,18 +358,20 @@ func (m *SessionManager) CreateOrGet(id string) (*session.Session, string, error
 	return e.Session, m.idGen(), nil
 }
 
-// Get 是 CreateOrGet 的无 err 版。
+// Get is the err-less twin of CreateOrGet.
 func (m *SessionManager) Get(id string) (*session.Session, string) {
 	sess, msgID, _ := m.CreateOrGet(id)
 	return sess, msgID
 }
 
-// Stop 中止 (sessionID, runId) 对应的 turn。
+// Stop aborts the turn matching (sessionID, runId).
 //
-//   - session 未知:ErrSessionNotFound
-//   - entry 没有 AgentLoopSession(subscribe 早于 prompt):ErrRunMismatch
-//   - entry 的 Loop.Stop(runId) 报 false(run id 不匹配或当前 idle):ErrRunMismatch
-//   - 成功:Loop.Stop 内部 cancel in-flight turn,本方法把 stoppedUntilMs
+//   - session unknown: ErrSessionNotFound
+//   - entry has no AgentLoopSession (subscribe preceded prompt): ErrRunMismatch
+//   - entry's Loop.Stop(runId) reports false (runId mismatch or currently idle): ErrRunMismatch
+//   - success: Loop.Stop internally cancels the in-flight turn, this
+//     method pushes stoppedUntilMs to now()+StopWindow, and
+//     GetOrCreateEntry returns ErrSessionStalled inside that window.
 //     推到 now()+StopWindow,GetOrCreateEntry 在该窗口内会返 ErrSessionStalled
 func (m *SessionManager) Stop(sessionID, runId string) error {
 	m.mu.Lock()
@@ -358,24 +391,28 @@ func (m *SessionManager) Stop(sessionID, runId string) error {
 	return nil
 }
 
-// reapIdleSessions 是定时回调入口。它把 TTL 过期且无 active run 的 entry
-// 移出 (byID + LRU),Stop 窗口或长跑的 entry 不动。
+// reapIdleSessions is the timer-driven entry point. It evicts (from
+// byID + LRU) entries whose TTL has expired and that have no active
+// run; entries inside the Stop window or still running are left
+// alone.
 func (m *SessionManager) reapIdleSessions() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.reapIdleLocked()
 }
 
-// Len 返回当前 entry 数。测试用。
+// Len returns the current entry count. For tests.
 func (m *SessionManager) Len() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.byID)
 }
 
-// reapIdleLocked 从 LRU 尾往前扫,丢弃超 TTL 且无 active run 的 entry。
-// 撞到 active 或未超期的 entry 时停止 —— LRU 上的"分隔带"意味着后面的
-// 更年轻,可以下一轮再扫。调用方持 m.mu。
+// reapIdleLocked walks the LRU from the tail, dropping entries whose
+// TTL has expired and that have no active run. It stops on the first
+// active or unexpired entry — the "demarcation" on the LRU means
+// younger entries sit behind it and can wait for the next pass.
+// Caller holds m.mu.
 func (m *SessionManager) reapIdleLocked() {
 	cutoff := m.nowMs() - m.idleTtl.Milliseconds()
 	for {
@@ -395,8 +432,10 @@ func (m *SessionManager) reapIdleLocked() {
 	}
 }
 
-// evictLRULocked 从 LRU 尾找一个无 active run 的 entry 驱逐。全是 active
-// run 时返 false,调用方理解为"现在不能缩容",把责任抛回。
+// evictLRULocked scans the LRU tail for an entry without an active
+// run to evict. When every entry is active it returns false; callers
+// interpret this as "cannot shrink right now" and bubble the
+// responsibility back up.
 func (m *SessionManager) evictLRULocked() bool {
 	for elem := m.idleOrder.Back(); elem != nil; elem = elem.Prev() {
 		id := elem.Value.(string)
@@ -409,8 +448,9 @@ func (m *SessionManager) evictLRULocked() bool {
 	return false
 }
 
-// evictLocked 从 byID + LRU 中移除 id。Entry 有 active run 时是 no-op,
-// 这是兜底防御 —— 调用方应该先判断 active run 状态。
+// evictLocked removes id from byID + LRU. When the entry has an
+// active run it is a no-op — this is a defensive backstop; callers
+// should check the active-run state first.
 func (m *SessionManager) evictLocked(id string) {
 	e, ok := m.byID[id]
 	if !ok {
@@ -433,7 +473,7 @@ func (m *SessionManager) evictLocked(id string) {
 	}
 }
 
-// touchLRU 把 e 挪到 LRU 头。调用方持 m.mu。
+// touchLRU moves e to the head of the LRU. Caller holds m.mu.
 func (m *SessionManager) touchLRU(e *SessionEntry) {
 	if e.idleElem != nil {
 		m.idleOrder.MoveToFront(e.idleElem)

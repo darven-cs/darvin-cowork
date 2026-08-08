@@ -20,23 +20,25 @@ const (
 	CodeInvalidParams  = -32602
 	CodeInternalError  = -32603
 
-	// CodeSessionStalled: prompt 落在 Stop 之后的拒绝窗口内。
-	// 见 SessionManager.Stop / stoppedUntilMs。
+	// CodeSessionStalled: prompt landed inside the refusal window after
+	// Stop. See SessionManager.Stop / stoppedUntilMs.
 	CodeSessionStalled = -32001
 
-	// CodeNoAgentLoopSession: handler 命中一个 entry 但其 AgentLoopSession 还没建
-	//(subscribe 早于 prompt,且 SessionManager 未注入 factory)。
-	// 正常生产路径不会触发;只用于 handler 测试 stub。
+	// CodeNoAgentLoopSession: a handler hit an entry whose
+	// AgentLoopSession has not been built yet (subscribe preceded
+	// prompt, and SessionManager has no factory wired). Normal
+	// production paths do not trigger this; handler-test stubs do.
 	CodeNoAgentLoopSession = -32002
 
-	// CodeAgentInitFailed: factory.NewAgentLoopSession 构造失败,SessionManager
-	// 已回滚 entry;renderer 可重试。
+	// CodeAgentInitFailed: factory.NewAgentLoopSession failed to
+	// build, SessionManager has already rolled back the entry; the
+	// renderer can retry.
 	CodeAgentInitFailed = -32003
 
-	// CodeSkillNotFound: agent.skill.invoke_user 命中不存在的 skill。
+	// CodeSkillNotFound: agent.skill.invoke_user hit an unknown skill.
 	CodeSkillNotFound = -32010
 
-	// CodeSkillDisabled: agent.skill.invoke_user 命中已禁用的 skill。
+	// CodeSkillDisabled: agent.skill.invoke_user hit a disabled skill.
 	CodeSkillDisabled = -32011
 
 	// CodeSkillNotUserInvocable: agent.skill.invoke_user 命中

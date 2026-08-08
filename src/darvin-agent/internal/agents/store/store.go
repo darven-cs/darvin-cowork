@@ -35,9 +35,11 @@ type SessionStore interface {
 	// Delete removes the session with the given id. No-op if not found.
 	Delete(ctx context.Context, id string) error
 
-	// 以下方法是统一数据库 spec 新增的 RPC-facing 入口。ListAll /
-	// GetByID 返回带 Title 的完整 store.Session 行（renderer 需要
-	// title 排序 / 显示 / 重命名），与 agent 内部用的 SessionMeta 区分。
+	// The methods below are the RPC-facing entry points introduced by the
+	// unified-database spec. ListAll / GetByID return full
+	// store.Session rows with Title (renderer needs the title for
+	// sorting / display / rename), distinct from the SessionMeta
+	// used internally by the agent.
 
 	// ListAll returns every session row sorted by updated_at desc,
 	// including renderer-facing Title.
@@ -47,7 +49,7 @@ type SessionStore interface {
 	GetByID(ctx context.Context, id string) (Session, error)
 
 	// UpdateTitle sets the renderer-facing title. Empty titles are NOT
-	// validated here — the handler applies the '新建会话' fallback.
+	// validated here — the handler applies the "新建会话" fallback.
 	UpdateTitle(ctx context.Context, id, title string) error
 
 	// UpdateStatus sets the lifecycle status.

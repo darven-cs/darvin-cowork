@@ -23,10 +23,13 @@ import (
 type EventLedger struct {
 	mu        sync.RWMutex
 	bySession map[string]map[*client]struct{}
-	// allConns 维护当前所有 active WS 连接的 *client 句柄。Subscribe 入口
-	// 不在此处增加（由 client.run 注册），Broadcast 走它做全局 fanout，
-	// 不需要订阅状态——例如 agent.skills.changed 通知 main 端（始终只有
-	// 1 条连接），把它扩成 session-scoped 反而带来无意义的 routing 负担。
+	// allConns holds *client handles for every currently active WS
+	// connection. The Subscribe entry point does not add to it
+	// (client.run handles that); Broadcast walks this map for global
+	// fanout that does not need a subscription state — for example
+	// agent.skills.changed notifies main, which always has exactly
+	// one connection, so promoting it to session-scoped routing
+	// would add cost without benefit.
 	allConns map[*client]struct{}
 	log      *zap.Logger
 

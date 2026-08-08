@@ -9,14 +9,17 @@ import (
 	"darvin-cowork/backend/internal/agents/store"
 )
 
-// TextDeltaHook 订阅 Agent bus 上的 text_delta 事件，把 delta 实时追加到
-// messages.content。这让 streaming 内容在 Go 进程崩溃时也能
-// 留下部分结果，而不是等到整轮结束的 persistAssistantMessages 才落库。
+// TextDeltaHook subscribes to text_delta events on the Agent bus and
+// appends each delta to messages.content in real time. This leaves
+// partial streaming content behind even when the Go process crashes,
+// rather than waiting for persistAssistantMessages at end-of-turn.
 //
-// Session 维度过滤：EventCommon.SessionID 必须等于本 Agent 的
-// session.ID，避免多 session 串扰。落库失败只 Warn，不影响事件推送 —
-// 后续同 messageID 的 delta 仍会触发 Append（delta 之间是累加语义），
-// 最终 MarkDone 也会再走一次保证封口。
+// Session-scoped filter: EventCommon.SessionID must equal the
+// owning Agent's session.ID to avoid cross-session contamination.
+// Persist failures are Warn-only and never block event delivery —
+// later deltas for the same messageID still trigger Append (deltas
+// are cumulative), and MarkDone runs once more at the end to seal
+// the row.
 type TextDeltaHook struct {
 	msgStore store.MessageStore
 	logger   *zap.Logger

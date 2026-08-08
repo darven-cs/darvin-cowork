@@ -90,9 +90,11 @@ func buildRequest(req *llm.CompletionRequest, stream bool) (map[string]any, erro
 // tool_result blocks.
 func convertMessages(msgs []llm.Message) []map[string]any {
 	out := make([]map[string]any, 0, len(msgs))
-	// pendingToolResults 累积连续的工具结果。Anthropic 要求紧随 tool_use
-	// 的 user 消息必须一次性携带全部 tool_result block——拆成多条会触发
-	// 400 invalid_request_error（"tool_use ids ... without tool_result"）。
+	// pendingToolResults accumulates consecutive tool results. Anthropic
+// requires that the user message immediately following tool_use carry
+// every tool_result block at once — splitting them across multiple
+// user messages triggers a 400 invalid_request_error ("tool_use ids
+// ... without tool_result").
 	var pendingToolResults []map[string]any
 	flushToolResults := func() {
 		if len(pendingToolResults) == 0 {

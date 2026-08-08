@@ -26,12 +26,14 @@ import (
 // this error upward unchanged via errors.Is.
 var ErrMaxTurns = errors.New("executor: max turns exceeded")
 
-// maxToolResultStoreBytes caps the tool result persisted into ToolCall.Result.
-// Bash / read 输出可能到 MB 级，落库只保留截断前缀 + 尾注；live 流式事件仍
-// 推完整内容给 renderer，截断只影响 reload 时的工具结果展示。
+// maxToolResultStoreBytes caps the tool result persisted into
+// ToolCall.Result. Bash / read output can reach the megabyte range;
+// the store only keeps the truncated prefix plus a tail marker; live
+// streaming events still push the full content to the renderer, so
+// truncation only affects tool-result display on reload.
 const maxToolResultStoreBytes = 64 * 1024
 
-const toolResultTruncatedSuffix = "\n…[已截断]"
+const toolResultTruncatedSuffix = "\n…[truncated]"
 
 // PermissionRequest is a tool call the executor wants user approval for
 // before running. RequestID is minted by the Agent.
@@ -465,8 +467,10 @@ func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c protoco
 			res = protocol.Result{IsError: true, Content: fmt.Sprintf("tool %q panicked: %v", c.Name, r)}
 		}
 	}()
-	// 越授权根 / 危险操作 → 请求用户审批。命中记住规则时直接放行（不弹
-	// 窗）。ctx（非 tctx）作为等待上下文，避免被工具超时提前砍掉。
+	// Out-of-sandbox roots / dangerous operations request user approval.
+	// A matching remembered rule short-circuits with no prompt. ctx
+	// (not tctx) is the wait context so the tool timeout does not
+	// kill the wait early.
 	if eval := d.EvaluatePermission(c.Name, c.Arguments); eval.Need {
 		allowed := d.HasPermissionRule(c.Name, eval.Level, eval.Reason)
 		if !allowed {
@@ -477,10 +481,10 @@ func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c protoco
 				Reason:      eval.Reason,
 			})
 			if err != nil {
-				return protocol.Result{IsError: true, Content: "权限请求失败：" + err.Error()}
+				return protocol.Result{IsError: true, Content: "permission request failed: " + err.Error()}
 			}
 			if pr.Behavior != "allow" {
-				msg := "用户拒绝了该操作"
+				msg := "user denied this operation"
 				if pr.Message != "" {
 					msg = pr.Message
 				}
@@ -494,7 +498,8 @@ func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c protoco
 			}
 			allowed = true
 		}
-		// 越授权根路径：放行后把该路径加入沙箱一次性授权，工具才能真正打开。
+		// Out-of-sandbox root path: once approved, add the path to the
+	// sandbox one-shot authorisation so the tool can actually open it.
 		if allowed && eval.EscapedPath != "" {
 			d.ApprovePath(eval.EscapedPath)
 		}

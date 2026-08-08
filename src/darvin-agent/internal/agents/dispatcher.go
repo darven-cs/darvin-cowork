@@ -260,10 +260,11 @@ func (a *Agent) persistUserMessage(ctx context.Context, msgID, content string) {
 	if a.msgStore == nil || msgID == "" {
 		return
 	}
-	// Done=true from the start: a user message is complete the moment it is
-	// sent — there is no streaming for it. The renderer (StreamingText) shows
-	// the "思考中" pulse only when done=false, so a persisted user row must be
-	// sealed or the question renders as a spinner after a session reload.
+	// Done=true from the start: a user message is complete the moment
+	// it is sent — there is no streaming for it. The renderer
+	// (StreamingText) shows the "thinking" pulse only when done=false,
+	// so a persisted user row must be sealed or the question renders
+	// as a spinner after a session reload.
 	rec := &store.MessageRecord{
 		ID:        msgID,
 		SessionID: a.session.ID,
@@ -308,8 +309,10 @@ func (a *Agent) persistAssistantMessages(ctx context.Context, msgID string, befo
 			}
 			toolCallsJSON = string(b)
 		}
-		// 每 turn 用独立行 ID + 递增时间戳：同 run 多轮（tool loop）不再互相
-		// 覆盖，且 reload 按 timestamp 排序时保持 turn 顺序。
+		// Each turn gets its own row id + monotonic timestamp: within the
+		// same run, multiple tool-loop rounds no longer overwrite each
+		// other, and reload preserves turn order when sorted by
+		// timestamp.
 		rec := &store.MessageRecord{
 			ID:        fmt.Sprintf("%s-%d", msgID, i),
 			SessionID: a.session.ID,
@@ -364,7 +367,7 @@ func formatImportedNote(files []string) string {
 	if len(files) == 0 {
 		return ""
 	}
-	return "[系统] 用户在本消息附加了以下文件（绝对路径，已授权读取，可用 read_file 读取）：\n- " + strings.Join(files, "\n- ")
+	return "[system] the user attached the following files to this message (absolute paths, authorised for read; use read_file):\n- " + strings.Join(files, "\n- ")
 }
 
 // enqueue places content into the Agent's queue under the given mode.

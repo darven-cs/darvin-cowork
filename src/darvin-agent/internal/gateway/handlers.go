@@ -39,8 +39,8 @@ type PromptParams struct {
 // PromptResult is the JSON-RPC result for agent.prompt. sessionId and
 // messageId are 21-char nanoids with no prefix (the spec rejected the
 // s-/m- scheme because the WS frame is opaque to the renderer).
-// Queued=true 表示该 turn 落在了同 session 的 followUpQueue,要等上一
-// 条完成才会真正起跑。
+// Queued=true means this turn was parked behind a same-session run;
+// it will start once the previous turn completes.
 type PromptResult struct {
 	SessionID string `json:"sessionId"`
 	RunID     string `json:"runId"`
@@ -257,24 +257,28 @@ type SearchSessionsResult struct {
 type HandlerOptions struct {
 	ImportedFiles *store.ImportedFileStore
 	WorkspaceRoot string
-	// SetWorkspaceRoot 在 agent.set_workspace 时把运行时 workspace 重锚到新
-	// 根:更新 tools sandbox + 重扫项目 skills + RefreshAllTools。由 runtime
-	// 注入;nil 时 set_workspace 只更新 Handler.WorkspaceRoot(handler 测试 stub)。
+	// SetWorkspaceRoot re-anchors the runtime workspace on
+// agent.set_workspace: tools sandbox + project skill rescan +
+// RefreshAllTools. Wired by runtime; nil means set_workspace only
+// updates Handler.WorkspaceRoot (handler-test stubs).
 	SetWorkspaceRoot func(string) error
-	// Skills 是 skills registry。由 main.go 注入。
+	// Skills is the skill registry. Wired by main.go.
 	Skills *skills.SkillRegistry
-	// SkillRunner 支撑 agent.skill.invoke_user。由 main.go 注入;
-	// nil 时该 handler 返回空结果(handler 测试 stub 不需要构造 runner)。
+	// SkillRunner backs agent.skill.invoke_user. Wired by main.go;
+	// nil means the handler returns empty results (handler-test stubs
+	// do not need to build a runner).
 	SkillRunner *skills.SkillRunner
-	// UsageStore 支撑 agent.get_session_usage / session 级 cascade
-	// delete。nil 时 get_session_usage 返零值 Usage、delete 不级联删。
+	// UsageStore backs agent.get_session_usage / session-level cascade
+	// delete. nil means get_session_usage returns a zero-value Usage and
+	// delete does not cascade.
 	UsageStore *store.SQLiteUsageStore
-	// DigestStore 支撑 session_digests 写入 / 级联删除。nil 时
-	// runManualCompact 不落 digest,handleDeleteSession 不级联。
+	// DigestStore backs session_digests write + cascade delete. nil
+	// means runManualCompact does not persist a digest and
+	// handleDeleteSession does not cascade.
 	DigestStore store.DigestStore
-	// Mcp 是 MCP server registry。由 main.go 注入。
+	// Mcp is the MCP server registry. Wired by main.go.
 	Mcp *mcp.Registry
-	// Log 是 skills handler 的日志出口;nil 时 handler 不打 warn。
+	// Log is the skills-handler logger outlet; nil disables warn logs.
 	Log *zap.Logger
 }
 
@@ -283,36 +287,43 @@ type Handler struct {
 	Ledger       *EventLedger
 	SessionStore store.SessionStore
 	MessageStore store.MessageStore
-	// UsageStore 支撑 agent.get_session_usage;Run 末尾落库 / 切换会话时
-	// 读快照。nil 时 handler 返回空 Usage 对象(renderer 走空态分支)。
+	// UsageStore backs agent.get_session_usage; persisted at the end of
+	// Run and read as a snapshot when switching sessions. nil means
+	// the handler returns an empty Usage object (renderer takes the
+	// empty-state branch).
 	UsageStore store.UsageStore
-	// DigestStore 支撑 runManualCompact 落 digest + handleDeleteSession
-	// 级联删。nil 时两条路径都降级为空操作。
+	// DigestStore backs runManualCompact persisting a digest and
+	// handleDeleteSession cascading delete. nil means both paths
+	// degrade to no-ops.
 	DigestStore store.DigestStore
-	// AppState 承载 active_session_id 持久化(get/set_active_session 与
-	// create_session / delete_session 的 active 推进)。nil 时 get_active
-	// 返 null、set/create 只做内存侧行为。
+	// AppState persists active_session_id (get/set_active_session and
+	// the active-slot rotation in create_session / delete_session).
+	// nil means get_active returns null and set/create only touch the
+	// in-memory side.
 	AppState *store.AppStateStore
-	// ImportedFiles 支撑 agent.import_files / list_imported_files /
-	// remove_imported_file / get_workspace_info。nil 时这些 handler 返回
-	// 空结果,便于 handler 测试 stub。
+	// ImportedFiles backs agent.import_files / list_imported_files /
+	// remove_imported_file / get_workspace_info. nil means those
+	// handlers return empty results, suiting handler-test stubs.
 	ImportedFiles *store.ImportedFileStore
-	// WorkspaceRoot 是 agent 的沙箱根(env DARVIN_AGENT_WORKSPACE),
-	// import_files 用它做 sourcePaths 的 containment check。
+	// WorkspaceRoot is the agent sandbox root (env
+	// DARVIN_AGENT_WORKSPACE). import_files uses it for the
+	// sourcePaths containment check.
 	WorkspaceRoot string
-	// SetWorkspaceRoot 在 agent.set_workspace 时重锚运行时 workspace
-	// (sandbox + skills + tools)。nil 时只更新 WorkspaceRoot。
+	// SetWorkspaceRoot re-anchors the runtime workspace on
+	// agent.set_workspace (sandbox + skills + tools). nil means
+	// set_workspace only updates WorkspaceRoot.
 	SetWorkspaceRoot func(string) error
-	// Skills 支撑 agent.skills.list / set_enabled / bootstrap。
-	// nil 时这些 handler 返回空结果,handler 测试 stub 不需要构造 registry。
+	// Skills backs agent.skills.list / set_enabled / bootstrap. nil
+	// means those handlers return empty results, suiting handler-test
+	// stubs that do not need to build a registry.
 	Skills *skills.SkillRegistry
-	// SkillRunner 支撑 agent.skill.invoke_user。nil 时该
-	// handler 返回空结果,handler 测试 stub 不需要构造 runner。
+	// SkillRunner backs agent.skill.invoke_user. nil means the
+	// handler returns empty results, suiting handler-test stubs.
 	SkillRunner *skills.SkillRunner
-	// Mcp 支撑 agent.mcp.list / register / update / unregister /
-	// set_enabled / test / retry_resolution / bootstrap。
+	// Mcp backs agent.mcp.list / register / update / unregister /
+	// set_enabled / test / retry_resolution / bootstrap.
 	Mcp *mcp.Registry
-	// Log 用来记录 skills handler 异常;nil 时走 zap.NewNop()。
+	// Log records skills-handler errors; nil falls back to zap.NewNop().
 	Log *zap.Logger
 }
 
@@ -427,11 +438,12 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 	}
 }
 
-// handlePrompt 把 prompt 路由到 sessionID 对应的 AgentLoopSession.Loop。
-// ErrSessionStalled(Stop 拒绝窗口)返 CodeSessionStalled;factory
-// 构造失败返 CodeAgentInitFailed;handler 测试 stub 场景(entry.AgentLoop
-// 为 nil)返 CodeNoAgentLoopSession。空 sessionId 默认走 DefaultSessionID,
-// 与旧 CreateOrGet 行为一致。
+// handlePrompt routes the prompt to sessionID's AgentLoopSession.Loop.
+// ErrSessionStalled (Stop refusal window) maps to CodeSessionStalled;
+// factory construction failure maps to CodeAgentInitFailed; the
+// handler-test stub case (entry.AgentLoop is nil) maps to
+// CodeNoAgentLoopSession. Empty sessionId falls back to DefaultSessionID,
+// matching the legacy CreateOrGet behaviour.
 func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage, c *client, h *Handler) *Response {
 	if len(params) == 0 {
 		return errorResp(id, CodeInvalidParams, "params required", nil)
@@ -456,7 +468,7 @@ func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage,
 		return errorResp(id, CodeAgentInitFailed, "get session", err)
 	}
 	if entry.AgentLoop == nil {
-		// handler 测试 stub 没注入 factory 时走这里。
+		// Reached when the handler-test stub did not wire a factory.
 		return errorResp(id, CodeNoAgentLoopSession, "no AgentLoopSession bound", nil)
 	}
 	ticket, err := entry.AgentLoop.Loop.Submit(agentloop.PromptRequest{RunID: p.RunID, Content: p.Content, Attachments: p.Attachments, Images: p.Images})
@@ -505,10 +517,13 @@ type CompactContextResult struct {
 	SessionID string `json:"sessionId"`
 }
 
-// handleCompactContext 触发一次手动上下文压缩。会话不在可压状态
-// （运行中 / 无 assembler / 无 AgentLoopSession）时返回 accepted=false，renderer
-// 保持圆环现状不进入动画。压缩含 LLM 摘要调用，放后台跑避免阻塞 WS 读
-// 循环；最终成败由随后的 compaction 事件驱动 UI。
+// handleCompactContext triggers one manual context compaction. When
+// the session is not in a compactable state (running / no assembler /
+// no AgentLoopSession) it returns accepted=false and the renderer
+// keeps the spinner as-is without entering the next. The compact
+// itself includes an LLM summary call and runs in the background to
+// avoid blocking the WS read loop; final success / failure is
+// driven by the subsequent compaction events.
 func handleCompactContext(_ context.Context, id json.RawMessage, params json.RawMessage, c *client, _ *Handler) *Response {
 	var p CompactContextParams
 	if len(params) > 0 {
@@ -664,9 +679,11 @@ func handleGetMessages(ctx context.Context, id json.RawMessage, params json.RawM
 	return successResp(id, GetMessagesResult{Messages: rows})
 }
 
-// handleGetSessionUsage 返回 session 的 usage 快照。nil store 时返零值
-// Usage;Get 找不到行时同样返零值 — renderer 用全零判定"没数据"。ErrNoUsage
-// (ErrRecordNotFound) 等价于"该 session 从未跑过 turn",不当作 RPC 错误。
+// handleGetSessionUsage returns the session's usage snapshot. nil
+// store returns a zero-value Usage; missing rows return the same zero
+// value — the renderer treats all-zero as "no data". ErrNoUsage
+// (ErrRecordNotFound) is equivalent to "this session has never run a
+// turn" and is not surfaced as an RPC error.
 func handleGetSessionUsage(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	var p GetSessionUsageParams
 	if len(params) == 0 {
@@ -750,13 +767,16 @@ func usageTotalCompletion(rec *store.UsageRecord) int {
 	return rec.Total.CompletionTokens
 }
 
-// handleCreateSession 新建一个 session 并把它设为 active:
-//  1. 用 SessionManager 的 idGen 生成 21 位 nanoid
-//  2. GetOrCreateEntry 建 SessionEntry,并借 factory 懒建 AgentLoopSession
-//  3. 落 SessionStore(默认 title),title 非空时 UpdateTitle
-//  4. AppState.SetActiveSession 持久化 active
+// handleCreateSession creates a new session and makes it active:
+//  1. Mint a 21-char nanoid via SessionManager.idGen.
+//  2. GetOrCreateEntry to build the SessionEntry, lazily building
+//     AgentLoopSession through the factory.
+//  3. Persist via SessionStore (default title); UpdateTitle when a
+//     non-empty title is provided.
+//  4. AppState.SetActiveSession to persist the active slot.
 //
-// 返回新建 session 的完整 SessionWire(含 title / status)。
+// Returns the full SessionWire (including title / status) for the
+// newly created session.
 func handleCreateSession(ctx context.Context, id json.RawMessage, params json.RawMessage, c *client, h *Handler) *Response {
 	var p CreateSessionParams
 	if len(params) > 0 {
@@ -787,9 +807,10 @@ func handleCreateSession(ctx context.Context, id json.RawMessage, params json.Ra
 	return successResp(id, CreateSessionResult{Session: wireForSession(ctx, h, sessionID, entry)})
 }
 
-// wireForSession 返回 sessionID 的 SessionWire。优先从 SessionStore 读
-// 完整行(带 title);store 为 nil 或读失败时退回到内存 entry 的元数据,
-// 保证 handler 测试 stub / 无 store 的快速路径不崩。
+// wireForSession returns the SessionWire for sessionID. It prefers the
+// full row (with title) from SessionStore; on nil store or read
+// failure it falls back to the in-memory entry metadata, so handler-test
+// stubs / the no-store fast path never crash.
 func wireForSession(ctx context.Context, h *Handler, sessionID string, entry *SessionEntry) SessionWire {
 	if h.SessionStore != nil {
 		if row, err := h.SessionStore.GetByID(ctx, sessionID); err == nil {
@@ -805,8 +826,9 @@ func wireForSession(ctx context.Context, h *Handler, sessionID string, entry *Se
 	}
 }
 
-// handleGetActiveSession 从 app_state 读 active_session_id;未设置时返
-// sessionId=null(renderer 冷启动空状态)。
+// handleGetActiveSession reads active_session_id from app_state; when
+// unset it returns sessionId=null (the renderer's cold-start empty
+// state).
 func handleGetActiveSession(ctx context.Context, id json.RawMessage, h *Handler) *Response {
 	if h.AppState == nil {
 		return successResp(id, GetActiveSessionResult{SessionID: nil})
@@ -823,9 +845,10 @@ func handleGetActiveSession(ctx context.Context, id json.RawMessage, h *Handler)
 	return successResp(id, GetActiveSessionResult{SessionID: out})
 }
 
-// handleSetActiveSession 持久化 active_session_id 并刷新 updated_at,
-// 让 list 顺序随之推进。Touch 对未知 session 返回的 ErrNotFound 忽略
-// (active 已写,存不存在由其它 handler 保证)。
+// handleSetActiveSession persists active_session_id and refreshes
+// updated_at so the list order advances. ErrNotFound returned by
+// Touch on an unknown session is ignored (active is already written;
+// session existence is guaranteed by other handlers).
 func handleSetActiveSession(ctx context.Context, id json.RawMessage, params json.RawMessage, _ *client, h *Handler) *Response {
 	var p SetActiveSessionParams
 	if len(params) == 0 {
@@ -852,10 +875,13 @@ func handleSetActiveSession(ctx context.Context, id json.RawMessage, params json
 
 // SetWorkspaceParams is the JSON-RPC params for agent.set_workspace.
 type SetWorkspaceParams struct {
-	// SessionID 是发起切换的会话;set_workspace 本身是进程级 workspace
-	// 重锚,不带 session 语义,保留字段仅为对齐其它 workspace handler。
+	// SessionID is the session that initiated the switch. set_workspace
+	// itself is a process-wide workspace re-anchor with no session
+	// semantics; the field is kept only to align with the other
+	// workspace handlers.
 	SessionID string `json:"sessionId"`
-	// RootPath 是新的绝对 workspace 根。必须为存在的目录。
+	// RootPath is the new absolute workspace root. Must be an
+	// existing directory.
 	RootPath string `json:"rootPath"`
 }
 
@@ -864,12 +890,15 @@ type SetWorkspaceResult struct {
 	RootPath string `json:"rootPath"`
 }
 
-// handleSetWorkspace 把运行时 workspace 重锚到新绝对路径。相比 main 端旧
-// 的 restartGoSubprocess,它不重启 Go 子进程,保留其它 session 的 in-memory
-// 上下文与在途流式。校验 rootPath 为绝对路径 + 存在的目录后:
-//  1. 调 h.SetWorkspaceRoot(rootPath)(sandbox + 项目 skills + tools),
-//     失败时返回 RPC error 且不更新 WorkspaceRoot;
-//  2. 更新 h.WorkspaceRoot,供 import_files 的 containment check 使用。
+// handleSetWorkspace re-anchors the runtime workspace to a new
+// absolute path. Unlike the main-side legacy restartGoSubprocess,
+// it does not restart the Go subprocess, preserving the in-memory
+// context and in-flight streams of other sessions. After validating
+// rootPath is absolute and points at an existing directory:
+//  1. Call h.SetWorkspaceRoot(rootPath) (sandbox + project skills +
+//     tools); on failure return an RPC error and leave WorkspaceRoot
+//     untouched.
+//  2. Update h.WorkspaceRoot for the import_files containment check.
 func handleSetWorkspace(_ context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if len(params) == 0 {
 		return errorResp(id, CodeInvalidParams, "params required", nil)
@@ -897,11 +926,13 @@ func handleSetWorkspace(_ context.Context, id json.RawMessage, params json.RawMe
 	return successResp(id, SetWorkspaceResult{RootPath: p.RootPath})
 }
 
-// handleDeleteSession 删除一个 session:
-//  1. 从 SessionManager 摘掉 entry(Stop/abort + Close,防复活)
-//  2. SessionStore.Delete 删行
-//  3. 若删的是当前 active,则把 app_state 推进到列表首条(或清空),
-//     nextActiveSessionId 返回给 renderer 供 UI 切换
+// handleDeleteSession deletes a session:
+//  1. Remove the entry from SessionManager (Stop/abort + Close, so it
+//     cannot be revived).
+//  2. SessionStore.Delete removes the row.
+//  3. If the deleted session is the active one, advance app_state to
+//     the head of the list (or clear it) and surface
+//     nextActiveSessionId to the renderer for UI hand-off.
 func handleDeleteSession(ctx context.Context, id json.RawMessage, params json.RawMessage, c *client, h *Handler) *Response {
 	var p DeleteSessionParams
 	if len(params) == 0 {
@@ -922,39 +953,45 @@ func handleDeleteSession(ctx context.Context, id json.RawMessage, params json.Ra
 		}
 	}
 
-	// 级联删除该 session 的消息行,避免孤儿消息在 sessions.db 累积。
+	// Cascade-delete the session's message rows so orphaned messages do
+	// not accumulate in sessions.db.
 	if h.MessageStore != nil {
 		if err := h.MessageStore.DeleteBySession(ctx, p.SessionID); err != nil {
 			return errorResp(id, CodeInternalError, "session messages delete", err)
 		}
 	}
 
-	// 级联删除该 session 的 imported_files 行;workspace 目录本身由 main
-	// 端在 darvin:delete_session handler 里 fs.rm(递归)清掉。
+	// Cascade-delete the session's imported_files rows; the workspace
+	// directory itself is removed by the main-side darvin:delete_session
+	// handler via fs.rm(recursive).
 	if h.ImportedFiles != nil {
 		if err := h.ImportedFiles.DeleteBySession(ctx, p.SessionID); err != nil {
 			return errorResp(id, CodeInternalError, "session imported files delete", err)
 		}
 	}
 
-	// 级联删除该 session 的 usage 快照,避免孤立行 / 旧 session 的
-	// 上下文数据在换 id 后被错误读出。UsageStore.DeleteBySession 是
-	// warn-and-continue(missing row 无错),所以即便从未落过快照也安全。
+	// Cascade-delete the session's usage snapshots so orphaned rows /
+// context data from a previous session id cannot be misread after a
+// new session reuses the id. UsageStore.DeleteBySession is
+// warn-and-continue (missing row is not an error), so it is safe
+// even when no snapshot was ever persisted.
 	if h.UsageStore != nil {
 		if err := h.UsageStore.DeleteBySession(ctx, p.SessionID); err != nil {
 			return errorResp(id, CodeInternalError, "session usage delete", err)
 		}
 	}
 
-	// 级联删除 session_digests 行,避免 hydrate 时读到孤儿 digest
-	// 把会话重放到别的 session_id 上。
+	// Cascade-delete session_digests rows so hydrate cannot pick up an
+	// orphaned digest and replay a session under a different
+	// session_id.
 	if h.DigestStore != nil {
 		if err := h.DigestStore.DeleteBySession(ctx, p.SessionID); err != nil {
 			return errorResp(id, CodeInternalError, "session digests delete", err)
 		}
 	}
 
-	// 计算 nextActive:非删 active 时保持原 active;删 active 时取列表首条。
+	// Compute nextActive: when active is not the deleted session, keep
+	// the current active; when it is, take the head of the list.
 	var next *string
 	if h.AppState != nil {
 		if cur, err := h.AppState.GetActiveSession(ctx); err == nil && cur == p.SessionID {
@@ -972,8 +1009,8 @@ func handleDeleteSession(ctx context.Context, id json.RawMessage, params json.Ra
 	return successResp(id, DeleteSessionResult{Deleted: true, NextActiveSessionID: next})
 }
 
-// firstSessionID 返回 ListAll 的首条 id(最新 updated_at)。列表为空返
-// ok=false。
+// firstSessionID returns the head id from ListAll (the most recent
+// updated_at). Returns ok=false when the list is empty.
 func firstSessionID(ctx context.Context, h *Handler) (string, bool) {
 	if h.SessionStore == nil {
 		return "", false
@@ -985,8 +1022,9 @@ func firstSessionID(ctx context.Context, h *Handler) (string, bool) {
 	return rows[0].ID, true
 }
 
-// nextActiveValue 把 next 归一化:删除 active 且列表还有条 → next;删光
-// → 空串(清空 app_state)。
+// nextActiveValue normalises next: when active was deleted and the
+// list still has entries → next; when everything was deleted → empty
+// string (clear app_state).
 func nextActiveValue(next *string) string {
 	if next == nil {
 		return ""
@@ -994,8 +1032,9 @@ func nextActiveValue(next *string) string {
 	return *next
 }
 
-// handleRenameSession 更新 title。空 title fallback 到 '新建会话'。
-// 同时 Touch 刷 updated_at,让改名后的 session 顶到列表头。
+// handleRenameSession updates the title. Empty title falls back to
+// "新建会话". Touch refreshes updated_at so the renamed session
+// bubbles to the top of the list.
 func handleRenameSession(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	var p RenameSessionParams
 	if len(params) == 0 {
@@ -1012,7 +1051,7 @@ func handleRenameSession(ctx context.Context, id json.RawMessage, params json.Ra
 	}
 	title := strings.TrimSpace(p.Title)
 	if title == "" {
-		title = "新建会话"
+		title = "新建会话" // empty-title fallback shown in the UI
 	}
 	if err := h.SessionStore.UpdateTitle(ctx, p.SessionID, title); err != nil {
 		return errorResp(id, CodeInternalError, "session rename", err)
@@ -1027,9 +1066,10 @@ func handleRenameSession(ctx context.Context, id json.RawMessage, params json.Ra
 	return successResp(id, RenameSessionResult{Session: toSessionWire(row)})
 }
 
-// handleSearchSessions 合并两个搜索桶:title 命中(SessionWire) +
-// content 命中(SearchHitWire,带所属 session 的 title)。空 query 由
-// store 层短路返空。
+// handleSearchSessions merges two search buckets: title hits
+// (SessionWire) and content hits (SearchHitWire carrying the owning
+// session's title). Empty query is short-circuited to an empty result
+// at the store layer.
 func handleSearchSessions(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	var p SearchSessionsParams
 	if len(params) == 0 {
@@ -1164,8 +1204,9 @@ type GetWorkspaceInfoResult struct {
 	WorkspaceBytes int64 `json:"workspaceBytes"`
 }
 
-// handleSaveMessage inserts one message row. main 用它注入 workspace_event
-// system note(导入 / 移除文件),role 由 meta.tag 派生。
+// handleSaveMessage inserts one message row. main uses it to push
+// workspace_event system notes (import / remove file); the role is
+// derived from meta.tag.
 func handleSaveMessage(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if len(params) == 0 {
 		return errorResp(id, CodeInvalidParams, "params required", nil)
@@ -1449,8 +1490,9 @@ type SetSkillEnabledResult struct {
 }
 
 // BootstrapSkillsParams is the JSON-RPC params for agent.skills.bootstrap.
-// main 端是 enabled 状态的 source of truth:它启动时把自己 SQLite 里的
-// 全部 skill 一并发过来,Go 用 main 的 enabled 值覆盖本地 default。
+// main is the source of truth for the enabled state: at startup it
+// bulk-pushes the enabled flags from its SQLite, and Go overwrites the
+// local defaults with the main-side values.
 type BootstrapSkillsParams struct {
 	Skills []skills.SkillSummaryWire `json:"skills"`
 }
@@ -1482,9 +1524,10 @@ type ListToolsParams struct {
 	SessionID string `json:"sessionId,omitempty"`
 }
 
-// handleListTools 返回指定 session(缺省 default)的 agent tool registry
-// 合并视图。session 尚未建 AgentLoopSession 时懒建一次,让首次查询就能拿到
-// 包含 skill / mcp 插件的完整列表。
+// handleListTools returns the merged agent tool registry view for the
+// given session (default when omitted). When the session has not yet
+// built an AgentLoopSession we lazily build it once so the first query
+// already includes the full skill / mcp plugin surface.
 func handleListTools(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Sessions == nil {
 		return successResp(id, ListToolsResult{Tools: []ToolDescriptorWire{}})
@@ -1530,9 +1573,10 @@ func rawSchemaToMap(raw json.RawMessage) map[string]any {
 	return m
 }
 
-// handleListSkills 返回 Go 端 registry 的当前快照。Go 端既会从 embed
-// 的 bundled 5 skill 加载,也会从 user 目录加载;list 是 source of truth
-// 之一(enabled 状态由 main 端 bootstrap 覆盖)。
+// handleListSkills returns the current snapshot of the Go-side
+// registry. Go loads both the bundled 5 skills from embed and the
+// user-directory skills; the list is one of the sources of truth
+// (the enabled state is overridden by the main-side bootstrap).
 func handleListSkills(id json.RawMessage, h *Handler) *Response {
 	if h.Skills == nil {
 		return successResp(id, ListSkillsResult{Skills: []skills.SkillSummaryWire{}})
@@ -1541,9 +1585,10 @@ func handleListSkills(id json.RawMessage, h *Handler) *Response {
 	return successResp(id, ListSkillsResult{Skills: skills.ToSummaries(entries)})
 }
 
-// handleSetSkillEnabled 翻转一个 skill 的内存 enabled 标志,然后向所有
-// 活跃 WS 广播 agent.skills.changed 让 main 端刷新自己的缓存。错误通过
-// JSON-RPC error 返回,不动 Go 端状态。
+// handleSetSkillEnabled flips the in-memory enabled flag for a skill,
+// then broadcasts agent.skills.changed on every active WS so main can
+// refresh its own cache. Errors are returned as JSON-RPC errors; the
+// Go-side state is left untouched on failure.
 func handleSetSkillEnabled(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Skills == nil {
 		return errorResp(id, CodeMethodNotFound, "skills not configured", nil)
@@ -1566,8 +1611,9 @@ func handleSetSkillEnabled(id json.RawMessage, params json.RawMessage, h *Handle
 	return successResp(id, SetSkillEnabledResult{OK: true})
 }
 
-// refreshToolsIfNeeded 在 skill / mcp 状态变化后重跑各 session 的插件注
-// 册,让 agent 工具面保持最新。没有 SessionManager 时 no-op。
+// refreshToolsIfNeeded re-runs plugin registration for every session
+// after a skill / mcp state change so the agent tool surface stays
+// current. No-op when SessionManager is nil.
 func (h *Handler) refreshToolsIfNeeded() {
 	if h.Sessions != nil {
 		h.Sessions.RefreshAllTools()
@@ -1595,10 +1641,12 @@ type InvokeSkillUserResult struct {
 	OK        bool   `json:"ok"`
 }
 
-// handleInvokeSkillUser 实现 `/skill-name args` 用户显式触发。校验
-// (存在 + enabled + userInvocable)同步做——失败以 JSON-RPC error 返回,
-// main 端据此 toast;通过后把 skill 上下文交给 session 的 Loop 异步跑
-// mini agent loop,事件流与普通 prompt 一致。
+// handleInvokeSkillUser implements explicit `/skill-name args`
+// invocations from the user. Validation (exists + enabled +
+// userInvocable) is synchronous — failures are returned as JSON-RPC
+// errors so main can surface a toast; on success the skill context is
+// handed to the session's Loop to run a mini agent loop
+// asynchronously, with an event stream identical to a normal prompt.
 func handleInvokeSkillUser(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Skills == nil || h.SkillRunner == nil {
 		return errorResp(id, CodeMethodNotFound, "skills not configured", nil)
@@ -1666,9 +1714,10 @@ func handleInvokeSkillUser(id json.RawMessage, params json.RawMessage, h *Handle
 	})
 }
 
-// handleBootstrapSkills 接受 main 端推过来的初始 enabled 状态,逐条覆盖
-// Go 端 registry 的 enabled 标志;不存在的 id 走 noop(让 main 端重新
-// 触 reload,而不是在这里报错),保证协议上的幂等。
+// handleBootstrapSkills accepts the initial enabled state pushed by
+// main and overwrites the Go-side registry flags one by one. Unknown
+// ids are no-ops (so main can re-trigger a reload instead of receiving
+// an error here), keeping the protocol idempotent.
 func handleBootstrapSkills(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Skills == nil {
 		return errorResp(id, CodeMethodNotFound, "skills not configured", nil)
@@ -1687,9 +1736,10 @@ func handleBootstrapSkills(id json.RawMessage, params json.RawMessage, h *Handle
 	return successResp(id, BootstrapSkillsResult{OK: true})
 }
 
-// broadcastSkillsChanged 向所有 active WS 推 agent.skills.changed 通知。
-// 走 EventLedger.Broadcast 而非 per-session 路由——skill 是全局状态,
-// main 是唯一订阅者。
+// broadcastSkillsChanged pushes agent.skills.changed to every active
+// WS. It routes through EventLedger.Broadcast rather than the
+// per-session path — skill state is global, and main is the sole
+// subscriber.
 func (h *Handler) broadcastSkillsChanged() {
 	if h.Skills == nil || h.Ledger == nil {
 		return
@@ -2019,8 +2069,9 @@ func (h *Handler) OnMcpConnectionChanged(serverID string, status mcp.ConnectionS
 }
 
 // OnMcpResolutionChanged is the mcp.Notifier callback for resolver
-// output (pending / installing / ready / failed). main 落 SQLite + 推
-// renderer via darvin:push:mcp-servers-changed(launchStatus 字段)。
+// output (pending / installing / ready / failed). main persists to
+// SQLite and pushes the renderer via darvin:push:mcp-servers-changed
+// (launchStatus field).
 func (h *Handler) OnMcpResolutionChanged(serverID string, res mcp.LaunchResolution) {
 	if h.Ledger == nil {
 		return

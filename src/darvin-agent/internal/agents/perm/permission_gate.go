@@ -144,7 +144,7 @@ func (g *Gate) RequestPermission(ctx context.Context, req PermissionRequest, _ T
 	ch := make(chan PermissionResult, 1)
 	pp := &pendingPermission{ch: ch}
 	pp.timeout = time.AfterFunc(g.timeout, func() {
-		g.deliver(id, ch, PermissionResult{Behavior: "deny", Message: "审批超时"})
+		g.deliver(id, ch, PermissionResult{Behavior: "deny", Message: "approval timed out"})
 	})
 	g.mu.Lock()
 	g.pending[id] = pp
@@ -176,7 +176,7 @@ func (g *Gate) RequestPermission(ctx context.Context, req PermissionRequest, _ T
 			cur.timeout.Stop()
 		}
 		g.mu.Unlock()
-		return PermissionResult{Behavior: "deny", Message: "运行已中断"}, ctx.Err()
+		return PermissionResult{Behavior: "deny", Message: "run was interrupted"}, ctx.Err()
 	}
 }
 

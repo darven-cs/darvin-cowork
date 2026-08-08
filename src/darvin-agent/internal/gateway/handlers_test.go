@@ -298,9 +298,10 @@ func TestDispatchAbortKnownSessionMismatch(t *testing.T) {
 	}
 }
 
-// TestDispatchSubscribeEventsCreatesUnknownSession 覆盖 main 端的真实路径：
-// SessionStore 先落 UUID 再发 subscribe_events；此时 SessionManager 还没见
-// 过这个 id，subscribe 应自创建 entry 而不是拒绝。
+// TestDispatchSubscribeEventsCreatesUnknownSession covers the main-side
+// real path: SessionStore first lands the UUID, then issues
+// subscribe_events; at this point SessionManager has not seen the id
+// yet, so subscribe must self-create the entry instead of refusing.
 func TestDispatchSubscribeEventsCreatesUnknownSession(t *testing.T) {
 	_, c := newTestHandler(t)
 	req := &Request{
@@ -527,8 +528,10 @@ func TestDispatchListGetMessagesNilStores(t *testing.T) {
 	}
 }
 
-// TestHandlePrompt_RoutesBySessionID:同 WS 连接上先后给 A、B 发 prompt,
-// 两条 prompt 落到各自 AgentLoopSession.Loop,A/B 的 ActiveRunID 互不干扰。
+// TestHandlePrompt_RoutesBySessionID: on the same WS connection, send
+// prompts for A and B in sequence. Both land on their respective
+// AgentLoopSession.Loop, and A / B's ActiveRunID do not interfere
+// with each other.
 func TestHandlePrompt_RoutesBySessionID(t *testing.T) {
 	_, c := newTestHandler(t)
 	respA := dispatchRequest(context.Background(), &Request{
@@ -570,7 +573,8 @@ func TestHandlePrompt_RoutesBySessionID(t *testing.T) {
 	}
 }
 
-// TestHandleAbort_RoutesBySessionIDAndRunID:abort A 不影响 B。
+// TestHandleAbort_RoutesBySessionIDAndRunID: aborting A does not
+// affect B.
 func TestHandleAbort_RoutesBySessionIDAndRunID(t *testing.T) {
 	_, c := newTestHandler(t)
 	respA := dispatchRequest(context.Background(), &Request{
@@ -607,8 +611,10 @@ func TestHandleAbort_RoutesBySessionIDAndRunID(t *testing.T) {
 	}
 }
 
-// TestHandlePrompt_QueuedForActiveSession:同 session 在跑时再发 prompt,
-// 第二条进 followUpQueue,响应 Queued=true;第一条完成后第二条起跑。
+// TestHandlePrompt_QueuedForActiveSession: while the same session is
+// running, send another prompt. The second one is parked on the
+// followUpQueue with Queued=true; it starts once the first turn
+// completes.
 func TestHandlePrompt_QueuedForActiveSession(t *testing.T) {
 	_, c := newTestHandler(t)
 	first := dispatchRequest(context.Background(), &Request{
@@ -666,9 +672,10 @@ func TestHandleSubscribeEvents_BuildsEntryNotAgentLoop(t *testing.T) {
 	}
 }
 
-// waitForActiveRun 轮询 Loop.ActiveRunID 证明 prompt 已取出并设了
-// activeRun。基于状态而非订阅事件,避免"订阅晚于事件 burst"导致
-// waitForSubEvent 空等超时的竞态。
+// waitForActiveRun polls Loop.ActiveRunID to confirm the prompt was
+// picked up and the activeRun was set. State-based instead of
+// subscription-event-based to avoid the "subscription arrives after
+// the event burst" race that makes waitForSubEvent time out.
 func waitForActiveRun(t *testing.T, sess *agentloop.AgentLoopSession) {
 	t.Helper()
 	waitForCondition(t, func() bool { return sess.Loop.ActiveRunID() != "" })
@@ -795,8 +802,9 @@ func TestHandler_DeleteSessionAdvancesActive(t *testing.T) {
 	}
 }
 
-// TestHandler_RenameUpdatesTitle covers agent.rename_session: a non-empty
-// title is persisted; an empty / whitespace title falls back to 新建会话.
+// TestHandler_RenameUpdatesTitle covers agent.rename_session: a
+// non-empty title is persisted; an empty / whitespace title falls
+// back to "新建会话".
 func TestHandler_RenameUpdatesTitle(t *testing.T) {
 	ctx := context.Background()
 	_, c, sessStore, _, _ := newTestHandlerWithStores(t)

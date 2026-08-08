@@ -203,10 +203,12 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	mcpPlugin := tool.NewMcpPlugin(mcpReg)
 	factory.Plugins = append(factory.Plugins, skillPlugin, mcpPlugin)
 
-	// setWorkspace 重锚运行时 workspace:更新 sandbox root → 按新 workspace
-	// 重扫项目 skills → 刷新 plugin 的 registry/runner → 对所有已建 agent
-	// 重跑工具插件。handler 由 var 前向声明,闭包内通过非 nil 判断避免
-	// 构造期竞态。
+	// setWorkspace re-anchors the runtime workspace: update the sandbox
+	// root, rescan project skills against the new workspace, refresh
+	// the plugin registry / runner, and re-run tool plugins for every
+	// already-built agent. The handler is forward-declared via var,
+	// and the closure guards with a non-nil check to avoid a
+	// construction-time race.
 	var handler *gateway.Handler
 	setWorkspace := func(root string) error {
 		if err := toolsReg.SetWorkspaceRoot(root); err != nil {

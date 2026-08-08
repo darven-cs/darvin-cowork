@@ -79,12 +79,13 @@ func TestApprovedPathAllowsOutOfRootRead(t *testing.T) {
 	r := NewRegistry()
 	r.sb = sb
 
-	// 未授权：越界读需要审批
+	// Unauthorized: out-of-sandbox reads require approval.
 	eval := r.EvaluatePermission("read_file", map[string]any{"path": outside})
 	if !eval.Need || eval.EscapedPath == "" {
 		t.Fatalf("unauthorized read eval = %+v, want Need + EscapedPath", eval)
 	}
-	// 用户放行后：路径进入一次性授权集，read 可真正执行
+	// After user approval: the path enters the one-shot authorised set
+	// and the read can actually proceed.
 	r.ApprovePath(outside)
 	r.MustRegister(&readFileTool{sb: sb})
 	res := r.Get("read_file").(Tool).Execute(context.Background(), map[string]any{"path": outside})
