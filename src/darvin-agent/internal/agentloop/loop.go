@@ -1,6 +1,6 @@
 // Package acp wraps the agent runtime in a minimal Agent-Client Protocol
-// surface used by the gateway handlers. Loop owns one session's turn
-// queue and the in-flight messageID.
+// surface used by the gateway handlers. Loop owns one session's turn queue
+// and the in-flight messageID.
 package agentloop
 
 import (
@@ -18,12 +18,9 @@ import (
 )
 
 const (
-	// messageIDLen is the length of message ids Loop generates per turn.
-	// Same length as the gateway's session ids; the alphabet is the same
-	// 62-char [A-Za-z0-9] table for URL/JSON-friendliness.
+	// messageIDLen matches the gateway's session-id length; the alphabet
+	// is the same 62-char [A-Za-z0-9] table for URL/JSON-friendliness.
 	messageIDLen = 21
-	// messageAlphabet matches gateway.sessionAlphabet — keep them aligned
-	// so downstream consumers don't have to special-case any character.
 	messageAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 
@@ -32,11 +29,9 @@ const (
 var ErrLoopClosed = errors.New("acp: loop closed")
 
 // PromptRequest is one turn's input. RunID lets the caller name the turn
-// up front so a later Stop can target exactly it; an empty RunID makes
-// Loop mint one. Attachments are absolute paths staged for this message:
-// the dispatcher injects a transient system note and grants read_file access.
-// Images are base64-encoded image attachments; the dispatcher converts them
-// into LLM image content blocks.
+// for a later Stop; empty lets Loop mint one. Attachments are absolute
+// paths staged for this message ("attach = authorize"); Images are base64
+// attachments converted to LLM image content blocks by the dispatcher.
 type PromptRequest struct {
 	RunID       string
 	Content     string
@@ -44,29 +39,26 @@ type PromptRequest struct {
 	Images      []queue.ImageRef
 }
 
-// RunTicket correlates a submitted turn with the events it will emit.
-// Queued reports that the turn is parked behind an in-flight run instead
-// of having started immediately.
+// RunTicket correlates a submitted turn with its events; Queued reports
+// the turn is parked behind an in-flight run.
 type RunTicket struct {
 	RunID     string
 	MessageID string
 	Queued    bool
 }
 
-// SkillInvocation is a user-invoked skill turn: the skill's SKILL.md body
-// becomes the system prompt, content is the raw `/skill-name args` command
-// the user sent, and Tools is the skill's allowed tool set.
+// SkillInvocation is a user-invoked skill turn: SKILL.md becomes the
+// system prompt, Content is the raw `/skill-name args` command, Tools is
+// the skill's allowed set.
 type SkillInvocation struct {
 	SystemPrompt string
 	Content      string
 	Tools        []tool.Tool
 }
 
-// promptReq is a submitted turn plus the messageIDs Loop minted for it.
-// msgID keys the assistant message (events carry it for streaming append);
-// userMsgID keys the user message so persistUserMessage's row is not
-// overwritten by the assistant row that shares msgID (see dispatcher.go).
-// skill is non-nil when the turn is a skill invocation (RunSkillSession).
+// promptReq is a submitted turn plus minted messageIDs. msgID keys the
+// assistant message; userMsgID keys the user row so it survives the
+// assistant write. skill is non-nil for skill invocations.
 type promptReq struct {
 	runID       string
 	content     string
@@ -83,26 +75,17 @@ type activeRunState struct {
 	cancelRun context.CancelFunc
 }
 
-// Loop drives one *agent.Agent's turns strictly one at a time. A single
-// goroutine consumes the two queues, which is what keeps the Agent's own
-// state machine free of concurrent Run calls.
-//
-// Submit appends to followUpQueue; Steer appends to steerQueue and
-// cancels the in-flight turn so its content is what runs next. Requests
-// within one queue keep submission order.
-//
-// The harness field is the prompt path going
-// through harness.RunAttemptWithLifecycle rather than directly calling
-// agent.Prompt + agent.Run. The agent reference is retained for skill
-// turns (transient state lives on the agent) and for the messageID
-// bridge the agent's executor / dispatcher depend on.
+// Loop drives one *agent.Agent's turns strictly one at a time: a single
+// goroutine consumes the two queues, keeping the Agent free of concurrent
+// Run calls. Submit appends to followUpQueue; Steer appends to
+// steerQueue and cancels the in-flight turn. The prompt path goes through
+// harness.RunAttemptWithLifecycle rather than agent.Prompt + agent.Run.
 type Loop struct {
 	agent   *agent.Agent
 	harness harness.Harness
 
-	// wake tells the run goroutine that a queue grew. Capacity 1 collapses
-	// bursts: the goroutine drains both queues under the lock anyway, so a
-	// dropped token can never hide a queued request.
+	// wake signals the run goroutine that a queue grew; capacity 1
+	// collapses bursts (the goroutine drains under the lock regardless).
 	wake chan struct{}
 
 	mu            sync.Mutex
@@ -122,14 +105,11 @@ type Loop struct {
 }
 
 // NewLoop builds a Loop and starts its run goroutine. Ids are 21-char
-// nanoids using the same alphabet the gateway uses for session ids.
-//
-// The Loop context is background-rooted on purpose: a handler returning
-// or a WS client disconnecting must not cancel a run other subscribers
-// are still watching. Cancellation goes through Stop / Abort / Close.
-//
-// h is the harness the prompt path will drive; nil is allowed (skill
-// turns still work; prompts surface an error to the renderer).
+// nanoids using the gateway's session-id alphabet. The Loop context is
+// background-rooted so a handler / WS disconnect cannot cancel a run other
+// subscribers are watching — cancellation goes through Stop / Abort /
+// Close. h is the harness the prompt path drives; nil is allowed (skill
+// turns still work; prompts surface an error).
 func NewLoop(a *agent.Agent, h harness.Harness) *Loop {
 	ctx, stop := context.WithCancel(context.Background())
 	l := &Loop{
@@ -145,29 +125,26 @@ func NewLoop(a *agent.Agent, h harness.Harness) *Loop {
 	return l
 }
 
-// Submit queues content as a new turn. It starts as soon as the session
-// goes idle; anything already queued runs first.
+// Submit queues content as a new turn, running once the session is idle.
 func (l *Loop) Submit(req PromptRequest) (RunTicket, error) {
 	return l.admit(req, nil, false)
 }
 
-// Steer queues content ahead of the parked follow-ups and cancels the
-// in-flight turn so the new content is what runs next. On an idle
-// session Steer behaves like Submit.
+// Steer queues ahead of parked follow-ups and cancels the in-flight turn;
+// on an idle session it behaves like Submit.
 func (l *Loop) Steer(req PromptRequest) (RunTicket, error) {
 	return l.admit(req, nil, true)
 }
 
-// SubmitSkill queues a user-invoked skill turn. It runs through the same
-// single-turn machinery (one goroutine, messageIDs minted up front) but the
-// executor drives a mini loop with the skill's system prompt and tools.
+// SubmitSkill queues a user-invoked skill turn through the same machinery,
+// driving a mini loop with the skill's system prompt and tools.
 func (l *Loop) SubmitSkill(sec SkillInvocation) (RunTicket, error) {
 	return l.admit(PromptRequest{}, &sec, false)
 }
 
 // admit is the shared entry for Submit / SubmitSkill / Steer. jumpQueue
-// selects steerQueue over followUpQueue and additionally cancels the
-// in-flight turn so the run goroutine reaches the new request immediately.
+// selects steerQueue and cancels the in-flight turn so the run goroutine
+// reaches the new request immediately.
 func (l *Loop) admit(req PromptRequest, skill *SkillInvocation, jumpQueue bool) (RunTicket, error) {
 	p := promptReq{
 		runID:       req.RunID,
@@ -205,9 +182,8 @@ func (l *Loop) admit(req PromptRequest, skill *SkillInvocation, jumpQueue bool) 
 	return RunTicket{RunID: p.runID, MessageID: p.msgID, Queued: active != nil}, nil
 }
 
-// Stop cancels the in-flight turn when it is the one named by runID and
-// drops every request parked behind it. Reports whether a turn was
-// actually cancelled — a stale runID is a no-op.
+// Stop cancels the in-flight turn named by runID and drops parked
+// requests. Reports whether a turn was actually cancelled.
 func (l *Loop) Stop(runID string) bool {
 	l.mu.Lock()
 	active := l.activeRun
@@ -221,8 +197,8 @@ func (l *Loop) Stop(runID string) bool {
 	return true
 }
 
-// Abort cancels whatever turn is in flight regardless of its runID and
-// drops the parked queues. No-op on an idle session.
+// Abort cancels the in-flight turn regardless of runID and drops parked
+// queues. No-op on an idle session.
 func (l *Loop) Abort(context.Context) error {
 	l.mu.Lock()
 	active := l.activeRun
@@ -234,7 +210,7 @@ func (l *Loop) Abort(context.Context) error {
 	return nil
 }
 
-// Close cancels the in-flight turn, rejects further Submit / Steer and
+// Close cancels the in-flight turn, rejects further Submit / Steer, and
 // waits for the run goroutine to exit. Safe to call more than once.
 func (l *Loop) Close() {
 	l.mu.Lock()
@@ -248,40 +224,32 @@ func (l *Loop) Close() {
 	<-l.done
 }
 
-// CurrentMessageID returns the messageID of the turn currently running,
-// or of the last one that ran when the session is idle. The executor
-// reads this via Deps.CurrentMessageID to stamp EventCommon.MessageID on
-// every emitted event.
+// CurrentMessageID returns the current / last run's messageID, read by
+// the executor via Deps.CurrentMessageID to stamp events.
 func (l *Loop) CurrentMessageID() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.curMsg
 }
 
-// CurrentUserMessageID returns the messageID minted for the current turn's
-// user message, or of the last one that ran when the session is idle. It is
-// distinct from CurrentMessageID so the persisted user row survives the
-// assistant row that shares CurrentMessageID.
+// CurrentUserMessageID returns the current / last run's user-message id,
+// distinct from CurrentMessageID so the persisted user row survives.
 func (l *Loop) CurrentUserMessageID() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.curUserMsg
 }
 
-// CurrentRunID returns the runID of the turn currently running, or of the
-// last one that ran when the session is idle. The executor and
-// dispatcher read this via Deps.CurrentRunID to stamp EventCommon.RunID
-// on every emitted event so the renderer can abort a specific turn.
+// CurrentRunID returns the current / last run's runID, read via
+// Deps.CurrentRunID so events can be aborted / demultiplexed by turn.
 func (l *Loop) CurrentRunID() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.curRunID
 }
 
-// ActiveRunID returns the runID of the currently in-flight turn, or
-// "" when idle. The difference from CurrentRunID: CurrentRunID keeps
-// the last runID after a turn ends until the next run starts;
-// ActiveRunID is only non-empty while a turn is actually running.
+// ActiveRunID returns the in-flight turn's runID, or "" when idle
+// (CurrentRunID keeps the last value after a turn ends).
 func (l *Loop) ActiveRunID() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -303,9 +271,8 @@ func (l *Loop) run() {
 	}
 }
 
-// next takes the next request, steer queue first, and blocks on wake
-// while both queues are empty. Reports false once the Loop context is
-// cancelled.
+// next takes the next request (steer first), blocking on wake while both
+// queues are empty; false once the Loop context is cancelled.
 func (l *Loop) next() (promptReq, bool) {
 	for {
 		l.mu.Lock()
@@ -338,8 +305,8 @@ func (l *Loop) popLocked() (promptReq, bool) {
 }
 
 // executeTurn registers req as the active run and drives the Agent
-// through it. curMsg is published here rather than in admit so a parked
-// request cannot steal the messageID of the turn still emitting events.
+// through it. curMsg is published here (not in admit) so a parked request
+// cannot steal the messageID of the turn still emitting events.
 func (l *Loop) executeTurn(req promptReq) {
 	runCtx, cancelRun := context.WithCancel(l.ctx)
 	l.mu.Lock()
