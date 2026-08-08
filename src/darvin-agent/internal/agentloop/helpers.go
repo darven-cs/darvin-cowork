@@ -7,7 +7,6 @@ import (
 
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/harness"
-	"darvin-cowork/backend/internal/llm"
 )
 
 // errNoHarness is surfaced when a session has no harness bound. Spec 04
@@ -54,6 +53,6 @@ func extractProviderName(a *agent.Agent) string {
 	// Fallback: if the provider does not implement Name(), return the
 	// empty string. Selection will treat empty provider as "no constraint"
 	// rather than misidentifying it.
-	var _ llm.ModelProvider = p
+	_ = p
 	return ""
 }

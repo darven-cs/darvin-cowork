@@ -226,9 +226,7 @@ func (g *Gate) AddRule(toolName, level, reason string) {
 // the waiting channel. Used by the timeout path and ResolvePermission.
 func (g *Gate) deliver(id string, ch chan PermissionResult, r PermissionResult) {
 	g.mu.Lock()
-	if _, ok := g.pending[id]; ok {
-		delete(g.pending, id)
-	}
+	delete(g.pending, id)
 	g.mu.Unlock()
 	select {
 	case ch <- r:

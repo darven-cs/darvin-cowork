@@ -11,8 +11,8 @@ import (
 func TestEnrichPATH_AddsDirectories(t *testing.T) {
 	// Set a minimal PATH for the test.
 	oldPATH := os.Getenv("PATH")
-	defer os.Setenv("PATH", oldPATH)
-	os.Setenv("PATH", "/usr/bin")
+	defer func() { _ = os.Setenv("PATH", oldPATH) }()
+	_ = os.Setenv("PATH", "/usr/bin")
 
 	got := enrichPATH(nil)
 	if got == nil {
@@ -34,12 +34,12 @@ func TestEnrichPATH_AddsDirectories(t *testing.T) {
 
 func TestEnrichPATH_NoopWhenComplete(t *testing.T) {
 	oldPATH := os.Getenv("PATH")
-	defer os.Setenv("PATH", oldPATH)
+	defer func() { _ = os.Setenv("PATH", oldPATH) }()
 	// Set PATH to include all the directories that would be appended (using
 	// expanded paths, not $HOME variables).
 	home := os.Getenv("HOME")
 	complete := "/usr/bin:/usr/local/bin:/usr/local/sbin:" + home + "/.local/bin:" + home + "/.npm-global/bin:" + home + "/.cargo/bin:/opt/homebrew/bin"
-	os.Setenv("PATH", complete)
+	_ = os.Setenv("PATH", complete)
 
 	got := enrichPATH(nil)
 	// When all directories are already present, PATH should be unchanged
@@ -51,8 +51,8 @@ func TestEnrichPATH_NoopWhenComplete(t *testing.T) {
 
 func TestEnrichPATH_PreservesExistingEnv(t *testing.T) {
 	oldPATH := os.Getenv("PATH")
-	defer os.Setenv("PATH", oldPATH)
-	os.Setenv("PATH", "/usr/bin")
+	defer func() { _ = os.Setenv("PATH", oldPATH) }()
+	_ = os.Setenv("PATH", "/usr/bin")
 
 	existing := map[string]string{
 		"FOO":  "bar",

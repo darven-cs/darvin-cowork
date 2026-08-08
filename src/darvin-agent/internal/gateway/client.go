@@ -4,7 +4,6 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -168,10 +167,4 @@ func (c *client) pingLoop(ctx context.Context, done <-chan struct{}) {
 			}
 		}
 	}
-}
-
-// marshalIDLossy copies the response id without re-marshalling so the
-// original JSON shape (string vs number) survives the round-trip.
-func marshalIDLossy(id json.RawMessage) json.RawMessage {
-	return append(json.RawMessage(nil), id...)
 }

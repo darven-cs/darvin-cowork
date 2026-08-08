@@ -289,7 +289,7 @@ func TestDispatchAbortMissingRunID(t *testing.T) {
 
 func TestDispatchAbortKnownSessionMismatch(t *testing.T) {
 	_, c := newTestHandler(t)
-	c.sessions.GetOrCreateEntry("any")
+	_, _ = c.sessions.GetOrCreateEntry("any")
 	req := &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.abort",
 		Params: json.RawMessage(`{"sessionId":"any","runId":"r1"}`),

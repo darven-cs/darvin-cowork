@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 )
 
 // waitFor polls cond every 20ms until it returns true or the timeout elapses.
@@ -29,7 +28,7 @@ func TestStdioConnect_SetsAlive(t *testing.T) {
 	if err := tp.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer tp.Close()
+	defer func() { _ = tp.Close() }()
 
 	if !tp.Alive() {
 		t.Fatal("transport should be alive after Connect")
@@ -73,7 +72,7 @@ func TestStdio_ChildCrash_TransitionsToDead(t *testing.T) {
 	if err := tp.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer tp.Close()
+	defer func() { _ = tp.Close() }()
 
 	if !waitFor(2*time.Second, func() bool { return !tp.Alive() }) {
 		t.Fatal("transport should mark itself dead after child exit")
@@ -87,7 +86,7 @@ func TestStdio_Notification_NoID_NotAwaited(t *testing.T) {
 	if err := tp.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer tp.Close()
+	defer func() { _ = tp.Close() }()
 
 	// A JSON-RPC notification has no "id" key. Send appends a newline and
 	// writes to cat. Since cat does not add a JSON-RPC response wrapper,
@@ -110,7 +109,7 @@ func TestStdio_SendWithID_EchoedBack(t *testing.T) {
 	if err := tp.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer tp.Close()
+	defer func() { _ = tp.Close() }()
 
 	body := []byte(`{"jsonrpc":"2.0","id":42}`)
 	if err := tp.Send(context.Background(), body); err != nil {
@@ -128,9 +127,4 @@ func TestStdio_SendWithID_EchoedBack(t *testing.T) {
 	if resp["id"] != float64(42) {
 		t.Fatalf("wrong id in response: got %v want 42", resp["id"])
 	}
-}
-
-func newObservedLogger() (*zap.Logger, *observer.ObservedLogs) {
-	core, logs := observer.New(zap.DebugLevel)
-	return zap.New(core), logs
 }

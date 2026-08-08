@@ -140,7 +140,7 @@ func TestFirstKeptBoundary(t *testing.T) {
 		t.Errorf("nil msgs = (%q, %d), want zero", id, ts)
 	}
 
-	id, ts = firstKeptBoundary(msgs, 100)
+	id, _ = firstKeptBoundary(msgs, 100)
 	if id != "m1" {
 		t.Errorf("oversized tail = %q, want m1 (clamped)", id)
 	}

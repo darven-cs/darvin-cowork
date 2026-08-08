@@ -356,7 +356,7 @@ func (s *DefaultSummarizer) Summarize(ctx context.Context, req SummarizeRequest)
 	if err != nil {
 		return "", err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	var content strings.Builder
 	for ev := range stream.Events {
 		switch e := ev.(type) {

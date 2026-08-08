@@ -32,12 +32,6 @@ type Registry struct {
 	persistence ResolutionPersistence
 	notifier    Notifier
 
-	// beginSpawn tracks in-flight transport connects keyed by the spawn key
-	// (command+args, ignoring serverID). Concurrent connectServer calls for
-	// the same key share one transport instance.
-	beginSpawn   map[string]chan struct{}
-	beginSpawnMu sync.Mutex
-
 	logger *zap.Logger
 }
 
@@ -57,7 +51,6 @@ func NewRegistry(resolver *ResolverManager, persistence ResolutionPersistence) *
 		resolver:    resolver,
 		persistence: persistence,
 		notifier:    noopNotifier(),
-		beginSpawn:  make(map[string]chan struct{}),
 	}
 }
 

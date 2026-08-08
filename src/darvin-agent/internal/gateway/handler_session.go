@@ -404,7 +404,7 @@ func handleSetActiveSession(ctx context.Context, id json.RawMessage, params json
 			return errorResp(id, CodeInternalError, "session touch", err)
 		}
 	}
-	return successResp(id, SetActiveSessionResult{SessionID: p.SessionID})
+	return successResp(id, SetActiveSessionResult(p))
 }
 
 // SetWorkspaceParams is the JSON-RPC params for agent.set_workspace.
@@ -582,19 +582,7 @@ func handleSearchSessions(ctx context.Context, id json.RawMessage, params json.R
 // toMessageRecord projects a store.Message row (from a search hit) onto
 // the wire MessageRecord.
 func toMessageRecord(r store.Message) store.MessageRecord {
-	return store.MessageRecord{
-		ID:         r.ID,
-		SessionID:  r.SessionID,
-		Role:       r.Role,
-		Content:    r.Content,
-		ToolCalls:  r.ToolCalls,
-		Timestamp:  r.Timestamp,
-		StopReason: r.StopReason,
-		ParentID:   r.ParentID,
-		Done:       r.Done,
-		Error:      r.Error,
-		ToolLabel:  r.ToolLabel,
-	}
+	return store.MessageRecord(r)
 }
 
 // SaveMessageParams is the JSON-RPC params for agent.save_message. The role

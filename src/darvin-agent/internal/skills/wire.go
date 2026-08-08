@@ -44,13 +44,7 @@ func ToSummary(e *SkillEntry) SkillSummaryWire {
 	if len(e.Findings) > 0 {
 		ws.RiskFindings = make([]RiskFindingWire, 0, len(e.Findings))
 		for _, f := range e.Findings {
-			ws.RiskFindings = append(ws.RiskFindings, RiskFindingWire{
-				Dimension: f.Dimension,
-				Severity:  f.Severity,
-				Message:   f.Message,
-				File:      f.File,
-				Line:      f.Line,
-			})
+			ws.RiskFindings = append(ws.RiskFindings, RiskFindingWire(f))
 		}
 	}
 	return ws

@@ -172,17 +172,6 @@ func autoSelect(sc SupportContext) Candidate {
 	return ranked[0]
 }
 
-// firstMatching returns the highest-ranked harness whose ID matches the
-// requested runtime after the boost is applied.
-func firstMatching(sc SupportContext, runtimeID string) (Harness, bool) {
-	for _, c := range RankWithBoost(sc) {
-		if c.Harness.ID() == runtimeID {
-			return c.Harness, true
-		}
-	}
-	return nil, false
-}
-
 // reportCandidates snapshots the registered harnesses as diagnostics. The
 // "Considered" flag is false until SelectHarness narrows down; we record
 // every registration so the caller can see what was on the table.

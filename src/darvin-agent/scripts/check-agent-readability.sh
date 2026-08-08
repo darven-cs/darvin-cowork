@@ -51,9 +51,9 @@ if ! staticcheck -checks 'ST10*' ./... > /tmp/st10-out.txt 2>&1; then
   fail=1
 fi
 
-# 7. 聚合 lint(baseline 比对:不允许新增告警)
+# 7. 聚合 lint(baseline 比对:不允许新增告警;过滤摘要行,只比告警)
 if [ -f .golangci-baseline.txt ]; then
-  golangci-lint run ./... > /tmp/current-lint.txt || true
+  golangci-lint run ./... 2>/dev/null | grep -E ':[0-9]+:[0-9]+:' > /tmp/current-lint.txt || true
   new=$(comm -23 <(sort /tmp/current-lint.txt) <(sort .golangci-baseline.txt) | wc -l)
   [ "$new" -eq 0 ] || { echo "New golangci-lint violations: $new"; fail=1; }
 fi

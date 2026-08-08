@@ -114,7 +114,7 @@ func TestServerWSAcceptsConnections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v status=%v", err, resp)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if err := conn.WriteJSON(map[string]any{
 		"jsonrpc": "2.0", "id": "1", "method": "agent.prompt",

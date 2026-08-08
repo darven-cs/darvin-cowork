@@ -331,14 +331,6 @@ func (r *Registry) buildStdioTransport(spec ServerSpec, res LaunchResolution) *t
 	return t
 }
 
-// spawnKey creates a stable deduplication key for beginSpawn. It is
-// scoped to the resolved command+args so that two different MCP servers
-// with the same command line share one process.
-func spawnKey(cmd string, args []string) string {
-	// Use strings.Join with a delimiter that cannot appear in args.
-	return cmd + "\x00" + strings.Join(args, "\x00")
-}
-
 // enrichPATH extends the env with a richer PATH that includes
 // common shell-originated directories. This is needed because
 // GUI applications launched by Electron do not inherit the shell's

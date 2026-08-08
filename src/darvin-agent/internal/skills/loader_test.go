@@ -13,8 +13,6 @@ import (
 
 const validSkill = "---\nname: sample\ndescription: A sample skill for testing\n---\n# Sample\n\nBody text."
 
-const missingNameSkill = "---\ndescription: Missing name field entirely\n---\nbody"
-
 //go:embed testdata/bundled
 var testdataFS embed.FS
 

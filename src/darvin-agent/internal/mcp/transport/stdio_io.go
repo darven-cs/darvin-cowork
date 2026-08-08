@@ -59,25 +59,6 @@ func buildSysProcAttr() *syscall.SysProcAttr {
 	return attr
 }
 
-// buildWindowsProcAttr returns a Windows SysProcAttr. The real Job Object
-// wiring is deferred to initWindowsJob to keep this file compiling on
-// non-Windows targets.
-func buildWindowsProcAttr() *syscall.SysProcAttr {
-	return &syscall.SysProcAttr{}
-}
-
-// initWindowsJob creates a Job Object on Windows that kills all children
-// on close. No-op on non-Windows builds.
-func initWindowsJob(proc *os.Process) (uintptr, error) {
-	if runtime.GOOS != "windows" {
-		return 0, nil
-	}
-	type jobAPI struct{}
-	var job jobAPI
-	_ = job // placeholder; real implementation below
-	return 0, nil
-}
-
 // readerLoop reads messages from stdout and dispatches them to the
 // matching pending channel by JSON-RPC ID. Exits on EOF or Close.
 func (s *StdioTransport) readerLoop(stdout io.Reader) {

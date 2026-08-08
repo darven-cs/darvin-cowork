@@ -153,10 +153,8 @@ func (s *StdioTransport) Send(ctx context.Context, body []byte) error {
 	case int:
 		id = int64(v)
 	}
-	if id == 0 {
-		// id:0 is a valid request ID, not a notification.
-		// Fall through to register a pending channel.
-	}
+	// id:0 is a valid request ID, not a notification; fall through to
+	// register a pending channel.
 
 	// Register pending channel before sending so that a fast server
 	// response cannot arrive before we are ready to receive it.

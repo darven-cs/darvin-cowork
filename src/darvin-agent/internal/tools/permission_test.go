@@ -90,7 +90,7 @@ func TestApprovedPathAllowsOutOfRootRead(t *testing.T) {
 	// and the read can actually proceed.
 	r.ApprovePath(outside)
 	r.MustRegister(&readFileTool{sb: sb})
-	res := r.Get("read_file").(Tool).Execute(context.Background(), map[string]any{"path": outside})
+	res := r.Get("read_file").Execute(context.Background(), map[string]any{"path": outside})
 	if res.IsError {
 		t.Fatalf("read approved path: %v", res.Content)
 	}
@@ -113,7 +113,7 @@ func TestReadFileGrantedAttachment(t *testing.T) {
 	r := NewRegistry()
 	r.MustRegister(&readFileTool{sb: sb})
 
-	res := r.Get("read_file").(Tool).Execute(context.Background(), map[string]any{"path": outside})
+	res := r.Get("read_file").Execute(context.Background(), map[string]any{"path": outside})
 	if res.IsError {
 		t.Fatalf("read granted attachment: %v", res.Content)
 	}

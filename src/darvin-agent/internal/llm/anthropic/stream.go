@@ -170,7 +170,7 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 				dataBuf.WriteByte('\n')
 			}
 			dataBuf.WriteString(payload)
-		case strings.HasPrefix(line, ":"):
+		case strings.HasPrefix(line, ":"): //nolint:staticcheck // case guard consumes the value
 			// SSE comment / ping-style line; ignore.
 			continue
 		default:
@@ -296,9 +296,7 @@ func dispatch(name streamEventName, raw string, st *dispatchState) error {
 		case "tool_use":
 			ta := &toolAccum{id: blk.ContentBlock.ID, name: blk.ContentBlock.Name}
 			st.toolBuf[blk.Index] = ta
-			select {
-			case st.out <- llm.ToolCallStartEvent{ID: ta.id, Name: ta.name}:
-			}
+			st.out <- llm.ToolCallStartEvent{ID: ta.id, Name: ta.name}
 		}
 		return nil
 	case evContentBlockDelta:
@@ -317,22 +315,16 @@ func dispatch(name streamEventName, raw string, st *dispatchState) error {
 		switch d.Delta.Type {
 		case "text_delta":
 			st.partial.WriteString(d.Delta.Text)
-			select {
-			case st.out <- llm.TextDeltaEvent{Delta: d.Delta.Text}:
-			}
+			st.out <- llm.TextDeltaEvent{Delta: d.Delta.Text}
 		case "thinking_delta":
 			// Anthropic extended-thinking emits incremental chunks via the
 			// "thinking" field; surface each as a ThinkingDeltaEvent so the
 			// executor can republish it under EventCommon.MessageID.
-			select {
-			case st.out <- llm.ThinkingDeltaEvent{Delta: d.Delta.Thinking}:
-			}
+			st.out <- llm.ThinkingDeltaEvent{Delta: d.Delta.Thinking}
 		case "input_json_delta":
 			if ta, ok := st.toolBuf[d.Index]; ok {
 				ta.arguments.WriteString(d.Delta.PartialJSON)
-				select {
-				case st.out <- llm.ToolCallDeltaEvent{ID: ta.id, Delta: d.Delta.PartialJSON}:
-				}
+				st.out <- llm.ToolCallDeltaEvent{ID: ta.id, Delta: d.Delta.PartialJSON}
 			}
 		}
 		return nil
@@ -348,9 +340,7 @@ func dispatch(name streamEventName, raw string, st *dispatchState) error {
 			tc := llm.ToolCall{ID: ta.id, Name: ta.name, Arguments: args}
 			*st.collected = append(*st.collected, tc)
 			delete(st.toolBuf, blk.Index)
-			select {
-			case st.out <- llm.ToolCallEndEvent{ID: ta.id, Name: ta.name, Arguments: args}:
-			}
+			st.out <- llm.ToolCallEndEvent{ID: ta.id, Name: ta.name, Arguments: args}
 		}
 		return nil
 	case evMessageDelta:

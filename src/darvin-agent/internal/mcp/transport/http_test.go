@@ -20,7 +20,7 @@ func TestHTTPConnect_SetsAlive(t *testing.T) {
 	if err := tp.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer tp.Close()
+	defer func() { _ = tp.Close() }()
 	if !tp.Alive() {
 		t.Fatal("transport should be alive after Connect")
 	}
@@ -52,7 +52,7 @@ func TestHTTP_SendRecv_200EchoesResponse(t *testing.T) {
 	if err := tp.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer tp.Close()
+	defer func() { _ = tp.Close() }()
 
 	if err := tp.Send(context.Background(), []byte(`{"jsonrpc":"2.0","id":1}`)); err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestHTTP_Send_500Errors(t *testing.T) {
 	if err := tp.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer tp.Close()
+	defer func() { _ = tp.Close() }()
 
 	err := tp.Send(context.Background(), []byte(`{}`))
 	if err == nil {
@@ -101,7 +101,7 @@ func TestHTTP_Send_Timeout(t *testing.T) {
 	if err := tp.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer tp.Close()
+	defer func() { _ = tp.Close() }()
 
 	start := time.Now()
 	err := tp.Send(context.Background(), []byte(`{}`))
@@ -130,7 +130,7 @@ func TestHTTP_SessionID_PropagatedOnSecondRequest(t *testing.T) {
 	if err := tp.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer tp.Close()
+	defer func() { _ = tp.Close() }()
 
 	if err := tp.Send(context.Background(), []byte(`{"id":1}`)); err != nil {
 		t.Fatal(err)
@@ -165,7 +165,7 @@ func TestHTTP_CustomHeaders_Applied(t *testing.T) {
 	if err := tp.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer tp.Close()
+	defer func() { _ = tp.Close() }()
 
 	if err := tp.Send(context.Background(), []byte(`{}`)); err != nil {
 		t.Fatal(err)

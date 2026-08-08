@@ -61,20 +61,6 @@ func (r *ResolverManager) withExecutor(fn func(ctx context.Context, name string,
 	return r
 }
 
-// run is the indirection point that lets tests redirect npm into a
-// shim. Production callers always get the real exec.CommandContext.
-func (r *ResolverManager) run(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
-	if r.executor != nil {
-		return r.executor(ctx, name, args...)
-	}
-	cmd := exec.CommandContext(ctx, name, args...)
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return []byte(stdout.String()), []byte(stderr.String()), err
-}
-
 // npxResolver needs a run shim too so tests can swap the spawn without
 // touching the manager. In production npxResolver.run is nil and
 // Resolve falls back to the package-level runNpx helper below.

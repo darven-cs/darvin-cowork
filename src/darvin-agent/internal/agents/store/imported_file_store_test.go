@@ -137,8 +137,8 @@ func TestImportedFileStoreDeleteBySession(t *testing.T) {
 	ctx := context.Background()
 	s := newTestImportedFileStore(t)
 
-	s.Insert(ctx, rec("s1", "a.md", "sha-a", 10))
-	s.Insert(ctx, rec("s2", "b.md", "sha-b", 10))
+	_, _ = s.Insert(ctx, rec("s1", "a.md", "sha-a", 10))
+	_, _ = s.Insert(ctx, rec("s2", "b.md", "sha-b", 10))
 	if err := s.DeleteBySession(ctx, "s1"); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestImportedFileStoreDeleteOne(t *testing.T) {
 	ctx := context.Background()
 	s := newTestImportedFileStore(t)
 
-	s.Insert(ctx, rec("s1", "a.md", "sha-a", 10))
+	_, _ = s.Insert(ctx, rec("s1", "a.md", "sha-a", 10))
 	if err := s.Delete(ctx, "s1", "a.md"); err != nil {
 		t.Fatal(err)
 	}

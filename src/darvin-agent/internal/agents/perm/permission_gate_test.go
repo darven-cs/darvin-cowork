@@ -84,12 +84,9 @@ func TestRequestPermissionEmitsAndResolves(t *testing.T) {
 func TestTimeoutDefaultsToDeny(t *testing.T) {
 	g, _ := newGate(t, 20*time.Millisecond)
 
-	res, err := g.RequestPermission(context.Background(), PermissionRequest{
+	res, _ := g.RequestPermission(context.Background(), PermissionRequest{
 		ToolName: "bash", DangerLevel: "caution",
 	}, nil)
-	if !errors.Is(err, context.Canceled) && err == nil {
-		// No error from the timeout path itself, but the result must be deny.
-	}
 	if res.Behavior != "deny" {
 		t.Fatalf("Behavior = %q, want deny on timeout", res.Behavior)
 	}

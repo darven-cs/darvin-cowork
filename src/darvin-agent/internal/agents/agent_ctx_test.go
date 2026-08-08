@@ -108,7 +108,7 @@ func TestMcpServersPopulated(t *testing.T) {
 func TestSkillSummariesNotCoupledToCtxengine(t *testing.T) {
 	// Boundary sanity: the agent returns ctxengine.SkillSummary values
 	// but its registry interfaces are owned by the agent package.
-	var _ []ctxengine.SkillSummary = []ctxengine.SkillSummary{}
+	_ = []ctxengine.SkillSummary{}
 	var _ SkillsLister = stubSkills{}
 	var _ McpLister = stubMcp{}
 }

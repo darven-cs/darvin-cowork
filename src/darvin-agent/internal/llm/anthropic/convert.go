@@ -8,7 +8,6 @@ package anthropic
 
 import (
 	"encoding/json"
-	"strings"
 
 	"darvin-cowork/backend/internal/llm"
 )
@@ -283,6 +282,3 @@ func mapStopReason(s string) llm.FinishReason {
 func errInvalidRequest(msg string) error {
 	return llm.NewProviderError("anthropic", llm.ErrCodeInvalidRequest, msg, 0, nil)
 }
-
-// headerValue is a tiny helper to keep the header map tidy.
-func headerValue(v string) string { return strings.TrimSpace(v) }

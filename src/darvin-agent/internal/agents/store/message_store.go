@@ -109,19 +109,7 @@ func (s *SQLiteMessageStore) List(ctx context.Context, sessionID string, limit, 
 	}
 	out := make([]MessageRecord, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, MessageRecord{
-			ID:         r.ID,
-			SessionID:  r.SessionID,
-			Role:       r.Role,
-			Content:    r.Content,
-			ToolCalls:  r.ToolCalls,
-			Timestamp:  r.Timestamp,
-			StopReason: r.StopReason,
-			ParentID:   r.ParentID,
-			Done:       r.Done,
-			Error:      r.Error,
-			ToolLabel:  r.ToolLabel,
-		})
+		out = append(out, MessageRecord(r))
 	}
 	return out, nil
 }

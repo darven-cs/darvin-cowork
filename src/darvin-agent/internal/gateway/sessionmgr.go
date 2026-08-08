@@ -151,7 +151,7 @@ func (m *SessionManager) Remove(id string) error {
 		return ErrSessionNotFound
 	}
 	if e.AgentLoop != nil {
-		e.AgentLoop.Loop.Abort(context.Background())
+		_ = e.AgentLoop.Loop.Abort(context.Background())
 	}
 	if e.cancel != nil {
 		e.cancel()
@@ -420,7 +420,7 @@ func (m *SessionManager) evictLocked(id string) {
 		return
 	}
 	if e.AgentLoop != nil {
-		e.AgentLoop.Loop.Abort(context.Background())
+		_ = e.AgentLoop.Loop.Abort(context.Background())
 	}
 	if e.cancel != nil {
 		e.cancel()

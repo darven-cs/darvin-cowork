@@ -266,7 +266,7 @@ func TestMapEventToTSContextUsage(t *testing.T) {
 // reads back via the server-side forwarder and asserts on.
 func TestEmitStubDeliversNotifications(t *testing.T) {
 	conn, got := dialEchoServer(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	c := &client{conn: conn, log: zap.NewNop()}
 	l := NewEventLedger(zap.NewNop())

@@ -29,7 +29,7 @@ func TestReadWriteEdit(t *testing.T) {
 	r, _ := newFsTools(t)
 	ctx := context.Background()
 
-	w := r.Get("write_file").(Tool)
+	w := r.Get("write_file")
 	res := w.Execute(ctx, map[string]any{
 		"path":    "hello.txt",
 		"content": "alpha\nbeta\nalpha\ngamma\n",
@@ -38,7 +38,7 @@ func TestReadWriteEdit(t *testing.T) {
 		t.Fatalf("write_file: %v", res.Content)
 	}
 
-	rf := r.Get("read_file").(Tool)
+	rf := r.Get("read_file")
 	res = rf.Execute(ctx, map[string]any{"path": "hello.txt"})
 	if res.IsError {
 		t.Fatalf("read_file: %v", res.Content)
@@ -47,7 +47,7 @@ func TestReadWriteEdit(t *testing.T) {
 		t.Errorf("read_file content missing 'alpha': %q", res.Content)
 	}
 
-	ed := r.Get("edit_file").(Tool)
+	ed := r.Get("edit_file")
 	// first occurrence only by default
 	res = ed.Execute(ctx, map[string]any{
 		"path":     "hello.txt",
@@ -83,7 +83,7 @@ func TestReadWriteEdit(t *testing.T) {
 func TestReadFileSandboxEscape(t *testing.T) {
 	r, _ := newFsTools(t)
 	ctx := context.Background()
-	rf := r.Get("read_file").(Tool)
+	rf := r.Get("read_file")
 
 	res := rf.Execute(ctx, map[string]any{"path": "/etc/hosts"})
 	if !res.IsError {
@@ -110,7 +110,7 @@ func TestListDir(t *testing.T) {
 		}
 	}
 
-	ld := r.Get("list_dir").(Tool)
+	ld := r.Get("list_dir")
 	// depth 1
 	res := ld.Execute(ctx, map[string]any{"path": ".", "max_depth": float64(1)})
 	if res.IsError {
@@ -138,7 +138,7 @@ func TestListDirNotDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	ld := r.Get("list_dir").(Tool)
+	ld := r.Get("list_dir")
 	res := ld.Execute(ctx, map[string]any{"path": "file.txt"})
 	if !res.IsError {
 		t.Errorf("list_dir on file should error, got %+v", res)
@@ -153,7 +153,7 @@ func TestReadFileOffset(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "off.txt"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rf := r.Get("read_file").(Tool)
+	rf := r.Get("read_file")
 	res := rf.Execute(ctx, map[string]any{"path": "off.txt", "offset": float64(100), "limit": float64(50)})
 	if res.IsError {
 		t.Fatalf("read_file offset: %v", res.Content)
@@ -181,7 +181,7 @@ func TestReadFileMaxBytesTruncation(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "huge.txt"), big, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rf := r.Get("read_file").(Tool)
+	rf := r.Get("read_file")
 	res := rf.Execute(ctx, map[string]any{"path": "huge.txt"})
 	if res.IsError {
 		t.Fatalf("read_file huge: %v", res.Content)
@@ -202,11 +202,11 @@ func TestReadFileSymlinkEscape(t *testing.T) {
 	}
 	r := NewRegistry()
 	r.MustRegister(&readFileTool{sb: sb})
-	res := r.Get("read_file").(Tool).Execute(context.Background(), map[string]any{"path": "leak"})
+	res := r.Get("read_file").Execute(context.Background(), map[string]any{"path": "leak"})
 	// an out-of-workspace read now surfaces as ErrNeedsPermission
 	// ("authorized roots") instead of a bare symlink-escape; both are hard
 	// errors at the tool layer (approval gating happens in the executor).
-	if !res.IsError || !(strings.Contains(res.Content, "escapes sandbox") || strings.Contains(res.Content, "authorized roots")) {
+	if !res.IsError || (!strings.Contains(res.Content, "escapes sandbox") && !strings.Contains(res.Content, "authorized roots")) {
 		t.Errorf("read_file symlink escape = %+v, want sandbox error", res)
 	}
 }
@@ -214,7 +214,7 @@ func TestReadFileSymlinkEscape(t *testing.T) {
 func TestWriteFileContentTooLarge(t *testing.T) {
 	r, _ := newFsTools(t)
 	big := strings.Repeat("a", maxHardWriteBytes+1)
-	res := r.Get("write_file").(Tool).Execute(context.Background(), map[string]any{
+	res := r.Get("write_file").Execute(context.Background(), map[string]any{
 		"path":    "x.txt",
 		"content": big,
 	})

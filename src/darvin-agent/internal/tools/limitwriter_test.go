@@ -22,11 +22,11 @@ func TestLimitWriterUnderCap(t *testing.T) {
 
 func TestLimitWriterTruncatesAcrossWrites(t *testing.T) {
 	w := &limitWriter{cap: 10}
-	w.Write([]byte("0123456789"))
+	_, _ = w.Write([]byte("0123456789"))
 	if w.Truncated() {
 		t.Error("exactly cap bytes should not report truncation")
 	}
-	w.Write([]byte("ABCDEF"))
+	_, _ = w.Write([]byte("ABCDEF"))
 	if !w.Truncated() {
 		t.Error("overflow should report truncation")
 	}

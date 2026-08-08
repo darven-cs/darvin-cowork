@@ -21,7 +21,7 @@ import (
 // test inspects the bytes the client sent.
 func TestSendNotificationFormatsCorrectFrame(t *testing.T) {
 	conn, got := dialEchoServer(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	c := &client{conn: conn, log: zap.NewNop()}
 	c.SendNotification("agent.event", map[string]any{"type": "text_delta", "delta": "x"})
@@ -65,7 +65,7 @@ func dialEchoServer(t *testing.T) (*websocket.Conn, <-chan []byte) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		// Read frames in a loop. Each frame is forwarded to got for
 		// the test to inspect. The loop ends when the peer closes;
 		// that happens on t.Cleanup.
