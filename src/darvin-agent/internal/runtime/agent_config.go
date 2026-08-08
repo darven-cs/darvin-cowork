@@ -11,6 +11,7 @@ import (
 // mappings, unit conversions, and default-touch points live here so
 // the runtime cannot drift from config.yaml shape silently.
 func newAgentConfig(cfg *config.Config, workspace string) agent.Config {
+	cacheTTL, _ := time.ParseDuration(cfg.Agent.MemoryFactsCacheTTL)
 	return agent.Config{
 		MaxTurns:             cfg.Agent.MaxTurns,
 		ToolTimeout:          time.Duration(cfg.Agent.ToolTimeoutMS) * time.Millisecond,
@@ -19,11 +20,14 @@ func newAgentConfig(cfg *config.Config, workspace string) agent.Config {
 		EventBuffer:          cfg.Agent.EventBuffer,
 		TokenBudget:          cfg.Agent.TokenBudget,
 		CompactTailKeep:      cfg.Agent.CompactTailKeep,
+		CompactTailTokens:    cfg.Agent.CompactTailTokens,
 		ToolResultMaxBytes:   cfg.Agent.ToolResultMaxBytes,
 		CompactMaxRetries:    cfg.Agent.CompactMaxRetries,
 		SummarizeMaxTokens:   cfg.Agent.SummarizeMaxTokens,
 		SystemPromptAddition: cfg.Agent.SystemPromptAddition,
 		AssemblerEnabled:     cfg.Agent.AssemblerEnabled,
+		MemoryFactsLimit:     cfg.Agent.MemoryFactsLimit,
+		MemoryFactsCacheTTL:  cacheTTL,
 	}
 }
 

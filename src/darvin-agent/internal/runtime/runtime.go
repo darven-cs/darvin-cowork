@@ -22,10 +22,12 @@ import (
 	"darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/config"
+	"darvin-cowork/backend/internal/database"
 	"darvin-cowork/backend/internal/gateway"
 	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/mcp"
+	"darvin-cowork/backend/internal/memory"
 	"darvin-cowork/backend/internal/skills"
 	"darvin-cowork/backend/internal/tools"
 )
@@ -59,17 +61,18 @@ type Options struct {
 // must not call into individual fields to drive the agent — that goes
 // through the gateway server.
 type Runtime struct {
-	Cfg      *config.Config
-	Log      *zap.Logger
-	Provider llm.ModelProvider
-	Sessions *gateway.SessionManager
-	Ledger   *gateway.EventLedger
-	Handler  *gateway.Handler
-	Server   *gateway.Server
-	MCP      *mcp.Registry
-	Skills   *skills.BootstrapResult
-	Factory  *agentloop.AgentFactory
-	Stores   Stores
+	Cfg               *config.Config
+	Log               *zap.Logger
+	Provider          llm.ModelProvider
+	Sessions          *gateway.SessionManager
+	Ledger            *gateway.EventLedger
+	Handler           *gateway.Handler
+	Server            *gateway.Server
+	MCP               *mcp.Registry
+	Skills            *skills.BootstrapResult
+	Factory           *agentloop.AgentFactory
+	Stores            Stores
+	WorkspaceBootstrap *WorkspaceBootstrap
 }
 
 // Stores aggregates the SQLite-backed stores the runtime owns.
@@ -82,6 +85,7 @@ type Stores struct {
 	AppState      *store.AppStateStore
 	ImportedFiles *store.ImportedFileStore
 	Usages        *store.SQLiteUsageStore
+	Digests       store.DigestStore
 }
 
 // Shutdown stops the gateway server, disposes every registered
@@ -97,6 +101,9 @@ func (r *Runtime) Shutdown(ctx context.Context) error {
 	}
 	if err := harness.DisposeAll(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("harness dispose: %w", err))
+	}
+	if r.WorkspaceBootstrap != nil {
+		r.WorkspaceBootstrap.Dispose()
 	}
 	if r.Stores.Sessions != nil {
 		if err := r.Stores.Sessions.Close(); err != nil {
@@ -147,20 +154,32 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		return nil, err
 	}
 
+	// Memory subsystem: bootstrap-only (no FTS) so ctxengine can be
+	// wired without blocking on the memory-core spec. The Manager's
+	// Search stub returns nil; the FTS-backed implementation arrives
+	// with the memory-core spec.
+	memMgr := memory.New(workspace)
+
+	workspaceBootstrap := NewWorkspaceBootstrap(memMgr, log)
+	stores.Digests = store.NewSQLiteDigestStore(database.Get())
+
 	factory := newAgentFactory(AgentFactoryDeps{
-		Name:             cfg.App.Name + "-agent",
-		Instructions:     cfg.Agent.Instructions,
-		Model:            agent.ModelRef{Provider: cfg.Agent.ProviderName, Model: cfg.Agent.Model},
-		Provider:         provider,
-		Store:            stores.Sessions,
-		MessageStore:     stores.Messages,
-		UsageStore:       stores.Usages,
-		Logger:           log,
-		Config:           agentCfg,
-		Tools:            toolsReg,
-		AssemblerEnabled: cfg.Agent.AssemblerEnabled,
-		HarnessSelector:  opts.HarnessSelector,
-		ExtraPlugins:     opts.ExtraPlugins,
+		Name:              cfg.App.Name + "-agent",
+		Instructions:      cfg.Agent.Instructions,
+		Model:             agent.ModelRef{Provider: cfg.Agent.ProviderName, Model: cfg.Agent.Model},
+		Provider:          provider,
+		Store:             stores.Sessions,
+		MessageStore:      stores.Messages,
+		UsageStore:        stores.Usages,
+		DigestStore:       stores.Digests,
+		Logger:            log,
+		Config:            agentCfg,
+		Tools:             toolsReg,
+		AssemblerEnabled:  cfg.Agent.AssemblerEnabled,
+		HarnessSelector:   opts.HarnessSelector,
+		ExtraPlugins:      opts.ExtraPlugins,
+		Memory:            memMgr,
+		WorkspaceBootstrap: workspaceBootstrap,
 	})
 
 	skillsResult := bootstrapSkills(ctx, log, workspace, toolsReg)
@@ -207,6 +226,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		stores.Sessions, stores.Messages, stores.AppState,
 		gateway.HandlerOptions{
 			UsageStore:       stores.Usages,
+			DigestStore:      stores.Digests,
 			ImportedFiles:    stores.ImportedFiles,
 			WorkspaceRoot:    workspace,
 			SetWorkspaceRoot: setWorkspace,
@@ -235,17 +255,18 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	}
 
 	return &Runtime{
-		Cfg:      cfg,
-		Log:      log,
-		Provider: provider,
-		Sessions: sessions,
-		Ledger:   ledger,
-		Handler:  handler,
-		Server:   server,
-		MCP:      mcpReg,
-		Skills:   skillsResult,
-		Factory:  factory,
-		Stores:   stores,
+		Cfg:                cfg,
+		Log:                log,
+		Provider:           provider,
+		Sessions:           sessions,
+		Ledger:             ledger,
+		Handler:            handler,
+		Server:             server,
+		MCP:                mcpReg,
+		Skills:             skillsResult,
+		Factory:            factory,
+		Stores:             stores,
+		WorkspaceBootstrap: workspaceBootstrap,
 	}, nil
 }
 

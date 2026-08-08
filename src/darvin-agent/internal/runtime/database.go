@@ -31,7 +31,7 @@ func loadDatabase(_ context.Context, cfg *config.Config, log *zap.Logger) (Store
 	if err := database.AutoMigrate(
 		&store.Session{},
 		&store.Message{},
-		&store.CompactionCheckpoint{},
+		&store.SessionDigest{},
 		&store.SkillSnapshot{},
 		&store.AppState{},
 		&store.ImportedFile{},
