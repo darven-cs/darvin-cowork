@@ -18,12 +18,10 @@ import (
 )
 
 // Prompt enqueues content for immediate processing. Returns ErrAgentBusy
-// if the Agent is already running; callers should use Abort before
-// Prompting to interrupt an in-flight turn. attachments are absolute
-// paths staged for this one message (the LLM is told about them via a
-// transient system note, and read_file may access them via the run's
-// granted-read set). images are base64-encoded image attachments; the
-// dispatcher turns them into LLM image content blocks.
+// if the Agent is already running (callers Abort first). attachments are
+// absolute paths staged for this message (LLM sees a transient system
+// note; read_file may access them via the run's granted-read set);
+// images become LLM image content blocks.
 func (a *Agent) Prompt(_ context.Context, content string, images []queue.ImageRef, attachments ...[]string) error {
 	var files []string
 	if len(attachments) > 0 {
@@ -32,20 +30,15 @@ func (a *Agent) Prompt(_ context.Context, content string, images []queue.ImageRe
 	return a.enqueue(queue.ModePrompt, content, files, images)
 }
 
-// Abort cancels the current Run's context. It does not modify the queue.
-// Safe to call when idle (no-op).
+// Abort cancels the current Run's context (no-op when idle). Queue untouched.
 func (a *Agent) Abort(_ context.Context) error {
 	a.controller.Abort()
 	return nil
 }
 
-// Run blocks until Agent.Run returns. The Agent processes messages from
-// its queue, one or more per Run; it returns when the queue drains AND
-// no in-flight turn remains, OR when ctx is cancelled.
-//
-// The first return after a successful natural termination is nil. After
-// Abort / ctx cancel, Run returns ErrAborted (or ctx.Err() if it fired
-// directly).
+// Run blocks until Agent.Run returns — when the queue drains AND no
+// in-flight turn remains, or when ctx is cancelled. Returns nil after a
+// natural termination, or ErrAborted / ctx.Err() after Abort / cancel.
 func (a *Agent) Run(ctx context.Context) error {
 	if !a.controller.TryStart() {
 		return errors.New("agent: Run already in progress")
@@ -92,13 +85,11 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 			return runCtx.Err()
 		}
-		// Snapshot the messageID for this dequeued prompt. The executor
-		// reads it via Deps.CurrentMessageID on every emit, so events
-		// tagged to this prompt all carry the same MessageID.
+		// Snapshot the messageID for this dequeued prompt; the executor
+		// reads it via Deps.CurrentMessageID so all events for this prompt
+		// carry the same MessageID. runUserMsgID is the user row's own id,
+		// falling back to runMsgID on paths without a userMsgID src.
 		runMsgID = a.CurrentMessageID()
-		// Snapshot the user message's own id. Fall back to runMsgID for
-		// paths without a userMsgID src (unit-test fast path) so the
-		// old behaviour is preserved there.
 		runUserMsgID = a.CurrentUserMessageID()
 		if runUserMsgID == "" {
 			runUserMsgID = runMsgID
@@ -120,22 +111,16 @@ func (a *Agent) Run(ctx context.Context) error {
 			Timestamp: time.Now().UnixMilli(),
 		})
 		// Hook 1 of 3: persist the user message before the LLM call so a
-		// crash mid-Run still leaves the question in sessions.db. The row is
-		// keyed by runUserMsgID (not runMsgID) so persistAssistantMessages
-		// cannot overwrite it with the assistant content.
+		// crash mid-Run still leaves the question; keyed by runUserMsgID so
+		// the assistant write cannot overwrite it.
 		a.persistUserMessage(runCtx, runUserMsgID, msg.Content)
 
 		turnsBefore := a.session.Len()
-		// Hooks 2 and 3 must fire on every iteration — even when
-		// RunConversation errors — so the session row reflects the
-		// activity (list_sessions surfaces the session as
-		// recently-touched). RunEndEvent is emitted only on success;
-		// the error path emits AgentErrorEvent and returns without
-		// RunEndEvent so the renderer can paint an explicit error
-		// bubble instead of a "done" state.
-		// runImportedNote is read by Instructions() during the run, so the
-		// staged attachments only reach the LLM for this one prompt. The same
-		// paths feed the sandbox's granted-read set (attach = authorize).
+		// Hooks 2 and 3 must fire every iteration (even on error) so the
+		// session row reflects activity; RunEndEvent is emitted only on
+		// success, the error path emits AgentErrorEvent instead. The
+		// staged attachments reach the LLM for this prompt only and feed
+		// the sandbox granted-read set (attach = authorize).
 		a.runImportedNote = formatImportedNote(msg.Attachments)
 		a.SetGrantedReads(msg.Attachments)
 		err := a.exec.RunConversation(runCtx, a)
@@ -249,22 +234,16 @@ func (a *Agent) contextUsageInputs() (used, ctxTokens int) {
 	return used, ctxTokens
 }
 
-// persistUserMessage is hook 1 of 3. It records the
-// just-appended user prompt to the messages table so a crash mid-Run
-// still leaves the question on disk. No-op when MessageStore is nil
-// (the unit-test / fast-path default) or when the message lacks a
-// messageID (RunContext hasn't bound one yet — should not happen on the
-// dispatch path because Run always snapshots CurrentMessageID before
-// calling here).
+// persistUserMessage is hook 1 of 3: records the just-appended user
+// prompt so a crash mid-Run leaves the question on disk. No-op when
+// MessageStore is nil or the message lacks an id.
 func (a *Agent) persistUserMessage(ctx context.Context, msgID, content string) {
 	if a.msgStore == nil || msgID == "" {
 		return
 	}
-	// Done=true from the start: a user message is complete the moment
-	// it is sent — there is no streaming for it. The renderer
-	// (StreamingText) shows the "thinking" pulse only when done=false,
-	// so a persisted user row must be sealed or the question renders
-	// as a spinner after a session reload.
+	// Done=true from the start: a user message is complete the moment it
+	// is sent (no streaming), so the row must be sealed or the renderer
+	// shows a "thinking" spinner after a session reload.
 	rec := &store.MessageRecord{
 		ID:        msgID,
 		SessionID: a.session.ID,
