@@ -47,18 +47,11 @@ type ModelRef struct {
 
 // Config is the runtime configuration for an Agent.
 //
-// The fields below MaxTurns/EventBuffer are agent-runtime knobs; the
-// ContextEngine block (ContextWindow … SystemPromptAddition) is forwarded
-// to the auto-constructed DefaultAssembler at New() time. AssemblerEnabled
-// is the post-construction flag: zero means disabled (executor takes the
-// legacy d.Session().Messages() fallback); true means the executor
-// dispatches prompt construction through the assembler.
-//
-// Note on the cfg.yaml front-end: that layer maps the YAML key
-// `assembler_enabled: true` to AssemblerEnabled: true in the Go struct,
-// and `assembler_enabled: false` (or omitted) to false. In Go code,
-// callers who want the assembler must set AssemblerEnabled: true
-// explicitly — Go's bool zero value maps to "disabled", not "default".
+// The ContextEngine block (ContextWindow … SystemPromptAddition) is
+// forwarded to the auto-constructed DefaultAssembler at New() time.
+// AssemblerEnabled is the post-construction flag: zero maps to
+// "disabled" (executor takes the legacy fallback); true means the
+// executor dispatches prompt construction through the assembler.
 type Config struct {
 	MaxTurns       int
 	ToolTimeout    time.Duration
@@ -66,9 +59,8 @@ type Config struct {
 	ShellAllowlist []string
 	EventBuffer    int
 
-	// ContextEngine knobs (mirrors ctxengine.Config subset).
-	// Populated from the YAML front-end (cfg.yaml `agent:` section) and
-	// forwarded to ctxengine.NewDefaultAssembler at construction.
+	// ContextEngine knobs (mirrors ctxengine.Config subset); populated
+	// from cfg.yaml and forwarded to ctxengine.NewDefaultAssembler.
 	ContextWindow        int
 	SoftCompactRatio     float64
 	ToolResultSnipRatio  float64
@@ -82,11 +74,9 @@ type Config struct {
 	SystemPromptAddition string
 	AssemblerEnabled     bool
 
-	// MemoryFactsLimit caps the FTS hits rendered into the <MEMORY>
-	// system block. <= 0 disables the MEMORY block.
+	// MemoryFactsLimit caps the FTS hits in the <MEMORY> block; <= 0 disables.
 	MemoryFactsLimit int
-	// MemoryFactsCacheTTL bounds the per-(sessionID, query) FTS cache.
-	// <= 0 disables caching.
+	// MemoryFactsCacheTTL bounds the per-(sessionID, query) FTS cache; <= 0 disables.
 	MemoryFactsCacheTTL time.Duration
 }
 
@@ -98,61 +88,42 @@ type NewAgentConfig struct {
 	Provider     protocol.ModelProvider
 	Session      *session.Session
 	Store        store.SessionStore
-	// MessageStore is optional. When nil, dispatcher.go skips persistence
-	// at every hook point (user message append, assistant accumulation,
-	// session metadata save). main.go wires the same SQLiteMessageStore
-	// it uses for sessions so a single *gorm.DB powers both.
+	// MessageStore is optional; nil skips persistence at every dispatcher hook.
 	MessageStore store.MessageStore
-	// UsageStore is optional. When non-nil, the Agent writes a snapshot
-	// row at the tail of every successful Run so renderer-side
-	// contextUsageBySessionId survives a process restart.
+	// UsageStore is optional; when non-nil, Agent writes a snapshot per Run.
 	UsageStore store.UsageStore
 	Logger     *zap.Logger
 	Config     Config
-	// Executor is optional. If nil, executor.New() is used.
+	// Executor is optional; nil falls back to executor.New().
 	Executor executor.Executor
-	// Tools is the tool registry driving the loop. Required; the concrete
-	// built-in registry is constructed by the wiring layer (cmd/app).
+	// Tools is the tool registry driving the loop. Required.
 	Tools protocol.ToolRegistry
 
 	// Assembler is an optional pre-built ContextEngine. When nil, New
-	// constructs a DefaultAssembler from the Config.* fields. Callers who
-	// want a custom engine (e.g. for testing or alternative backends) plug
-	// it in here.
+	// constructs a DefaultAssembler from the Config.* fields.
 	Assembler ctxengine.ContextEngine
 	// AssemblerEnabled is the explicit on/off switch for the assembler
-	// pipeline. When false (the zero value), the executor takes the legacy
-	// fallback path even if an assembler was wired. cfg.yaml users get
-	// true by default via the YAML front-end's default.
+	// pipeline. False (zero) takes the legacy fallback even if Assembler is wired.
 	AssemblerEnabled bool
 
-	// Skills, when non-nil, feeds the assembler's AvailableSkills. nil
-	// means the assembler skips skill discovery.
+	// Skills / Mcp feed the assembler's discovery lists; nil skips the respective step.
 	Skills SkillsLister
-	// Mcp, when non-nil, feeds the assembler's AvailableMcp. nil means
-	// the assembler skips MCP discovery.
-	Mcp McpLister
+	Mcp    McpLister
 
-	// Memory feeds ctxengine.MemoryFacts (FTS top-N hits). nil → no
-	// MEMORY block.
+	// Memory feeds ctxengine.MemoryFacts; nil skips the MEMORY block.
 	Memory *memory.Manager
-	// WorkspaceBootstrap feeds ctxengine.MemoryBootstrap (IDENTITY /
-	// SOUL / USER). nil → empty content for every block.
+	// WorkspaceBootstrap feeds ctxengine.MemoryBootstrap (IDENTITY/SOUL/USER).
 	WorkspaceBootstrap BootstrapReader
-	// DigestStore persists compaction summaries. nil disables
-	// persistence (live compaction still works).
+	// DigestStore persists compaction summaries; nil disables persistence.
 	DigestStore store.DigestStore
 }
 
-// SkillsLister is the narrow surface the agent needs from a skills
-// registry. internal/skills.SkillRegistry satisfies it; tests can supply
-// a stub without dragging the full registry in.
+// SkillsLister is the narrow surface the agent needs from a skills registry.
 type SkillsLister interface {
 	ListEnabled() []SkillEntry
 }
 
-// SkillEntry mirrors the public fields of internal/skills.SkillEntry the
-// agent reads to build a SkillSummary.
+// SkillEntry mirrors the public fields of internal/skills.SkillEntry.
 type SkillEntry struct {
 	ID          string
 	Name        string
@@ -173,11 +144,10 @@ type McpServerSummary struct {
 	Tools     []string
 }
 
-// Agent is the runtime. It is goroutine-safe.
-//
-// Transient state lives in the four state sub-packages; this type is now
-// mostly wiring plus a couple of run-scoped fields (imported file note,
-// skill prompt / tools) that Run sets and Run tail clears.
+// Agent is the runtime. It is goroutine-safe. Transient state lives in
+// the four state sub-packages; this type is mostly wiring plus a couple
+// of run-scoped fields (imported file note, skill prompt / tools) that
+// Run sets and Run tail clears.
 type Agent struct {
 	name         string
 	instructions string
@@ -199,16 +169,12 @@ type Agent struct {
 	msgidBridge *msgid.Bridge
 	tracker     *usage.Tracker
 
-	// runImportedNote is set by the dispatcher for the current prompt's
-	// staged imported files; Instructions() appends it so the LLM perceives
-	// them. Cleared after the run (transient, not persisted).
+	// runImportedNote is the current prompt's staged imported files note;
+	// Instructions() appends it so the LLM perceives them. Cleared after run.
 	runImportedNote string
 
-	// runSkillPrompt / runSkillTools are set by RunSkillSession for the
-	// duration of a user-invoked skill's mini loop. Instructions() returns
-	// the skill's SKILL.md body and Tools() returns the scoped registry so
-	// the executor drives the loop against the skill's surface instead of
-	// the generic agent instructions. Cleared after the run.
+	// runSkillPrompt / runSkillTools are set by RunSkillSession for a
+	// user-invoked skill's mini loop; cleared after the run.
 	runSkillPrompt string
 	runSkillTools  protocol.ToolRegistry
 
@@ -223,18 +189,12 @@ type Agent struct {
 	digestStore    store.DigestStore
 
 	// toolTransformer normalises a tool result before the executor forwards
-	// it to the LLM. The harness's tooldridge middleware chain sets this
-	// through SetToolResultTransformer; the executor reads it via
-	// Deps.ResultTransformer. nil means "no transformation", which is the
-	// default so the embedded runtime behaves identically when no harness
-	// is wired.
+	// it to the LLM (set via SetToolResultTransformer; nil = no transform).
 	toolTransformer func(protocol.Result) protocol.Result
 }
 
-// agentState / stateIdle / stateRunning are kept as local aliases used by
-// the run lifecycle so internal helpers can compare without importing the
-// runtime sub-package's State enum. The values line up with runtime.Idle /
-// runtime.Running.
+// agentState / stateIdle / stateRun are local aliases used by the run
+// lifecycle so helpers can compare without importing runtime's State enum.
 type agentState = int
 
 const (
@@ -252,8 +212,7 @@ var ErrProviderRequired = errors.New("agent: Provider is required")
 // built-in tool set is constructed by the wiring layer (cmd/app).
 var ErrToolsRequired = errors.New("agent: Tools is required")
 
-// New constructs an Agent and auto-registers the built-in tool set if
-// NewAgentConfig.Tools is nil.
+// New constructs an Agent.
 func New(cfg NewAgentConfig) (*Agent, error) {
 	if cfg.Session == nil {
 		return nil, ErrSessionRequired
@@ -311,11 +270,10 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		digestStore:    cfg.DigestStore,
 	}
 
-	// Auto-wire the ContextEngine. Two paths:
-	//   1. caller-supplied Assembler → use as-is
-	//   2. nil → construct a DefaultAssembler from the Config.* fields
-	// Either way the assembler is always wired so callers can flip
-	// AssemblerEnabled at runtime without rebuilding the engine.
+	// Auto-wire the ContextEngine: caller-supplied Assembler wins, else
+	// build a DefaultAssembler from Config.* fields. Either way the
+	// assembler is always wired so callers can flip AssemblerEnabled
+	// at runtime without rebuilding the engine.
 	if cfg.Assembler != nil {
 		a.assembler = cfg.Assembler
 	} else {
@@ -345,9 +303,8 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 	return a, nil
 }
 
-// permEventContext adapts an *Agent to the perm.EventContext interface so
-// perm.Gate can read the live SessionID / RunID / MessageID without
-// importing the agent root.
+// permEventContext adapts an *Agent to perm.EventContext so perm.Gate
+// can read live turn ids without importing the agent root.
 type permEventContext struct{ a *Agent }
 
 func (p permEventContext) SessionID() string { return p.a.session.ID }
