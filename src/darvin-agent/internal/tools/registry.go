@@ -34,7 +34,7 @@ type Registry struct {
 	entries map[string]*Entry
 	// sb is the workspace sandbox shared by the built-in file/shell tools.
 	// Set by NewBuiltins; nil for hand-assembled registries.
-	sb *fsSandbox
+	sb *Sandbox
 }
 
 // NewRegistry constructs an empty Registry.
@@ -232,4 +232,46 @@ func (r *Registry) ScopedForSkill(allow []string) ToolRegistry {
 		}
 	}
 	return reg
+}
+
+// BuiltinConfig carries the runtime wiring every built-in tool needs:
+// the shared workspace sandbox and the shell command allowlist.
+type BuiltinConfig struct {
+	Sandbox   *Sandbox
+	Allowlist []string
+}
+
+// BuiltinFactory constructs one built-in tool from cfg.
+type BuiltinFactory func(cfg BuiltinConfig) (Tool, error)
+
+var (
+	builtinFactories = map[string]BuiltinFactory{}
+	builtinMu        sync.RWMutex
+)
+
+// RegisterBuiltinFactory registers a named built-in tool constructor.
+// Panics on empty name / nil factory / duplicate name, mirroring
+// llm.RegisterProvider.
+func RegisterBuiltinFactory(name string, factory BuiltinFactory) {
+	if name == "" || factory == nil {
+		panic("tool: invalid builtin factory")
+	}
+	builtinMu.Lock()
+	defer builtinMu.Unlock()
+	if _, dup := builtinFactories[name]; dup {
+		panic("tool: builtin factory already registered: " + name)
+	}
+	builtinFactories[name] = factory
+}
+
+// RegisteredBuiltinFactories returns the registered built-in names sorted.
+func RegisteredBuiltinFactories() []string {
+	builtinMu.RLock()
+	defer builtinMu.RUnlock()
+	out := make([]string, 0, len(builtinFactories))
+	for n := range builtinFactories {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }

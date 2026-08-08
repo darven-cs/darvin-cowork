@@ -25,7 +25,7 @@ const maxHardWriteBytes = 32 << 20 // 32 MiB
 
 // readFileTool reads a UTF-8 text file, optionally limited to a window.
 type readFileTool struct {
-	sb *fsSandbox
+	sb *Sandbox
 }
 
 func (t *readFileTool) Name() string { return "read_file" }
@@ -78,7 +78,7 @@ func (t *readFileTool) Execute(_ context.Context, args map[string]any) Result {
 
 // writeFileTool writes a UTF-8 text file, overwriting any existing content.
 type writeFileTool struct {
-	sb *fsSandbox
+	sb *Sandbox
 }
 
 func (t *writeFileTool) Name() string { return "write_file" }
@@ -118,7 +118,7 @@ func (t *writeFileTool) Execute(_ context.Context, args map[string]any) Result {
 
 // editFileTool performs textual find-and-replace on a file.
 type editFileTool struct {
-	sb *fsSandbox
+	sb *Sandbox
 }
 
 func (t *editFileTool) Name() string { return "edit_file" }
@@ -180,7 +180,7 @@ func (t *editFileTool) Execute(_ context.Context, args map[string]any) Result {
 
 // listDirTool lists entries under a directory.
 type listDirTool struct {
-	sb *fsSandbox
+	sb *Sandbox
 }
 
 func (t *listDirTool) Name() string { return "list_dir" }
@@ -272,4 +272,28 @@ func utf8ValidString(b []byte) string {
 		n--
 	}
 	return ""
+}
+
+func init() {
+	RegisterBuiltinFactory("read_file", func(cfg BuiltinConfig) (Tool, error) {
+		return &readFileTool{sb: cfg.Sandbox}, nil
+	})
+}
+
+func init() {
+	RegisterBuiltinFactory("write_file", func(cfg BuiltinConfig) (Tool, error) {
+		return &writeFileTool{sb: cfg.Sandbox}, nil
+	})
+}
+
+func init() {
+	RegisterBuiltinFactory("edit_file", func(cfg BuiltinConfig) (Tool, error) {
+		return &editFileTool{sb: cfg.Sandbox}, nil
+	})
+}
+
+func init() {
+	RegisterBuiltinFactory("list_dir", func(cfg BuiltinConfig) (Tool, error) {
+		return &listDirTool{sb: cfg.Sandbox}, nil
+	})
 }

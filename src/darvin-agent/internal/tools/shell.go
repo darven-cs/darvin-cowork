@@ -46,11 +46,11 @@ const (
 
 // shellTool runs a single allowlisted command in the workspace sandbox.
 type shellTool struct {
-	sb        *fsSandbox
+	sb        *Sandbox
 	allowlist map[string]struct{}
 }
 
-func newShellTool(sb *fsSandbox, allowlist []string) *shellTool {
+func newShellTool(sb *Sandbox, allowlist []string) *shellTool {
 	if allowlist == nil {
 		allowlist = defaultShellAllowlist
 	}
@@ -182,4 +182,10 @@ func DefaultShellAllowlist() []string {
 	out := make([]string, len(defaultShellAllowlist))
 	copy(out, defaultShellAllowlist)
 	return out
+}
+
+func init() {
+	RegisterBuiltinFactory("shell", func(cfg BuiltinConfig) (Tool, error) {
+		return newShellTool(cfg.Sandbox, cfg.Allowlist), nil
+	})
 }
