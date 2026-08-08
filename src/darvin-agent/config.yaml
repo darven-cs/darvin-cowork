@@ -73,14 +73,21 @@ agent:
   model: claude-sonnet-4-5
   instructions: ""
 
-  # ContextEngine (ctxengine) — see specs/features/agent-context-engine.
-  # Defaults match ctxengine.NewDefaultAssembler's zero-value behaviour
-  # except AssemblerEnabled, which is true at the YAML front-end so end
+  # ContextEngine (ctxengine). Defaults match
+  # ctxengine.NewDefaultAssembler's zero-value behaviour except
+  # AssemblerEnabled, which is true at the YAML front-end so end
   # users get the assembler pipeline without flipping a flag.
   token_budget: 0            # 0 = no budget check (executor fallback)
   compact_tail_keep: 6       # messages preserved verbatim by Compact
+  compact_tail_tokens: 0     # > 0 overrides keep-count by a token budget
   tool_result_max_bytes: 0   # 0 = no truncation of oversized tool output
   compact_max_retries: 0     # summariser retry budget on Compact failure
   summarize_max_tokens: 1024 # cap for the summarise LLM call
   system_prompt_addition: "" # extra block appended to the system prompt
   assembler_enabled: true    # false = executor takes session.Messages() fallback
+
+  # Memory block. memory_facts_limit clamps the <MEMORY> FTS top-N; 0
+  # disables the block. memory_facts_cache_ttl bounds the per-
+  # (sessionID, query) cache; empty / "0s" disables caching.
+  memory_facts_limit: 0
+  memory_facts_cache_ttl: ""

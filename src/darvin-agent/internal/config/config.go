@@ -53,11 +53,10 @@ type LLMConfig struct {
 // EventBuffer is the per-subscriber channel size on the event bus.
 //
 // The ContextEngine block (TokenBudget … AssemblerEnabled) is forwarded to
-// the auto-constructed DefaultAssembler at agent.New time (see
-// specs/features/agent-context-engine §FR-12). AssemblerEnabled defaults
-// to true at the YAML front-end so end users get the assembler pipeline;
-// Go callers using agent.Config directly get false (the bool zero value)
-// and must opt in explicitly. TokenBudget=0 disables the budget check
+// the auto-constructed DefaultAssembler at agent.New time. AssemblerEnabled
+// defaults to true at the YAML front-end so end users get the assembler
+// pipeline; Go callers using agent.Config directly get false (the bool zero
+// value) and must opt in explicitly. TokenBudget=0 disables the budget check
 // (executor takes the legacy d.Session().Messages() path).
 type AgentConfig struct {
 	MaxTurns       int      `mapstructure:"max_turns"`
@@ -77,6 +76,12 @@ type AgentConfig struct {
 	// preserve verbatim when summarising. Defaults to 6 in
 	// ctxengine.NewDefaultAssembler when <=0.
 	CompactTailKeep int `mapstructure:"compact_tail_keep"`
+
+	// CompactTailTokens is the optional token-budget alternative to
+	// CompactTailKeep. When > 0, the assembler keeps as many trailing
+	// messages as fit under the budget instead of a fixed count. 0 =
+	// use CompactTailKeep.
+	CompactTailTokens int `mapstructure:"compact_tail_tokens"`
 
 	// ToolResultMaxBytes truncates individual tool outputs that exceed
 	// this size during assembly. 0 disables truncation.
@@ -98,6 +103,16 @@ type AgentConfig struct {
 	// prompt construction path and the legacy
 	// session.Messages() fallback. The cfg.yaml default is true.
 	AssemblerEnabled bool `mapstructure:"assembler_enabled"`
+
+	// MemoryFactsLimit clamps the <MEMORY> system-block FTS top-N. <= 0
+	// disables the MEMORY block. Wired through to
+	// ctxengine.Config.MemoryFactsLimit and agent.Config.MemoryFactsLimit.
+	MemoryFactsLimit int `mapstructure:"memory_facts_limit"`
+
+	// MemoryFactsCacheTTL bounds the per-(sessionID, query) FTS cache.
+	// <= 0 disables caching — every Assemble re-queries FTS. Parsed
+	// into time.Duration via time.ParseDuration in agent.New.
+	MemoryFactsCacheTTL string `mapstructure:"memory_facts_cache_ttl"`
 }
 
 var globalConfig *Config
