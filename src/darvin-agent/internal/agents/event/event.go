@@ -1,14 +1,8 @@
-// Package event defines the agent lifecycle event protocol and a fan-out bus
-// used by the Agent to publish events to multiple subscribers.
-//
-// Events are sealed-sum types (interface + unexported marker). Subscribers
-// register via Bus.Subscribe; events are dropped (oldest first) on a full
-// channel to keep the agent's main loop non-blocking.
-//
-// EventCommon is the correlation payload (sessionID + messageID) embedded
-// in every concrete event; consumers (EventLedger, dispatcher, executor)
-// read it via the Event.Common() method so per-session routing doesn't
-// need a type switch.
+// Package event defines the agent lifecycle event protocol and a fan-out
+// bus. Events are sealed-sum types; subscribers register via
+// Bus.Subscribe, and events are dropped (oldest first) on a full channel
+// to keep the agent loop non-blocking. EventCommon is the correlation
+// payload embedded in every concrete event, read via Event.Common().
 package event
 
 import (
@@ -130,10 +124,8 @@ type LLMEndEvent struct {
 func (LLMEndEvent) isAgentEvent()     {}
 func (LLMEndEvent) EventName() string { return "llm_end" }
 
-// ToolStartEvent is emitted before a tool is invoked. One per call when the
-// assistant issued multiple tool calls in a single turn. ToolKind is empty
-// for built-ins, "skill" / "mcp" otherwise; SkillID and McpServerID are set
-// for the corresponding kind.
+// ToolStartEvent is emitted before a tool is invoked (one per call).
+// ToolKind is "skill" / "mcp" for plugin tools, empty for built-ins.
 type ToolStartEvent struct {
 	EventBase
 	TurnID      string
@@ -182,9 +174,8 @@ type RunEndEvent struct {
 func (RunEndEvent) isAgentEvent()     {}
 func (RunEndEvent) EventName() string { return "run_end" }
 
-// AgentErrorEvent signals a non-fatal error. The Agent may still produce
-// further events; a terminal abort is signalled by FinishReasonAborted
-// in the corresponding TurnEndEvent / AgentEndEvent.
+// AgentErrorEvent signals a non-fatal error; terminal abort is signalled
+// by FinishReasonAborted in the corresponding end event.
 type AgentErrorEvent struct {
 	EventBase
 	Err error
@@ -193,8 +184,8 @@ type AgentErrorEvent struct {
 func (AgentErrorEvent) isAgentEvent()     {}
 func (AgentErrorEvent) EventName() string { return "agent_error" }
 
-// AgentEndEvent marks the very end of Agent.Run. After this, the Agent
-// returns to idle and may accept new prompts (or auto-drain FollowUp).
+// AgentEndEvent marks the very end of Agent.Run; the Agent returns to
+// idle and may accept new prompts afterwards.
 type AgentEndEvent struct {
 	EventBase
 	TotalTurns int
@@ -327,9 +318,8 @@ func (b *Bus) remove(s *Subscription) {
 	}
 }
 
-// Emit publishes ev to all current subscribers. The send is non-blocking:
-// if a subscriber's channel is full, the oldest pending event on that
-// channel is dropped to make room.
+// Emit publishes ev to all subscribers. Non-blocking: if a subscriber's
+// channel is full, the oldest pending event is dropped to make room.
 func (b *Bus) Emit(ev Event) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
