@@ -488,7 +488,7 @@ func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c protoco
 			allowed = true
 		}
 		// Out-of-sandbox root path: once approved, add the path to the
-	// sandbox one-shot authorisation so the tool can actually open it.
+		// sandbox one-shot authorisation so the tool can actually open it.
 		if allowed && eval.EscapedPath != "" {
 			d.ApprovePath(eval.EscapedPath)
 		}

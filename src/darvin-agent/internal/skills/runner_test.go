@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 type toolStub struct{ name string }

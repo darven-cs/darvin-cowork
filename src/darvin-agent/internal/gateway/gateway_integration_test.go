@@ -12,7 +12,7 @@ import (
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 // TestHandlePromptFactoryResolvesHarness asserts the factory's selector is

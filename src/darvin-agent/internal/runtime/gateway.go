@@ -4,7 +4,7 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/config"
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 // loadTools constructs the built-in tool registry once. The same

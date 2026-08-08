@@ -26,8 +26,8 @@ const (
 	CodeAgentInitFailed = -32003
 
 	// agent.skill.invoke_user outcome codes.
-	CodeSkillNotFound        = -32010
-	CodeSkillDisabled        = -32011
+	CodeSkillNotFound         = -32010
+	CodeSkillDisabled         = -32011
 	CodeSkillNotUserInvocable = -32012
 )
 

@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agentloop"
-	"darvin-cowork/backend/internal/agents"
+	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/config"
 	"darvin-cowork/backend/internal/database"
@@ -29,7 +29,7 @@ import (
 	"darvin-cowork/backend/internal/mcp"
 	"darvin-cowork/backend/internal/memory"
 	"darvin-cowork/backend/internal/skills"
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 // Options carries runtime knobs callers may override. Defaults come

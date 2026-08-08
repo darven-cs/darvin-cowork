@@ -16,14 +16,14 @@ import (
 	"gorm.io/gorm"
 
 	"darvin-cowork/backend/internal/agentloop"
-	"darvin-cowork/backend/internal/agents"
+	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/skills"
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 // newTestHandler wires factory + SessionManager so handlers run against

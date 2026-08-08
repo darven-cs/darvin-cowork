@@ -9,7 +9,7 @@ import (
 	"darvin-cowork/backend/internal/agents/queue"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/llm"
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 // blockingProvider emits one event then blocks until ctx is cancelled.

@@ -91,10 +91,10 @@ func buildRequest(req *llm.CompletionRequest, stream bool) (map[string]any, erro
 func convertMessages(msgs []llm.Message) []map[string]any {
 	out := make([]map[string]any, 0, len(msgs))
 	// pendingToolResults accumulates consecutive tool results. Anthropic
-// requires that the user message immediately following tool_use carry
-// every tool_result block at once — splitting them across multiple
-// user messages triggers a 400 invalid_request_error ("tool_use ids
-// ... without tool_result").
+	// requires that the user message immediately following tool_use carry
+	// every tool_result block at once — splitting them across multiple
+	// user messages triggers a 400 invalid_request_error ("tool_use ids
+	// ... without tool_result").
 	var pendingToolResults []map[string]any
 	flushToolResults := func() {
 		if len(pendingToolResults) == 0 {

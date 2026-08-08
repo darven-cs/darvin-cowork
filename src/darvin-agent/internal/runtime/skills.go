@@ -6,7 +6,7 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/skills"
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 // bootstrapSkills loads the project + global skills registries. The

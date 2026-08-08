@@ -14,7 +14,7 @@ import (
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/llm"
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 // scriptedProvider is a fake llm.ModelProvider that returns a scripted

@@ -171,12 +171,12 @@ type LaunchResolution struct {
 	Args              []string
 	Env               map[string]string
 	Error             string
-	FailureStage   string
-	FailureElapsed time.Duration
-	FailureStderr  string
-	InstalledAt   time.Time
-	ResolvedAt    time.Time
-	UpdatedAt     time.Time
+	FailureStage      string
+	FailureElapsed    time.Duration
+	FailureStderr     string
+	InstalledAt       time.Time
+	ResolvedAt        time.Time
+	UpdatedAt         time.Time
 }
 
 // ServerStatus is the read-only snapshot the renderer consumes. Bundles

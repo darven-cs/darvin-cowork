@@ -21,8 +21,8 @@ var defaultShellAllowlist = []string{
 	"tr", "cut", "sort", "uniq", "tee", "xargs", "basename", "dirname",
 	"sed", "awk", "test", "true", "false",
 	// The workspace can be a real code repo: git + common build /
-// scripting runtimes. Dangerous subcommands (git push --force /
-// git reset --hard / rm -r …) are gated by the permission check.
+	// scripting runtimes. Dangerous subcommands (git push --force /
+	// git reset --hard / rm -r …) are gated by the permission check.
 	"git", "node", "npm", "npx", "pnpm", "yarn",
 	"python", "python3", "pip", "pip3",
 	"go", "make", "tar", "unzip",

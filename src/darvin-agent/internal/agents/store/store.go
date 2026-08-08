@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	ErrNotFound    = errors.New("store: session not found")
-	ErrNilSession  = errors.New("store: nil session")
+	ErrNotFound   = errors.New("store: session not found")
+	ErrNilSession = errors.New("store: nil session")
 )
 
 // SessionStore persists and retrieves Sessions by id.

@@ -5,11 +5,12 @@ import (
 	"errors"
 	"testing"
 
-	"darvin-cowork/backend/internal/agents"
+	"go.uber.org/zap"
+
+	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
-	"go.uber.org/zap"
 )
 
 type nopProvider struct{}

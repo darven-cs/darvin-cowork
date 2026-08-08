@@ -17,24 +17,24 @@ const (
 )
 
 type (
-	Message          = protocol.Message
-	ImageBlock       = protocol.ImageBlock
-	Tool             = protocol.ToolSpec
-	ParameterSchema  = protocol.ParameterSchema
-	ParameterProperty = protocol.ParameterProperty
-	ToolChoice       = protocol.ToolChoice
+	Message            = protocol.Message
+	ImageBlock         = protocol.ImageBlock
+	Tool               = protocol.ToolSpec
+	ParameterSchema    = protocol.ParameterSchema
+	ParameterProperty  = protocol.ParameterProperty
+	ToolChoice         = protocol.ToolChoice
 	CompletionRequest  = protocol.CompletionRequest
 	CompletionResponse = protocol.CompletionResponse
-	ToolCall         = protocol.ToolCall
-	ToolResult       = protocol.ToolResult
-	FinishReason     = protocol.FinishReason
-	Usage            = protocol.Usage
-	APIKind          = protocol.APIKind
-	InputModality    = protocol.InputModality
-	ThinkingLevel    = protocol.ThinkingLevel
-	ModelCost        = protocol.ModelCost
-	Compat           = protocol.Compat
-	ModelDescriptor  = protocol.ModelDescriptor
+	ToolCall           = protocol.ToolCall
+	ToolResult         = protocol.ToolResult
+	FinishReason       = protocol.FinishReason
+	Usage              = protocol.Usage
+	APIKind            = protocol.APIKind
+	InputModality      = protocol.InputModality
+	ThinkingLevel      = protocol.ThinkingLevel
+	ModelCost          = protocol.ModelCost
+	Compat             = protocol.Compat
+	ModelDescriptor    = protocol.ModelDescriptor
 )
 
 const (

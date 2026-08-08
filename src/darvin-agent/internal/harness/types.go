@@ -14,14 +14,14 @@ import (
 var ErrNotImplemented = errors.New("harness: capability not implemented")
 
 var (
-	ErrIDRequired             = errors.New("harness: ID is required")
-	ErrHarnessRequired        = errors.New("harness: harness is required")
-	ErrSessionIDRequired      = errors.New("harness: SessionID is required")
-	ErrPromptRequired         = errors.New("harness: Prompt is required")
-	ErrNotRegistered          = errors.New("harness: not registered")
-	ErrNoCandidate            = errors.New("harness: no supporting harness")
+	ErrIDRequired               = errors.New("harness: ID is required")
+	ErrHarnessRequired          = errors.New("harness: harness is required")
+	ErrSessionIDRequired        = errors.New("harness: SessionID is required")
+	ErrPromptRequired           = errors.New("harness: Prompt is required")
+	ErrNotRegistered            = errors.New("harness: not registered")
+	ErrNoCandidate              = errors.New("harness: no supporting harness")
 	ErrContextEngineUnsupported = errors.New("harness: context engine unsupported")
-	ErrPluginIDMismatch       = errors.New("harness: PluginID disagrees with owner")
+	ErrPluginIDMismatch         = errors.New("harness: PluginID disagrees with owner")
 )
 
 // Harness is the surface every backend must implement. Optional behaviour

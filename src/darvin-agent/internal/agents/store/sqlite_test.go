@@ -211,7 +211,7 @@ func TestSessionStore_NewFieldsRoundTrip(t *testing.T) {
 	}
 
 	// Re-Save must not clear title / claude_session_id (Save preserves the
-// existing row).
+	// existing row).
 	if err := store.Save(ctx, session.NewSession("s1")); err != nil {
 		t.Fatalf("re-Save: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestSessionStore_TouchUpdatesOnlyUpdatedAt(t *testing.T) {
 	}
 
 	// SQLite DATETIME is second-precision; sleep at least 1.1s so the
-// post-touch timestamp is observably later.
+	// post-touch timestamp is observably later.
 	time.Sleep(1100 * time.Millisecond)
 	now := time.Now().UnixMilli()
 	if err := store.Touch(ctx, "s1", now); err != nil {

@@ -72,9 +72,9 @@ type ToolRegistry interface {
 // PermissionEval is the outcome of evaluating whether a tool call needs
 // user approval before execution.
 type PermissionEval struct {
-	Authorized bool
-	Need       bool
-	Level      string
-	Reason     string
+	Authorized  bool
+	Need        bool
+	Level       string
+	Reason      string
 	EscapedPath string
 }

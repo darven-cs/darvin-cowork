@@ -47,14 +47,14 @@ type LLMConfig struct {
 // ContextEngine block (ContextWindow … AssemblerEnabled) is forwarded
 // to the auto-constructed DefaultAssembler at agent.New time.
 type AgentConfig struct {
-	MaxTurns        int      `mapstructure:"max_turns"`
-	ToolTimeoutMS   int      `mapstructure:"tool_timeout_ms"`
-	Workdir         string   `mapstructure:"workdir"`
-	ShellAllowlist  []string `mapstructure:"shell_allowlist"`
-	EventBuffer     int      `mapstructure:"event_buffer"`
-	ProviderName    string   `mapstructure:"provider_name"`
-	Model           string   `mapstructure:"model"`
-	Instructions    string   `mapstructure:"instructions"`
+	MaxTurns       int      `mapstructure:"max_turns"`
+	ToolTimeoutMS  int      `mapstructure:"tool_timeout_ms"`
+	Workdir        string   `mapstructure:"workdir"`
+	ShellAllowlist []string `mapstructure:"shell_allowlist"`
+	EventBuffer    int      `mapstructure:"event_buffer"`
+	ProviderName   string   `mapstructure:"provider_name"`
+	Model          string   `mapstructure:"model"`
+	Instructions   string   `mapstructure:"instructions"`
 
 	// ContextWindow is the LLM's hard cap in tokens; 0 disables auto-compact.
 	ContextWindow int `mapstructure:"context_window"`

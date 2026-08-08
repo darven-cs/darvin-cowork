@@ -100,7 +100,7 @@ func (s *fsSandbox) Resolve(p string) (string, error) {
 	}
 	if err := checkContained(real, realRoot); err != nil {
 		// Paths the user explicitly approved in a one-shot permission dialog
-	// may escape the sandbox (read or write).
+		// may escape the sandbox (read or write).
 		if s.isApproved(abs) {
 			return abs, nil
 		}

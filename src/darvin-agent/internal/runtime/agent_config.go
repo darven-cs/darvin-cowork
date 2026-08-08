@@ -3,7 +3,7 @@ package runtime
 import (
 	"time"
 
-	"darvin-cowork/backend/internal/agents"
+	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/config"
 )
 

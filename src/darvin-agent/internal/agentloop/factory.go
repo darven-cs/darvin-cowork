@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/agents"
+	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
@@ -14,7 +14,7 @@ import (
 	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/memory"
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 // AgentFactory carries the shared dependencies needed to build an

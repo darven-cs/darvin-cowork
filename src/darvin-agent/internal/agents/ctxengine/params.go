@@ -103,11 +103,11 @@ type CompactParams struct {
 
 // CompactResult is the output of Compact.
 type CompactResult struct {
-	Success          bool
-	TokensBefore     int
-	TokensAfter      int
-	RetainedMessages []protocol.Message
-	Summary          string
+	Success            bool
+	TokensBefore       int
+	TokensAfter        int
+	RetainedMessages   []protocol.Message
+	Summary            string
 	FirstKeptID        string
 	FirstKeptTimestamp int64
 	Reason             string

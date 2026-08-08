@@ -10,17 +10,17 @@ import (
 
 	"github.com/jaevor/go-nanoid"
 
-	"darvin-cowork/backend/internal/agents"
+	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/queue"
 	"darvin-cowork/backend/internal/harness"
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 const (
 	// messageIDLen matches the gateway's session-id length; the alphabet
 	// is the same 62-char [A-Za-z0-9] table for URL/JSON-friendliness.
-	messageIDLen = 21
+	messageIDLen    = 21
 	messageAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 

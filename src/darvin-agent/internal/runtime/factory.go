@@ -4,11 +4,11 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agentloop"
-	"darvin-cowork/backend/internal/agents"
+	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/memory"
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 // AgentFactoryDeps collects every dependency the runtime feeds into

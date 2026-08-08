@@ -138,9 +138,9 @@ const (
 
 // Usage is the minimal token accounting shared by every provider.
 type Usage struct {
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
+	PromptTokens       int
+	CompletionTokens   int
+	TotalTokens        int
 	CacheReadTokens    int
 	CacheWriteTokens   int
 	CacheWrite1hTokens int

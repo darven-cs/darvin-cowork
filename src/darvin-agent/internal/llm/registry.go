@@ -15,10 +15,10 @@ type ProviderFactory func(cfg ProviderConfig) (ModelProvider, error)
 
 // ProviderConfig carries credentials and endpoints for a provider.
 type ProviderConfig struct {
-	APIKey   string
-	BaseURL  string
-	Extra    map[string]any
-	Logger   Logger
+	APIKey  string
+	BaseURL string
+	Extra   map[string]any
+	Logger  Logger
 }
 
 // Sentinel errors returned by NewProvider.

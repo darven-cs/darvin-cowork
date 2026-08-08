@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"darvin-cowork/backend/internal/agentloop"
-	"darvin-cowork/backend/internal/agents"
+	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/executor"
@@ -258,9 +258,9 @@ type HandlerOptions struct {
 	ImportedFiles *store.ImportedFileStore
 	WorkspaceRoot string
 	// SetWorkspaceRoot re-anchors the runtime workspace on
-// agent.set_workspace: tools sandbox + project skill rescan +
-// RefreshAllTools. Wired by runtime; nil means set_workspace only
-// updates Handler.WorkspaceRoot (handler-test stubs).
+	// agent.set_workspace: tools sandbox + project skill rescan +
+	// RefreshAllTools. Wired by runtime; nil means set_workspace only
+	// updates Handler.WorkspaceRoot (handler-test stubs).
 	SetWorkspaceRoot func(string) error
 	// Skills is the skill registry. Wired by main.go.
 	Skills *skills.SkillRegistry
@@ -971,10 +971,10 @@ func handleDeleteSession(ctx context.Context, id json.RawMessage, params json.Ra
 	}
 
 	// Cascade-delete the session's usage snapshots so orphaned rows /
-// context data from a previous session id cannot be misread after a
-// new session reuses the id. UsageStore.DeleteBySession is
-// warn-and-continue (missing row is not an error), so it is safe
-// even when no snapshot was ever persisted.
+	// context data from a previous session id cannot be misread after a
+	// new session reuses the id. UsageStore.DeleteBySession is
+	// warn-and-continue (missing row is not an error), so it is safe
+	// even when no snapshot was ever persisted.
 	if h.UsageStore != nil {
 		if err := h.UsageStore.DeleteBySession(ctx, p.SessionID); err != nil {
 			return errorResp(id, CodeInternalError, "session usage delete", err)

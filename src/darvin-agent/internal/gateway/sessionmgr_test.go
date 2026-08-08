@@ -11,12 +11,12 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agentloop"
-	"darvin-cowork/backend/internal/agents"
+	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
-	"darvin-cowork/backend/internal/tools"
+	tool "darvin-cowork/backend/internal/tools"
 )
 
 // newTestAgentFactoryForSessionMgr builds the factory used by the
