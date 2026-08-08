@@ -11,10 +11,9 @@ import (
 	"darvin-cowork/backend/internal/agents/protocol"
 )
 
-// DefaultContextWindow is the implicit context window when
-// ctxengine.Config.ContextWindow is left at zero (keeps `go run` /
-// unit tests meaningful). Production callers set
-// context_window: <model_context_window> in config.yaml.
+// DefaultContextWindow is the implicit window when ContextWindow is 0
+// (keeps `go run` / unit tests meaningful); production callers set
+// context_window in config.yaml.
 const DefaultContextWindow = 200000
 
 // Default tail knobs.
@@ -24,10 +23,8 @@ const (
 	DefaultMinFoldTokens = 400
 )
 
-// minFoldFloor is the lower bound compactBudget falls to. The
-// Assemble-time target derives from cfg.ContextWindow / 2; for very
-// small windows we clamp to this so the target reflects a meaningful
-// budget rather than 0.
+// minFoldFloor is the lower bound compactBudget falls to (clamped for
+// very small windows so the target reflects a meaningful budget).
 const minFoldFloor = 1000
 
 // Default ratio knobs.
@@ -38,31 +35,27 @@ const (
 	DefaultCompactForceRatio   = 0.9
 )
 
-// Config is the assembler's runtime configuration. The fields mirror
-// the ctxengine-related subset of config.AgentConfig; agent.New copies
-// them at construction time so the assembler package does not import
-// internal/config.
+// Config is the assembler's runtime configuration, mirroring the
+// ctxengine subset of config.AgentConfig (copied at construction so the
+// assembler package does not import internal/config).
 type Config struct {
-	// ContextWindow is the LLM's hard cap in tokens; 0 disables the
-	// entire auto-compact pipeline. When > 0 the four ratios below
-	// derive absolute trigger thresholds.
+	// ContextWindow is the LLM's hard cap; 0 disables auto-compact.
+	// When > 0 the four ratios derive absolute trigger thresholds.
 	ContextWindow int
 
-	// The four threshold ratios driving the cascade. Defaults match
-	// the constants above; users override via config.yaml.
+	// The four threshold ratios driving the cascade; defaults match the
+	// constants above.
 	SoftCompactRatio    float64
 	ToolResultSnipRatio float64
 	CompactRatio        float64
 	CompactForceRatio   float64
 
-	// CompactTailTokens is the kept-tail budget; 0 falls back to DefaultTailTokens.
+	// CompactTailTokens / RecentKeep: 0 falls back to the Default*.
 	CompactTailTokens int
-	// RecentKeep is the message-count floor on the kept tail; 0 falls back to DefaultRecentKeep.
-	RecentKeep int
+	RecentKeep        int
 
-	// ArchiveDir, when non-empty, persists the fold region as jsonl before
-	// the LLM call. Empty disables archive. Best-effort: write failures
-	// emit a Notice but do not block compaction.
+	// ArchiveDir, when non-empty, persists the fold region as jsonl
+	// before the LLM call. Best-effort: failures emit a Notice only.
 	ArchiveDir string
 
 	ToolResultMaxBytes   int
@@ -205,29 +198,25 @@ func (a *DefaultAssembler) SetSections(s []SystemSection) {
 	a.mu.Unlock()
 }
 
-// SetArchiver installs a custom Archiver (tests inject fakes that record
-// calls without touching disk). nil disables archive mid-session.
+// SetArchiver installs a custom Archiver (tests inject recording fakes);
+// nil disables archive mid-session.
 func (a *DefaultAssembler) SetArchiver(ar Archiver) {
 	a.mu.Lock()
 	a.archiver = ar
 	a.mu.Unlock()
 }
 
-// ClearTurnLatches resets the per-turn state that assemble.go's
-// softNotice / snip-then-don't-compact logic relies on. Called at the
-// end of each Assemble so the next turn can re-emit a soft notice when
-// the prompt re-climbs past the threshold, and so the snip latch does
-// not suppress a second-stage snip after the user appends a turn.
+// ClearTurnLatches resets the per-turn soft-notice / snip state so the
+// next Assemble can re-emit a notice when the prompt re-climbs the
+// threshold.
 func (a *DefaultAssembler) ClearTurnLatches() {
 	a.mu.Lock()
 	a.snippedThisTurn = false
 	a.mu.Unlock()
 }
 
-// MarkConsecutiveCompact records that Compact ran successfully on this
-// turn; called by Compact when it finishes. When the running count
-// reaches 2 the latch flips to compactStuck=true so the next Assemble
-// skips auto-compact and emits a stuck notice.
+// MarkConsecutiveCompact records a successful Compact; after 2 the latch
+// flips compactStuck so the next Assemble skips auto-compact.
 func (a *DefaultAssembler) MarkConsecutiveCompact() (stuckNow bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -239,9 +228,8 @@ func (a *DefaultAssembler) MarkConsecutiveCompact() (stuckNow bool) {
 	return
 }
 
-// ResetConsecutiveCompact clears the consecutive / stuck state. Called
-// by Assemble when the prompt is back under the compact threshold so
-// the next genuine run can compact again.
+// ResetConsecutiveCompact clears the consecutive / stuck state (called
+// when the prompt drops back under the compact threshold).
 func (a *DefaultAssembler) ResetConsecutiveCompact() {
 	a.mu.Lock()
 	a.consecutiveCompacts = 0
@@ -256,10 +244,9 @@ func (a *DefaultAssembler) Stuck() bool {
 	return a.compactStuck
 }
 
-// BuildSystemSections assembles the ordered system-section list the
-// LLM sees on this turn, in spec priority order (see sections.go).
-// When facts is non-empty it is used verbatim (caller override);
-// otherwise the assembler falls through to Deps.MemoryFacts for FTS.
+// BuildSystemSections assembles the ordered system-section list the LLM
+// sees this turn, in priority order (see sections.go). Non-empty facts
+// win (caller override); otherwise it falls through to Deps.MemoryFacts.
 func (a *DefaultAssembler) BuildSystemSections(
 	ctx context.Context,
 	_ string,
@@ -301,10 +288,8 @@ func (a *DefaultAssembler) BuildSystemSections(
 	return out
 }
 
-// LastIngestAt returns the timestamp recorded for the most recent Ingest
-// (or IngestBatch) call against the given session ID. Returns the zero
-// time.Time when no Ingest has happened yet. Test-only helper — production
-// callers observe ingestion through session.Messages, not this map.
+// LastIngestAt returns the most recent Ingest timestamp for a session,
+// or the zero time when none has happened. Test-only helper.
 func (a *DefaultAssembler) LastIngestAt(sessionID string) time.Time {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
