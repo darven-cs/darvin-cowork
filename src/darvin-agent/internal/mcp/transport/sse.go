@@ -24,9 +24,10 @@ import (
 //   - Legacy JSON sync: Accept: application/json on POST.
 //
 // SSE event name → JSON-RPC method mapping:
-//   "message" → notification delivered to the notification handler.
-//   "endpoint" → streamable-http endpoint hint; updates the POST URL.
-//   Other event names → logged and discarded.
+//
+//	"message" → notification delivered to the notification handler.
+//	"endpoint" → streamable-http endpoint hint; updates the POST URL.
+//	Other event names → logged and discarded.
 type SSETransport struct {
 	URL     string
 	Headers map[string]string
@@ -58,7 +59,7 @@ func WithNotificationHandler(fn func([]byte)) SSETransportOption {
 }
 
 const (
-	sseHeaderSession = "Mcp-Session-Id"
+	sseHeaderSession  = "Mcp-Session-Id"
 	defaultSSETimeout = 0 // no HTTP-level timeout on SSE stream; controlled by context.
 )
 

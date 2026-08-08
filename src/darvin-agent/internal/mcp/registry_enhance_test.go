@@ -53,7 +53,7 @@ func TestEnrichPATH_PreservesExistingEnv(t *testing.T) {
 	os.Setenv("PATH", "/usr/bin")
 
 	existing := map[string]string{
-		"FOO": "bar",
+		"FOO":  "bar",
 		"PATH": "/custom/bin",
 	}
 	got := enrichPATH(existing)
@@ -67,9 +67,9 @@ func TestEnrichPATH_PreservesExistingEnv(t *testing.T) {
 
 func TestRedactCredentials_EveryPattern(t *testing.T) {
 	cases := []struct {
-		name   string
-		input  string
-		check  func(got string) bool
+		name  string
+		input string
+		check func(got string) bool
 	}{
 		{
 			name:  "github_pat",

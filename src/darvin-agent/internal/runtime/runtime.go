@@ -61,17 +61,17 @@ type Options struct {
 // must not call into individual fields to drive the agent — that goes
 // through the gateway server.
 type Runtime struct {
-	Cfg               *config.Config
-	Log               *zap.Logger
-	Provider          llm.ModelProvider
-	Sessions          *gateway.SessionManager
-	Ledger            *gateway.EventLedger
-	Handler           *gateway.Handler
-	Server            *gateway.Server
-	MCP               *mcp.Registry
-	Skills            *skills.BootstrapResult
-	Factory           *agentloop.AgentFactory
-	Stores            Stores
+	Cfg                *config.Config
+	Log                *zap.Logger
+	Provider           llm.ModelProvider
+	Sessions           *gateway.SessionManager
+	Ledger             *gateway.EventLedger
+	Handler            *gateway.Handler
+	Server             *gateway.Server
+	MCP                *mcp.Registry
+	Skills             *skills.BootstrapResult
+	Factory            *agentloop.AgentFactory
+	Stores             Stores
 	WorkspaceBootstrap *WorkspaceBootstrap
 }
 
@@ -164,21 +164,21 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	stores.Digests = store.NewSQLiteDigestStore(database.Get())
 
 	factory := newAgentFactory(AgentFactoryDeps{
-		Name:              cfg.App.Name + "-agent",
-		Instructions:      cfg.Agent.Instructions,
-		Model:             agent.ModelRef{Provider: cfg.Agent.ProviderName, Model: cfg.Agent.Model},
-		Provider:          provider,
-		Store:             stores.Sessions,
-		MessageStore:      stores.Messages,
-		UsageStore:        stores.Usages,
-		DigestStore:       stores.Digests,
-		Logger:            log,
-		Config:            agentCfg,
-		Tools:             toolsReg,
-		AssemblerEnabled:  cfg.Agent.AssemblerEnabled,
-		HarnessSelector:   opts.HarnessSelector,
-		ExtraPlugins:      opts.ExtraPlugins,
-		Memory:            memMgr,
+		Name:               cfg.App.Name + "-agent",
+		Instructions:       cfg.Agent.Instructions,
+		Model:              agent.ModelRef{Provider: cfg.Agent.ProviderName, Model: cfg.Agent.Model},
+		Provider:           provider,
+		Store:              stores.Sessions,
+		MessageStore:       stores.Messages,
+		UsageStore:         stores.Usages,
+		DigestStore:        stores.Digests,
+		Logger:             log,
+		Config:             agentCfg,
+		Tools:              toolsReg,
+		AssemblerEnabled:   cfg.Agent.AssemblerEnabled,
+		HarnessSelector:    opts.HarnessSelector,
+		ExtraPlugins:       opts.ExtraPlugins,
+		Memory:             memMgr,
 		WorkspaceBootstrap: workspaceBootstrap,
 	})
 

@@ -16,27 +16,27 @@ var skillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 // explicit yaml tags so the on-disk spelling matches Anthropic / DeepSeek
 // conventions (runAs, allowed-tools, auto-use, etc.).
 type Frontmatter struct {
-	Name                 string `yaml:"name"`
-	Description          string `yaml:"description"`
-	Version              string `yaml:"version"`
-	Invocation           string `yaml:"invocation"`
-	UserInvocable        bool   `yaml:"userInvocable"`
-	DisableModelInvocation bool `yaml:"disableModelInvocation"`
-	RunAs                string `yaml:"runAs"`
-	Context              string `yaml:"context"`
-	Agent                string `yaml:"agent"`
-	AllowedTools         string `yaml:"allowed-tools"`
-	Model                string `yaml:"model"`
-	Effort               string `yaml:"effort"`
-	ReadOnly             string `yaml:"read-only"`
-	Triggers             string `yaml:"triggers"`
-	NegativeTriggers     string `yaml:"negative-triggers"`
-	AutoUse              string `yaml:"auto-use"`
-	NeedsFreshData       string `yaml:"needs-fresh-data"`
-	Cost                 string `yaml:"cost"`
-	Color                string `yaml:"color"`
-	Requires             string `yaml:"requires"`
-	Profiles             string `yaml:"profiles"`
+	Name                   string `yaml:"name"`
+	Description            string `yaml:"description"`
+	Version                string `yaml:"version"`
+	Invocation             string `yaml:"invocation"`
+	UserInvocable          bool   `yaml:"userInvocable"`
+	DisableModelInvocation bool   `yaml:"disableModelInvocation"`
+	RunAs                  string `yaml:"runAs"`
+	Context                string `yaml:"context"`
+	Agent                  string `yaml:"agent"`
+	AllowedTools           string `yaml:"allowed-tools"`
+	Model                  string `yaml:"model"`
+	Effort                 string `yaml:"effort"`
+	ReadOnly               string `yaml:"read-only"`
+	Triggers               string `yaml:"triggers"`
+	NegativeTriggers       string `yaml:"negative-triggers"`
+	AutoUse                string `yaml:"auto-use"`
+	NeedsFreshData         string `yaml:"needs-fresh-data"`
+	Cost                   string `yaml:"cost"`
+	Color                  string `yaml:"color"`
+	Requires               string `yaml:"requires"`
+	Profiles               string `yaml:"profiles"`
 }
 
 func ParseFrontmatter(raw []byte) (Frontmatter, string, error) {

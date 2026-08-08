@@ -76,9 +76,9 @@ type AssembleResult struct {
 	// (b) hand the boundary to Agent.PersistCompaction for the
 	// session_digests write. Only populated when
 	// Stats.CompactionTriggered is true.
-	CompactSummary      string
-	FirstKeptID         string
-	FirstKeptTimestamp  int64
+	CompactSummary     string
+	FirstKeptID        string
+	FirstKeptTimestamp int64
 }
 
 // AssembleStats is the diagnostic breakdown of what Assemble did.
@@ -133,7 +133,7 @@ type CompactResult struct {
 	FirstKeptTimestamp int64
 	// Reason is the human-readable trigger: "budget_exceeded" | "manual"
 	// | "steer_triggered". Persisted as SessionDigest.CompactReason.
-	Reason   string
+	Reason     string
 	Checkpoint *CheckPoint
 }
 

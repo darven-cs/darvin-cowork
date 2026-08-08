@@ -149,9 +149,9 @@ func TestCompactPreservesPriorDigestInRetained(t *testing.T) {
 	a := newAssemblerWithSummarizer(s)
 
 	prior := protocol.Message{
-		Role:    protocol.RoleAssistant,
-		Content: "[Conversation Summary]\nold",
-		ID:      "d1",
+		Role:      protocol.RoleAssistant,
+		Content:   "[Conversation Summary]\nold",
+		ID:        "d1",
 		Timestamp: 100,
 	}
 	// Enough user turns to push total tokens over budget=20 so compact
@@ -206,7 +206,7 @@ func TestBuildSystemSectionsRegistersAndBootstrap(t *testing.T) {
 	a := NewDefaultAssembler(Config{
 		MemoryFactsLimit: 5,
 	}, fakeDeps{
-		logger:          zapNopForTest(),
+		logger: zapNopForTest(),
 		memoryBootstrap: map[string]string{
 			"IDENTITY.md": "i-am-the-agent",
 			"SOUL.md":     "be-wise",

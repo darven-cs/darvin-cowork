@@ -15,13 +15,13 @@ import (
 // captured fields afterwards.
 type captureAssembler struct {
 	ctxengine.ContextEngine
-	mu         sync.Mutex
-	gotReqs    []*llm.CompletionRequest
-	systemAdd  string
-	trigger    bool
-	retained   []protocol.Message
-	firstKept  string
-	summary    string
+	mu        sync.Mutex
+	gotReqs   []*llm.CompletionRequest
+	systemAdd string
+	trigger   bool
+	retained  []protocol.Message
+	firstKept string
+	summary   string
 }
 
 func (a *captureAssembler) Assemble(_ context.Context, p ctxengine.AssembleParams) ctxengine.AssembleResult {

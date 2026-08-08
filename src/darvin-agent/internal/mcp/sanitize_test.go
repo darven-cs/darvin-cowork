@@ -66,7 +66,7 @@ func TestSanitizeForPath_EmptyAndDotDotFallback(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
-		{"", "mcp"},       // empty → fallback
+		{"", "mcp"},        // empty → fallback
 		{"---", "mcp"},     // all dashes → empty after trim → fallback
 		{".", "."},         // "." is allowed, no change
 		{"..", ".."},       // both dots allowed, no change

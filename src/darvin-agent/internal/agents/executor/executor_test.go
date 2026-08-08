@@ -113,10 +113,10 @@ func (f *fakeDeps) PersistCompaction(_ context.Context, res ctxengine.CompactRes
 	f.lastCompact = res
 	return nil
 }
-func (f *fakeDeps) RecordUsage(u llm.Usage, _ string)        { f.lastUsage = u }
-func (f *fakeDeps) LastUsage() llm.Usage                      { return f.lastUsage }
-func (f *fakeDeps) CurrentMessageID() string                  { return f.messageID }
-func (f *fakeDeps) CurrentRunID() string                      { return f.runID }
+func (f *fakeDeps) RecordUsage(u llm.Usage, _ string) { f.lastUsage = u }
+func (f *fakeDeps) LastUsage() llm.Usage              { return f.lastUsage }
+func (f *fakeDeps) CurrentMessageID() string          { return f.messageID }
+func (f *fakeDeps) CurrentRunID() string              { return f.runID }
 func (f *fakeDeps) EvaluatePermission(toolName string, args map[string]any) tool.PermissionEval {
 	return f.tools.EvaluatePermission(toolName, args)
 }

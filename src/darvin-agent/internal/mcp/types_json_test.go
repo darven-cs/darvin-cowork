@@ -112,12 +112,11 @@ func TestRedactCredentials_NoToken(t *testing.T) {
 	}
 }
 
-
 func TestStartupFailure_Fields(t *testing.T) {
 	sf := StartupFailure{
-		Stage:   "spawn",
-		Stderr:  "command not found: npx",
-		Err:     "exec: not found",
+		Stage:  "spawn",
+		Stderr: "command not found: npx",
+		Err:    "exec: not found",
 	}
 	if sf.Stage != "spawn" {
 		t.Fatalf("Stage = %q, want spawn", sf.Stage)

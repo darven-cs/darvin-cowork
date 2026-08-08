@@ -43,9 +43,9 @@ func (r *recordingProvider) last() *llm.CompletionRequest {
 
 type dummyTool struct{ name string }
 
-func (d *dummyTool) Name() string                  { return d.name }
-func (d *dummyTool) Description() string           { return "dummy" }
-func (d *dummyTool) Parameters() json.RawMessage   { return json.RawMessage(`{"type":"object"}`) }
+func (d *dummyTool) Name() string                { return d.name }
+func (d *dummyTool) Description() string         { return "dummy" }
+func (d *dummyTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 func (d *dummyTool) Execute(_ context.Context, _ map[string]any) tool.Result {
 	return tool.Result{Content: "dummy"}
 }

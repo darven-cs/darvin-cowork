@@ -36,7 +36,7 @@ type seqAlloc struct {
 // startup.
 func NewSQLiteDigestStore(db *gorm.DB) *SQLiteDigestStore {
 	return &SQLiteDigestStore{
-		db:       db,
+		db:        db,
 		seqAllocs: map[string]*seqAlloc{},
 	}
 }

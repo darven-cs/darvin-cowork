@@ -26,17 +26,17 @@ func newTestDigestDB(t *testing.T) *gorm.DB {
 
 func sampleDigest(id, sessionID string, sequence int) *SessionDigest {
 	return &SessionDigest{
-		ID:              id,
-		SessionID:       sessionID,
-		Sequence:        sequence,
-		Summary:         "summary " + id,
-		TokensBefore:    1000,
-		TokensAfter:     400,
-		FirstKeptID:     "msg-1",
+		ID:                 id,
+		SessionID:          sessionID,
+		Sequence:           sequence,
+		Summary:            "summary " + id,
+		TokensBefore:       1000,
+		TokensAfter:        400,
+		FirstKeptID:        "msg-1",
 		FirstKeptTimestamp: 123456,
-		CompactReason:   "budget_exceeded",
-		SourceCompactID: "cp-1",
-		CreatedAt:       1700000000000,
+		CompactReason:      "budget_exceeded",
+		SourceCompactID:    "cp-1",
+		CreatedAt:          1700000000000,
 	}
 }
 

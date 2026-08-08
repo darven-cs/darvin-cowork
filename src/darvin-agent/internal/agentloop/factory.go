@@ -135,22 +135,22 @@ func (f *AgentFactory) resolveHarnessFor(a *agent.Agent) (harness.Harness, error
 // 应用 Plugins,插件注册失败只记 warn,不阻塞 agent 可用。
 func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
 	a, err := agent.New(agent.NewAgentConfig{
-		Name:              f.Name,
-		Instructions:      f.Instructions,
-		Model:             f.Model,
-		Provider:          f.Provider,
-		Session:           session.NewSession(sessionID),
-		Store:             f.Store,
-		MessageStore:      f.MessageStore,
-		UsageStore:        f.UsageStore,
-		Logger:            f.Logger,
-		Config:            f.Config,
-		Tools:             f.Tools,
-		Assembler:         f.Assembler,
-		AssemblerEnabled:  f.AssemblerEnabled,
-		Memory:            f.Memory,
+		Name:               f.Name,
+		Instructions:       f.Instructions,
+		Model:              f.Model,
+		Provider:           f.Provider,
+		Session:            session.NewSession(sessionID),
+		Store:              f.Store,
+		MessageStore:       f.MessageStore,
+		UsageStore:         f.UsageStore,
+		Logger:             f.Logger,
+		Config:             f.Config,
+		Tools:              f.Tools,
+		Assembler:          f.Assembler,
+		AssemblerEnabled:   f.AssemblerEnabled,
+		Memory:             f.Memory,
 		WorkspaceBootstrap: f.WorkspaceBootstrap,
-		DigestStore:       f.DigestStore,
+		DigestStore:        f.DigestStore,
 	})
 	if err != nil {
 		return nil, err

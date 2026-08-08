@@ -16,21 +16,21 @@ import (
 // construction time; skill / mcp plugins are added inside Build after
 // bootstrap.
 type AgentFactoryDeps struct {
-	Name              string
-	Instructions      string
-	Model             agent.ModelRef
-	Provider          llm.ModelProvider
-	Store             store.SessionStore
-	MessageStore      store.MessageStore
-	UsageStore        store.UsageStore
-	DigestStore       store.DigestStore
-	Logger            *zap.Logger
-	Config            agent.Config
-	Tools             *tool.Registry
-	AssemblerEnabled  bool
-	HarnessSelector   agentloop.HarnessSelector
-	ExtraPlugins      []tool.Plugin
-	Memory            *memory.Manager
+	Name               string
+	Instructions       string
+	Model              agent.ModelRef
+	Provider           llm.ModelProvider
+	Store              store.SessionStore
+	MessageStore       store.MessageStore
+	UsageStore         store.UsageStore
+	DigestStore        store.DigestStore
+	Logger             *zap.Logger
+	Config             agent.Config
+	Tools              *tool.Registry
+	AssemblerEnabled   bool
+	HarnessSelector    agentloop.HarnessSelector
+	ExtraPlugins       []tool.Plugin
+	Memory             *memory.Manager
 	WorkspaceBootstrap *WorkspaceBootstrap
 }
 

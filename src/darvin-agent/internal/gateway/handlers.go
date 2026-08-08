@@ -155,18 +155,18 @@ type GetSessionUsageParams struct {
 // (lastUsedTokens == 0 && totalPromptTokens == 0) as "no usage yet" and
 // keeps the empty-state branch.
 type SessionUsageWire struct {
-	LastPromptTokens     int    `json:"lastPromptTokens"`
-	LastCompletionTokens int    `json:"lastCompletionTokens"`
-	LastUsedTokens       int    `json:"lastUsedTokens"`
-	LastCacheReadTokens  int    `json:"lastCacheReadTokens"`
-	LastCacheWriteTokens int    `json:"lastCacheWriteTokens"`
-	LastContextTokens    int    `json:"lastContextTokens"`
-	LastPercent          int    `json:"lastPercent"`
-	LastModel            string `json:"lastModel,omitempty"`
-	RequestCount         int    `json:"requestCount"`
-	TotalPromptTokens    int    `json:"totalPromptTokens"`
-	TotalCompletionTokens int   `json:"totalCompletionTokens"`
-	UpdatedAt            int64  `json:"updatedAt"`
+	LastPromptTokens      int    `json:"lastPromptTokens"`
+	LastCompletionTokens  int    `json:"lastCompletionTokens"`
+	LastUsedTokens        int    `json:"lastUsedTokens"`
+	LastCacheReadTokens   int    `json:"lastCacheReadTokens"`
+	LastCacheWriteTokens  int    `json:"lastCacheWriteTokens"`
+	LastContextTokens     int    `json:"lastContextTokens"`
+	LastPercent           int    `json:"lastPercent"`
+	LastModel             string `json:"lastModel,omitempty"`
+	RequestCount          int    `json:"requestCount"`
+	TotalPromptTokens     int    `json:"totalPromptTokens"`
+	TotalCompletionTokens int    `json:"totalCompletionTokens"`
+	UpdatedAt             int64  `json:"updatedAt"`
 }
 
 // GetSessionUsageResult is the JSON-RPC result for agent.get_session_usage.
@@ -332,20 +332,20 @@ func NewHandler(
 		o = opts[0]
 	}
 	return &Handler{
-		Sessions:      s,
-		Ledger:        l,
-		SessionStore:  sessStore,
-		MessageStore:  msgStore,
-		UsageStore:    o.UsageStore,
-		DigestStore:   o.DigestStore,
-		AppState:      appState,
-		ImportedFiles:   o.ImportedFiles,
-		WorkspaceRoot:   o.WorkspaceRoot,
+		Sessions:         s,
+		Ledger:           l,
+		SessionStore:     sessStore,
+		MessageStore:     msgStore,
+		UsageStore:       o.UsageStore,
+		DigestStore:      o.DigestStore,
+		AppState:         appState,
+		ImportedFiles:    o.ImportedFiles,
+		WorkspaceRoot:    o.WorkspaceRoot,
 		SetWorkspaceRoot: o.SetWorkspaceRoot,
-		Skills:          o.Skills,
-		SkillRunner:   o.SkillRunner,
-		Mcp:           o.Mcp,
-		Log:           o.Log,
+		Skills:           o.Skills,
+		SkillRunner:      o.SkillRunner,
+		Mcp:              o.Mcp,
+		Log:              o.Log,
 	}
 }
 

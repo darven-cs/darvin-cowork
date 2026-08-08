@@ -33,15 +33,15 @@ type StdioTransport struct {
 	Env     map[string]string
 	Logger  *zap.Logger
 
-	cmd        *exec.Cmd
-	stdin      io.WriteCloser
-	stdout     io.ReadCloser
-	stderr     io.Reader
-	alive      atomic.Bool
-	waitCh     chan struct{} // closed once child is reaped
-	mu         sync.Mutex    // guards Connect/Close; Send is serialized by Client
-	closed     atomic.Bool
-	initOnce   sync.Once
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	stdout   io.ReadCloser
+	stderr   io.Reader
+	alive    atomic.Bool
+	waitCh   chan struct{} // closed once child is reaped
+	mu       sync.Mutex    // guards Connect/Close; Send is serialized by Client
+	closed   atomic.Bool
+	initOnce sync.Once
 
 	// Reader goroutine state.
 	readerDone chan struct{}

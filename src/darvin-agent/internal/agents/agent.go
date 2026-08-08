@@ -106,9 +106,9 @@ type NewAgentConfig struct {
 	// UsageStore is optional. When non-nil, the Agent writes a snapshot
 	// row at the tail of every successful Run so renderer-side
 	// contextUsageBySessionId survives a process restart.
-	UsageStore  store.UsageStore
-	Logger      *zap.Logger
-	Config      Config
+	UsageStore store.UsageStore
+	Logger     *zap.Logger
+	Config     Config
 	// Executor is optional. If nil, executor.New() is used.
 	Executor executor.Executor
 	// Tools is the tool registry driving the loop. Required; the concrete
@@ -219,9 +219,9 @@ type Agent struct {
 	skills SkillsLister
 	mcp    McpLister
 
-	memoryMgr        *memory.Manager
-	workspaceBstrp   BootstrapReader
-	digestStore      store.DigestStore
+	memoryMgr      *memory.Manager
+	workspaceBstrp BootstrapReader
+	digestStore    store.DigestStore
 
 	// toolTransformer normalises a tool result before the executor forwards
 	// it to the LLM. The harness's tooldridge middleware chain sets this

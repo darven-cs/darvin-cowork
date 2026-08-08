@@ -50,4 +50,3 @@ func loadDatabase(_ context.Context, cfg *config.Config, log *zap.Logger) (Store
 		Usages:        store.NewSQLiteUsageStore(db),
 	}, nil
 }
-

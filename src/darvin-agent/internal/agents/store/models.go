@@ -114,17 +114,17 @@ func (ImportedFile) TableName() string { return "imported_files" }
 // upsert a single Save call and read a single First call — no extra
 // index needed.
 type SessionUsage struct {
-	SessionID         string `gorm:"primaryKey;column:session_id"`
-	LastUsedTokens    int    `gorm:"column:last_used_tokens"`
-	LastPromptTokens  int    `gorm:"column:last_prompt_tokens"`
-	LastCompletion    int    `gorm:"column:last_completion_tokens"`
-	LastCacheRead     int    `gorm:"column:last_cache_read_tokens"`
-	LastCacheWrite    int    `gorm:"column:last_cache_write_tokens"`
-	LastCacheWrite1h  int    `gorm:"column:last_cache_write_1h_tokens"`
+	SessionID        string `gorm:"primaryKey;column:session_id"`
+	LastUsedTokens   int    `gorm:"column:last_used_tokens"`
+	LastPromptTokens int    `gorm:"column:last_prompt_tokens"`
+	LastCompletion   int    `gorm:"column:last_completion_tokens"`
+	LastCacheRead    int    `gorm:"column:last_cache_read_tokens"`
+	LastCacheWrite   int    `gorm:"column:last_cache_write_tokens"`
+	LastCacheWrite1h int    `gorm:"column:last_cache_write_1h_tokens"`
 	// LastContextTokens is the model context window the most recent turn
 	// was sized against. Cached so the renderer hydrates the context ring
 	// on session switch without a model-registry lookup.
-	LastContextTokens int    `gorm:"column:last_context_tokens"`
+	LastContextTokens int `gorm:"column:last_context_tokens"`
 	// LastPercent is 0–100 — the rendered fill percent the live
 	// context_usage event emitted. Same source-of-truth so the indicator
 	// never recomputes a different number from the same data.

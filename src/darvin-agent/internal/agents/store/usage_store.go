@@ -19,14 +19,14 @@ import (
 // RequestCount carry the snapshot metadata the renderer needs to compute
 // the context-window fill percentage on session switch.
 type UsageRecord struct {
-	SessionID       string
-	Last            *protocol.Usage
-	Total           *protocol.Usage
+	SessionID         string
+	Last              *protocol.Usage
+	Total             *protocol.Usage
 	LastContextTokens int
-	LastPercent     int
-	LastModel       string
-	RequestCount    int
-	UpdatedAt       int64
+	LastPercent       int
+	LastModel         string
+	RequestCount      int
+	UpdatedAt         int64
 }
 
 // UsageStore persists per-session usage snapshots. Implementations must be

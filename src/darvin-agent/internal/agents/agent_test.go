@@ -82,9 +82,9 @@ func TestNewRespectsCustomStore(t *testing.T) {
 
 type echoAdapter struct{}
 
-func (echoAdapter) Name() string                  { return "echo" }
-func (echoAdapter) Description() string           { return "echo" }
-func (echoAdapter) Parameters() json.RawMessage   { return json.RawMessage(`{"type":"object"}`) }
+func (echoAdapter) Name() string                { return "echo" }
+func (echoAdapter) Description() string         { return "echo" }
+func (echoAdapter) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 func (echoAdapter) Execute(_ context.Context, _ map[string]any) tool.Result {
 	return tool.Result{Content: "ok"}
 }

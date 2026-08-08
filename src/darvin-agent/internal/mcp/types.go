@@ -222,30 +222,30 @@ type ServerStatus struct {
 var credentialRE = regexp.MustCompile(
 	// Longest-first: avoid partial matches of short prefixes.
 	`ghp_[A-Za-z0-9]{36}|` +
-	`gho_[A-Za-z0-9]{36}|` +
-	`github_pat_[A-Za-z0-9_]{22,}|` +
-	`xox[baprs]-[A-Za-z0-9_]{10,}|` +
-	`sk-[A-Za-z0-9_]{20,}|` +
-	`Bearer [A-Za-z0-9_.-]{20,}|` +
-	`Basic [A-Za-z0-9_.-]{10,}|` +
-	`AKIA[A-Z0-9]{16}|` +
-	// Generic long tokens last.
-	`[A-Za-z0-9+/]{40,}={0,2}|` +
-	`[0-9a-f]{32,}`,
+		`gho_[A-Za-z0-9]{36}|` +
+		`github_pat_[A-Za-z0-9_]{22,}|` +
+		`xox[baprs]-[A-Za-z0-9_]{10,}|` +
+		`sk-[A-Za-z0-9_]{20,}|` +
+		`Bearer [A-Za-z0-9_.-]{20,}|` +
+		`Basic [A-Za-z0-9_.-]{10,}|` +
+		`AKIA[A-Z0-9]{16}|` +
+		// Generic long tokens last.
+		`[A-Za-z0-9+/]{40,}={0,2}|` +
+		`[0-9a-f]{32,}`,
 )
 
 // credentialReplacer maps specific substrings to their placeholders.
 var credentialReplacer = regexp.MustCompile(
 	`(ghp_[A-Za-z0-9]{36})|` +
-	`(gho_[A-Za-z0-9]{36})|` +
-	`(github_pat_[A-Za-z0-9_]{22,})|` +
-	`(xox[baprs]-[A-Za-z0-9_]{10,})|` +
-	`(sk-[A-Za-z0-9_]{20,})|` +
-	`(Bearer [A-Za-z0-9_.-]{20,})|` +
-	`(Basic [A-Za-z0-9_.-]{10,})|` +
-	`(AKIA[A-Z0-9]{16})|` +
-	`([A-Za-z0-9+/]{40,}={0,2})|` +
-	`([0-9a-f]{32,})`,
+		`(gho_[A-Za-z0-9]{36})|` +
+		`(github_pat_[A-Za-z0-9_]{22,})|` +
+		`(xox[baprs]-[A-Za-z0-9_]{10,})|` +
+		`(sk-[A-Za-z0-9_]{20,})|` +
+		`(Bearer [A-Za-z0-9_.-]{20,})|` +
+		`(Basic [A-Za-z0-9_.-]{10,})|` +
+		`(AKIA[A-Z0-9]{16})|` +
+		`([A-Za-z0-9+/]{40,}={0,2})|` +
+		`([0-9a-f]{32,})`,
 )
 
 // credentialPlaceholder returns the placeholder for a matched credential.

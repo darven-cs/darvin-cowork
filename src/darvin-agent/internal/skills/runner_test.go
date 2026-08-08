@@ -10,9 +10,9 @@ import (
 
 type toolStub struct{ name string }
 
-func (s *toolStub) Name() string                  { return s.name }
-func (s *toolStub) Description() string           { return "stub" }
-func (s *toolStub) Parameters() json.RawMessage   { return json.RawMessage(`{"type":"object"}`) }
+func (s *toolStub) Name() string                { return s.name }
+func (s *toolStub) Description() string         { return "stub" }
+func (s *toolStub) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
 func (s *toolStub) Execute(_ context.Context, _ map[string]any) tool.Result {
 	return tool.Result{}
 }

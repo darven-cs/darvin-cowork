@@ -59,9 +59,9 @@ func (p *McpPlugin) Register(reg ToolRegistrar) error {
 				stored = json.RawMessage(`{"type":"object"}`)
 			}
 			t := &McpTool{
-				serverID:     status.ServerID,
-				toolDesc:     td,
-				source:       p.source,
+				serverID:      status.ServerID,
+				toolDesc:      td,
+				source:        p.source,
 				parametersRaw: stored,
 			}
 			if err := reg.RegisterTool(t, KindMcp, map[string]any{
