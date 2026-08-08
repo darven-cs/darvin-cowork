@@ -9,8 +9,7 @@ import (
 )
 
 // MaxWorkspaceBytes is the soft cap on one session's imported workspace
-// content. Once the sum of imported file sizes crosses it, further imports
-// are rejected (no proactive GC).
+// content; further imports are rejected past it (no proactive GC).
 const MaxWorkspaceBytes int64 = 500 * 1024 * 1024 // 500 MiB
 
 var (
@@ -22,27 +21,24 @@ var (
 	ErrDuplicate = errors.New("store: file with same sha256 already imported")
 )
 
-// ImportedFileStore persists ImportedFile rows and enforces the per-session
-// workspace capacity limit inside Insert.
+// ImportedFileStore persists ImportedFile rows and enforces the
+// per-session workspace capacity limit inside Insert.
 type ImportedFileStore struct {
 	db *gorm.DB
-	// mu serialises Insert so the capacity check + dedupe + create run as one
-	// unit even across concurrent WS connections. SQLite's deferred
-	// transactions alone would let two in-flight Inserts both read a stale
-	// SUM and race past the workspace cap; the mutex closes that window.
+	// mu serialises Insert so capacity check + dedupe + create are one
+	// unit; SQLite's deferred transactions alone would let two
+	// in-flight Inserts both read a stale SUM and race past the cap.
 	mu sync.Mutex
 }
 
-// NewImportedFileStore wraps the shared *gorm.DB (same handle as the other
-// store implementations).
+// NewImportedFileStore wraps the shared *gorm.DB.
 func NewImportedFileStore(db *gorm.DB) *ImportedFileStore {
 	return &ImportedFileStore{db: db}
 }
 
-// Insert stores one imported file. Capacity check (SumBytes + size) and
-// sha256 dedupe run inside a single transaction guarded by a mutex, so
-// concurrent imports cannot race past the workspace cap. Returns
-// ErrDuplicate or ErrWorkspaceFull on failure.
+// Insert stores one imported file. Capacity check + sha256 dedupe run in
+// one mutex-guarded transaction so concurrent imports cannot race past
+// the workspace cap. Returns ErrDuplicate or ErrWorkspaceFull on failure.
 func (s *ImportedFileStore) Insert(ctx context.Context, rec ImportedFile) (ImportedFile, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

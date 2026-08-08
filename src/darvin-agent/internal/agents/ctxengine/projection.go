@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// ContextProjection is a persisted backend-side view of the context.
-// Stored in an in-memory map on *DefaultAssembler; a real backend
-// (SQLite store, dreaming) is a follow-up concern.
+// ContextProjection is a backend-side view of the context, stored in an
+// in-memory map on *DefaultAssembler (a real backend is a follow-up).
 type ContextProjection struct {
 	ID        string
 	Type      string // "agent" | "tool" | "memory"
@@ -18,22 +17,16 @@ type ContextProjection struct {
 	State     map[string]any
 }
 
-// ErrProjectionNotFound is returned by ProjectionGet when the requested ID
-// has no entry in the in-memory registry.
+// ErrProjectionNotFound is returned when the requested ID has no entry.
 var ErrProjectionNotFound = errors.New("ctxengine: projection not found")
 
-// ErrProjectionIDEmpty is returned by ProjectionCreate when the caller
-// forgets to populate ID. We refuse silently-on-empty to avoid poisoning
-// the registry with anonymous entries.
+// ErrProjectionIDEmpty is returned when the caller forgets to populate ID.
 var ErrProjectionIDEmpty = errors.New("ctxengine: projection ID is empty")
 
-// ProjectionCreate inserts p into the in-memory registry. It is an error
-// to call with an empty ID or a cancelled context; the caller is otherwise
-// free to populate Type / CreatedAt / ExpiresAt / State as they see fit
-// (CreatedAt is overwritten with time.Now() if zero).
-//
-// Method on *DefaultAssembler (not on the 10-method ContextEngine
-// interface) — projections are a SubAgent surface that may be promoted
+// ProjectionCreate inserts p into the in-memory registry. Rejects an
+// empty ID or cancelled context; CreatedAt is set to time.Now() if zero.
+// It is a method on *DefaultAssembler, not on the ContextEngine
+// interface — projections are a SubAgent surface that may be promoted
 // to a separate interface later.
 func (a *DefaultAssembler) ProjectionCreate(ctx context.Context, p ContextProjection) error {
 	if err := ctx.Err(); err != nil {
@@ -51,9 +44,8 @@ func (a *DefaultAssembler) ProjectionCreate(ctx context.Context, p ContextProjec
 	return nil
 }
 
-// ProjectionGet returns the projection for id and a found flag. Expired
-// projections (ExpiresAt set and in the past) return ErrProjectionNotFound
-// even if the entry exists, so callers can rely on a clean miss signal.
+// ProjectionGet returns the projection for id. Expired projections
+// return ErrProjectionNotFound even if the entry exists.
 func (a *DefaultAssembler) ProjectionGet(ctx context.Context, id string) (ContextProjection, error) {
 	if err := ctx.Err(); err != nil {
 		return ContextProjection{}, err
@@ -70,10 +62,8 @@ func (a *DefaultAssembler) ProjectionGet(ctx context.Context, id string) (Contex
 	return p, nil
 }
 
-// ProjectionList returns a snapshot of all non-expired projections, sorted
-// by ID for deterministic output. The slice is owned by the caller and
-// may be mutated freely; the State maps inside each projection are shared
-// by reference (callers must not mutate them).
+// ProjectionList returns all non-expired projections, sorted by ID for
+// deterministic output. The slice is caller-owned; State maps are shared.
 func (a *DefaultAssembler) ProjectionList(ctx context.Context) []ContextProjection {
 	if err := ctx.Err(); err != nil {
 		return nil
@@ -92,9 +82,8 @@ func (a *DefaultAssembler) ProjectionList(ctx context.Context) []ContextProjecti
 	return out
 }
 
-// ProjectionDelete removes the projection with the given id. It is not an
-// error to delete a missing id (idempotent); the operation only fails if
-// the context is cancelled.
+// ProjectionDelete removes the projection with the given id; deleting a
+// missing id is not an error.
 func (a *DefaultAssembler) ProjectionDelete(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err

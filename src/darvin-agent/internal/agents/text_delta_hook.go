@@ -9,31 +9,22 @@ import (
 	"darvin-cowork/backend/internal/agents/store"
 )
 
-// TextDeltaHook subscribes to text_delta events on the Agent bus and
-// appends each delta to messages.content in real time. This leaves
-// partial streaming content behind even when the Go process crashes,
-// rather than waiting for persistAssistantMessages at end-of-turn.
-//
-// Session-scoped filter: EventCommon.SessionID must equal the
-// owning Agent's session.ID to avoid cross-session contamination.
-// Persist failures are Warn-only and never block event delivery —
-// later deltas for the same messageID still trigger Append (deltas
-// are cumulative), and MarkDone runs once more at the end to seal
-// the row.
+// TextDeltaHook appends each text_delta to messages.content in real
+// time so partial streaming content survives a Go process crash rather
+// than waiting for end-of-turn persistence. Session-scoped filter
+// avoids cross-session contamination; persist failures are Warn-only.
 type TextDeltaHook struct {
 	msgStore store.MessageStore
 	logger   *zap.Logger
 	sub      *event.Subscription
 }
 
-// NewTextDeltaHook constructs a hook. A nil msgStore makes Attach a no-op
-// (the unit-test / fast-path default where nothing is persisted).
+// NewTextDeltaHook constructs a hook. A nil msgStore makes Attach a no-op.
 func NewTextDeltaHook(ms store.MessageStore, log *zap.Logger) *TextDeltaHook {
 	return &TextDeltaHook{msgStore: ms, logger: log}
 }
 
-// Attach subscribes to the Agent's event bus and starts the drain
-// goroutine. Idempotent: a hook that is already attached is a no-op.
+// Attach subscribes to the Agent's event bus. Idempotent.
 func (h *TextDeltaHook) Attach(a *Agent) {
 	if h.sub != nil || h.msgStore == nil {
 		return
