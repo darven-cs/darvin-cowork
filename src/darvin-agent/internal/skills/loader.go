@@ -282,3 +282,55 @@ func loadFileSkill(ctx context.Context, readFile func(string) ([]byte, error), p
 	}
 	return entry, nil
 }
+
+// SkillSource identifies where a skill was loaded from.
+type SkillSource string
+
+const (
+	SkillSourceBundled SkillSource = "bundled"
+	SkillSourceProject SkillSource = "project"
+	SkillSourceGlobal  SkillSource = "global"
+	SkillSourceGitHub  SkillSource = "github"
+	SkillSourceNPM     SkillSource = "npm"
+)
+
+// SkillEntry is one loaded skill: identity, prompt text, and the
+// runtime-behaviour metadata parsed from its frontmatter.
+type SkillEntry struct {
+	ID                     string
+	Name                   string
+	Description            string
+	Version                string
+	Source                 SkillSource
+	Path                   string
+	Prompt                 string
+	Enabled                bool
+	UserInvocable          bool
+	DisableModelInvocation bool
+	RiskLevel              SecurityRiskLevel
+	RiskScore              int
+	Findings               []SecurityFinding
+	LoadedAt               time.Time
+
+	RunAs            string
+	AllowedTools     []string
+	Model            string
+	Effort           string
+	ReadOnly         bool
+	Color            string
+	Invocation       string
+	Triggers         []string
+	NegativeTriggers []string
+	AutoUse          string
+	NeedsFreshData   bool
+	Cost             string
+	Requires         []string
+	Profiles         []string
+	InvalidProfiles  []string
+}
+
+// SkillSourceLoader yields skill entries from one source: bundled,
+// project, global, GitHub, or npm.
+type SkillSourceLoader interface {
+	LoadAll(ctx context.Context) ([]*SkillEntry, error)
+}

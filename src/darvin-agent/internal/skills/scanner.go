@@ -264,3 +264,31 @@ func scanRegexFile(path, rel string, patterns []*regexp.Regexp, dimension string
 	}
 	return score, findings
 }
+
+// SecurityRiskLevel is the aggregated risk rating of a skill directory
+// scan, from safe to critical.
+type SecurityRiskLevel string
+
+const (
+	RiskSafe     SecurityRiskLevel = "safe"
+	RiskLow      SecurityRiskLevel = "low"
+	RiskMedium   SecurityRiskLevel = "medium"
+	RiskHigh     SecurityRiskLevel = "high"
+	RiskCritical SecurityRiskLevel = "critical"
+)
+
+// SecurityFinding is one scanner hit within a skill's directory.
+type SecurityFinding struct {
+	Dimension string
+	Severity  string
+	Message   string
+	File      string
+	Line      int
+}
+
+// SecurityReport aggregates the risk level, score, and findings of a scan.
+type SecurityReport struct {
+	Level    SecurityRiskLevel
+	Score    int
+	Findings []SecurityFinding
+}
