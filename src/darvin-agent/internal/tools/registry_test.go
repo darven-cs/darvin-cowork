@@ -172,6 +172,7 @@ func TestRegistryRegisterTagsBuiltInKind(t *testing.T) {
 		"read_file": true, "write_file": true, "edit_file": true, "list_dir": true,
 		"shell": true, "grep": true, "glob": true, "move_file": true,
 		"multi_edit": true, "delete_range": true, "delete_symbol": true, "web_fetch": true,
+		"code_index": true, "notebook_edit": true,
 	}
 	entries := reg.ListByKind(KindBuiltIn)
 	if len(entries) != len(want) {

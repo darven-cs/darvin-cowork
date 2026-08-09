@@ -109,7 +109,7 @@ func (r *Registry) pathEscape(toolName string, args map[string]any) (reason, pat
 			return "", "", false
 		}
 		return "read path outside authorized roots: " + p, p, true
-	case "write_file", "edit_file", "list_dir", "multi_edit", "delete_range", "delete_symbol":
+	case "write_file", "edit_file", "list_dir", "multi_edit", "delete_range", "delete_symbol", "notebook_edit":
 		p, _ := args["path"].(string)
 		if _, err := r.sb.Resolve(p); err != nil {
 			if errors.Is(err, ErrPathExcluded) {

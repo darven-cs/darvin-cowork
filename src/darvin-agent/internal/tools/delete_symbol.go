@@ -58,8 +58,7 @@ func (t *deleteSymbolTool) Execute(_ context.Context, args map[string]any) Resul
 	if err != nil {
 		return Result{IsError: true, Content: "read: " + err.Error()}
 	}
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, path, src, parser.ParseComments)
+	fset, file, err := parseGoFile(src, path)
 	if err != nil {
 		return Result{IsError: true, Content: "parse: " + err.Error()}
 	}
@@ -71,6 +70,7 @@ func (t *deleteSymbolTool) Execute(_ context.Context, args map[string]any) Resul
 	if err := os.WriteFile(abs, updated, 0o644); err != nil {
 		return Result{IsError: true, Content: "write: " + err.Error()}
 	}
+	invalidateCodeIndex(abs)
 	return Result{Content: fmt.Sprintf("deleted symbol %q from %s", name, path)}
 }
 
@@ -177,4 +177,16 @@ func init() {
 	RegisterBuiltinFactory("delete_symbol", func(cfg BuiltinConfig) (Tool, error) {
 		return &deleteSymbolTool{sb: cfg.Sandbox}, nil
 	})
+}
+
+// parseGoFile parses Go source with comments. filename is recorded in
+// token positions (for error messages and Position().Filename); pass "" to
+// skip. Shared by delete_symbol and code_index.
+func parseGoFile(src []byte, filename string) (*token.FileSet, *ast.File, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, filename, src, parser.ParseComments)
+	if err != nil {
+		return nil, nil, err
+	}
+	return fset, file, nil
 }

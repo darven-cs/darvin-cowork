@@ -114,6 +114,7 @@ func (t *writeFileTool) Execute(_ context.Context, args map[string]any) Result {
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		return Result{IsError: true, Content: "write: " + err.Error()}
 	}
+	invalidateCodeIndex(abs)
 	return Result{Content: fmt.Sprintf("wrote %d bytes to %s", len(content), path)}
 }
 
@@ -164,6 +165,7 @@ func (t *editFileTool) Execute(_ context.Context, args map[string]any) Result {
 	if err := os.WriteFile(abs, updated, 0o644); err != nil {
 		return Result{IsError: true, Content: "write: " + err.Error()}
 	}
+	invalidateCodeIndex(abs)
 	return Result{Content: fmt.Sprintf("replaced %d occurrence(s) in %s", count, path)}
 }
 
@@ -381,6 +383,8 @@ func (t *moveFileTool) Execute(_ context.Context, args map[string]any) Result {
 			return Result{IsError: true, Content: "moved content but could not remove source: " + rmErr.Error()}
 		}
 	}
+	invalidateCodeIndex(srcAbs)
+	invalidateCodeIndex(dstAbs)
 	return Result{Content: fmt.Sprintf("moved %s to %s", src, dst)}
 }
 
@@ -458,6 +462,7 @@ func (t *multiEditTool) Execute(_ context.Context, args map[string]any) Result {
 	if err := os.WriteFile(abs, updated, 0o644); err != nil {
 		return Result{IsError: true, Content: "write: " + err.Error()}
 	}
+	invalidateCodeIndex(abs)
 	return Result{Content: fmt.Sprintf("applied %d replacement(s) across %d edit(s) in %s", count, len(edits), path)}
 }
 
@@ -521,6 +526,7 @@ func (t *deleteRangeTool) Execute(_ context.Context, args map[string]any) Result
 	if err := os.WriteFile(abs, []byte(strings.Join(updated, "")), 0o644); err != nil {
 		return Result{IsError: true, Content: "write: " + err.Error()}
 	}
+	invalidateCodeIndex(abs)
 	diff := unifiedDeleteDiff(path, lines, startIdx, endIdx)
 	return Result{Content: fmt.Sprintf("deleted %d line(s) from %s\n%s", removed, path, diff)}
 }

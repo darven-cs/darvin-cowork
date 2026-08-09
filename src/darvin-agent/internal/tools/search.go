@@ -171,7 +171,7 @@ func (t *grepTool) Execute(ctx context.Context, args map[string]any) Result {
 			return Result{IsError: true, Content: err.Error()}
 		}
 	} else {
-		if err := t.walkTree(sctx, base, searchOne); err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
+		if err := walkTree(sctx, t.sb, base, searchOne); err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
 			return Result{IsError: true, Content: err.Error()}
 		}
 	}
@@ -186,8 +186,9 @@ func (t *grepTool) Execute(ctx context.Context, args map[string]any) Result {
 }
 
 // walkTree walks base recursively, skipping excluded / hidden dirs, and
-// calls fn for each regular file.
-func (t *grepTool) walkTree(ctx context.Context, base string, fn func(abs string) error) error {
+// calls fn for each regular file. Returns filepath.SkipAll when fn returns
+// it, so callers can short-circuit a walk.
+func walkTree(ctx context.Context, sb *Sandbox, base string, fn func(abs string) error) error {
 	return filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -196,12 +197,12 @@ func (t *grepTool) walkTree(ctx context.Context, base string, fn func(abs string
 			return ctx.Err()
 		}
 		if d.IsDir() {
-			if path != base && (isHiddenName(d.Name()) || t.sb.IsExcluded(path)) {
+			if path != base && (isHiddenName(d.Name()) || sb.IsExcluded(path)) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if isHiddenName(d.Name()) || t.sb.IsExcluded(path) {
+		if isHiddenName(d.Name()) || sb.IsExcluded(path) {
 			return nil
 		}
 		if !d.Type().IsRegular() {

@@ -16,8 +16,10 @@ var ErrAlreadyRegistered = errors.New("tool: already registered")
 
 // SetWorkspaceRoot re-anchors the shared file/shell sandbox to a new root.
 // The registry holds the sandbox reference from NewBuiltins, so updating it
-// re-anchors every built-in file tool at once. No-op when the registry has
-// no sandbox (hand-assembled registries without NewBuiltins).
+// re-anchors every built-in file tool at once. Also clears the in-memory
+// code_index cache, whose absolute paths would otherwise point at the old
+// root. No-op when the registry has no sandbox (hand-assembled registries
+// without NewBuiltins).
 func (r *Registry) SetWorkspaceRoot(newRoot string) error {
 	r.mu.RLock()
 	sb := r.sb
@@ -25,7 +27,11 @@ func (r *Registry) SetWorkspaceRoot(newRoot string) error {
 	if sb == nil {
 		return nil
 	}
-	return sb.SetRoot(newRoot)
+	if err := sb.SetRoot(newRoot); err != nil {
+		return err
+	}
+	clearCodeIndex()
+	return nil
 }
 
 // Registry holds the active set of tools. Goroutine-safe.
