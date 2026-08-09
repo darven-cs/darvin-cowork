@@ -88,9 +88,10 @@ func (r *Registry) EvaluatePermission(toolName string, args map[string]any) Perm
 
 // pathEscape reports whether a tool's path arguments leave the authorized
 // roots. read_file may also touch the run's granted-read set (attached files);
-// write/edit/list/shell must stay inside the workspace root. Paths rejected by
-// an exclusion pattern (inside the workspace but filtered) are not "escapes" —
-// the tool denies them on its own, no approval loop.
+// the file-write tools (write/edit/list/move/multi_edit/delete_range/
+// delete_symbol) and shell must stay inside the workspace root. Paths rejected
+// by an exclusion pattern (inside the workspace but filtered) are not
+// "escapes" — the tool denies them on its own, no approval loop.
 func (r *Registry) pathEscape(toolName string, args map[string]any) (reason, path string, escaped bool) {
 	if r.sb == nil {
 		// hand-assembled registry (tests / custom tools): no containment
@@ -108,16 +109,30 @@ func (r *Registry) pathEscape(toolName string, args map[string]any) (reason, pat
 			return "", "", false
 		}
 		return "read path outside authorized roots: " + p, p, true
-	case "write_file", "edit_file", "list_dir":
+	case "write_file", "edit_file", "list_dir", "multi_edit", "delete_range", "delete_symbol":
 		p, _ := args["path"].(string)
-		_, err := r.sb.Resolve(p)
-		if err == nil {
-			return "", "", false
+		if _, err := r.sb.Resolve(p); err != nil {
+			if errors.Is(err, ErrPathExcluded) {
+				return "", "", false
+			}
+			return "path outside workspace: " + p, p, true
 		}
-		if errors.Is(err, ErrPathExcluded) {
-			return "", "", false
+		return "", "", false
+	case "move_file":
+		// move_file carries two paths; either escaping is an escalation.
+		for _, k := range []string{"source_path", "destination_path"} {
+			p, _ := args[k].(string)
+			if p == "" {
+				continue
+			}
+			if _, err := r.sb.Resolve(p); err != nil {
+				if errors.Is(err, ErrPathExcluded) {
+					continue
+				}
+				return "path outside workspace: " + p, p, true
+			}
 		}
-		return "path outside workspace: " + p, p, true
+		return "", "", false
 	case "shell":
 		cwd, _ := args["cwd"].(string)
 		if cwd == "" {

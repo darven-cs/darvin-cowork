@@ -18,5 +18,9 @@ func loadTools(workspace string, cfg *config.Config, log *zap.Logger) (*tool.Reg
 		log.Warn("skills: tool registry init failed, using empty registry", zap.Error(err))
 		toolsReg = tool.NewRegistry()
 	}
+	// web_fetch is opt-out: when disabled, drop it from the shared registry.
+	if !cfg.Agent.WebFetchEnabled {
+		_ = toolsReg.Unregister("web_fetch")
+	}
 	return toolsReg, nil
 }

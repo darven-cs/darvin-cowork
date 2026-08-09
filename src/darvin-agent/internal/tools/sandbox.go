@@ -389,3 +389,11 @@ func (s *Sandbox) RealRoot() string {
 	_, rr := s.roots()
 	return rr
 }
+
+// IsExcluded reports whether any component of the absolute path matches a
+// workspace exclusion pattern. Used by recursive search tools (grep / glob)
+// to prune excluded directories during a walk.
+func (s *Sandbox) IsExcluded(abs string) bool {
+	_, ok := matchExclusion(s.exclusions, abs)
+	return ok
+}

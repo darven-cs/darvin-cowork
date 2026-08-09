@@ -168,12 +168,25 @@ func TestRegistryRegisterTagsBuiltInKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries := reg.ListByKind(KindBuiltIn)
-	if len(entries) != 5 {
-		t.Fatalf("len(ListByKind(builtin)) = %d, want 5", len(entries))
+	want := map[string]bool{
+		"read_file": true, "write_file": true, "edit_file": true, "list_dir": true,
+		"shell": true, "grep": true, "glob": true, "move_file": true,
+		"multi_edit": true, "delete_range": true, "delete_symbol": true, "web_fetch": true,
 	}
-	// Every entry from NewBuiltins must be classified as a built-in.
-	if n := len(reg.List()); n != 5 {
-		t.Errorf("len(List()) = %d, want 5", n)
+	entries := reg.ListByKind(KindBuiltIn)
+	if len(entries) != len(want) {
+		t.Fatalf("len(ListByKind(builtin)) = %d, want %d", len(entries), len(want))
+	}
+	for _, e := range entries {
+		if e.Kind != KindBuiltIn {
+			t.Errorf("entry %s kind = %q, want builtin", e.Tool.Name(), e.Kind)
+		}
+		if !want[e.Tool.Name()] {
+			t.Errorf("unexpected builtin %s", e.Tool.Name())
+		}
+		delete(want, e.Tool.Name())
+	}
+	if len(want) != 0 {
+		t.Errorf("missing builtins: %v", want)
 	}
 }

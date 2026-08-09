@@ -83,6 +83,8 @@ type AgentConfig struct {
 	MemoryFactsLimit int `mapstructure:"memory_facts_limit"`
 	// MemoryFactsCacheTTL bounds the per-(sessionID, query) FTS cache; <= 0 disables.
 	MemoryFactsCacheTTL string `mapstructure:"memory_facts_cache_ttl"`
+	// WebFetchEnabled registers the web_fetch tool; default true.
+	WebFetchEnabled bool `mapstructure:"web_fetch_enabled"`
 }
 
 var globalConfig *Config
@@ -141,6 +143,8 @@ func Load(configPath string) (*Config, error) {
 	if err := viper.BindEnv("database.sessions_dsn", "DARVIN_SESSIONS_DSN"); err != nil {
 		return nil, fmt.Errorf("bind DARVIN_SESSIONS_DSN: %w", err)
 	}
+	// web_fetch is enabled unless the operator opts out.
+	viper.SetDefault("agent.web_fetch_enabled", true)
 
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, err

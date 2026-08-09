@@ -3,6 +3,7 @@ module darvin-cowork/backend
 go 1.22
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
