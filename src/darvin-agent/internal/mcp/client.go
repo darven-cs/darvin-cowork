@@ -1,5 +1,7 @@
-// Implements the JSON-RPC 2.0 client over a single transport.
-
+// Package mcp implements the Go side of the Model Context Protocol: a
+// JSON-RPC 2.0 client that talks to MCP servers over stdio or HTTP,
+// plus the server registry and launch resolution. Transport lives in
+// the transport subpackage; this file covers the JSON-RPC client.
 package mcp
 
 import (

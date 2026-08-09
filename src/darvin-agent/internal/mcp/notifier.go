@@ -16,13 +16,19 @@ type Notifier struct {
 	OnResolutionChanged func(serverID string, res LaunchResolution)
 }
 
+// ConnectionStatus is the short lifecycle label Registry reports to the
+// gateway on connection changes; the gateway re-emits it verbatim.
 type ConnectionStatus string
 
 const (
+	// ConnectionDisconnected means the server has never connected or shut down.
 	ConnectionDisconnected ConnectionStatus = "disconnected"
-	ConnectionConnecting   ConnectionStatus = "connecting"
-	ConnectionConnected    ConnectionStatus = "connected"
-	ConnectionError        ConnectionStatus = "error"
+	// ConnectionConnecting means a dial is in progress.
+	ConnectionConnecting ConnectionStatus = "connecting"
+	// ConnectionConnected means the handshake succeeded.
+	ConnectionConnected ConnectionStatus = "connected"
+	// ConnectionError means the last dial or read failed.
+	ConnectionError ConnectionStatus = "error"
 )
 
 // noopNotifier silences both callbacks. Used as the zero-value default

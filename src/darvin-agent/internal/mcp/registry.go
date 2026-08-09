@@ -307,3 +307,15 @@ func (r *Registry) CallTool(ctx context.Context, serverID, toolName string, args
 // ok=true means the client is connected; tools is a copy of the most recent
 // ListTools payload. The caller (gateway) maps ConnectionError straight
 // to the IPC response; main renders it as a toast.
+
+// ServerStatus is the read-only snapshot the renderer consumes. Bundles
+// the spec-shaped view with runtime state (connected, tools, error).
+type ServerStatus struct {
+	ServerID        string
+	Enabled         bool
+	Resolving       bool
+	Resolution      *LaunchResolution
+	Connected       bool
+	ConnectionError string
+	Tools           []ToolDescriptor
+}

@@ -475,3 +475,50 @@ func pickBinEntry(bin interface{}, pkgName string) (string, error) {
 		return "", fmt.Errorf("unexpected bin type %T", bin)
 	}
 }
+
+// ResolverKind classifies how a server's command is optimised before
+// launch. npx is the only fully implemented kind.
+type ResolverKind string
+
+const (
+	ResolverNpx ResolverKind = "npx"
+	ResolverUvx ResolverKind = "uvx"
+	ResolverGo  ResolverKind = "go"
+	ResolverRaw ResolverKind = "raw"
+)
+
+// ResolutionStatus is the lifecycle of a launch optimisation. The UI
+// reads this verbatim; the strings are part of the IPC contract.
+type ResolutionStatus string
+
+const (
+	StatusPending     ResolutionStatus = "pending"
+	StatusInstalling  ResolutionStatus = "installing"
+	StatusReady       ResolutionStatus = "ready"
+	StatusFailed      ResolutionStatus = "failed"
+	StatusUnsupported ResolutionStatus = "unsupported"
+)
+
+// LaunchResolution is the result of running a resolver. When Status is
+// ready, Command / Args / Env are the optimised launch line; when
+// failed or unsupported, the registry falls back to ServerSpec.Command.
+type LaunchResolution struct {
+	ServerID          string
+	ResolverKind      ResolverKind
+	SourceFingerprint string
+	Status            ResolutionStatus
+	PackageName       string
+	RequestedVersion  string
+	ResolvedVersion   string
+	InstallDir        string
+	Command           string
+	Args              []string
+	Env               map[string]string
+	Error             string
+	FailureStage      string
+	FailureElapsed    time.Duration
+	FailureStderr     string
+	InstalledAt       time.Time
+	ResolvedAt        time.Time
+	UpdatedAt         time.Time
+}
