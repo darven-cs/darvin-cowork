@@ -164,3 +164,21 @@ func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
 	}
 	return a, nil
 }
+
+// extractProviderName reads the provider name off the agent for harness
+// selection; a nil agent or provider yields "".
+func extractProviderName(a *agent.Agent) string {
+	if a == nil {
+		return ""
+	}
+	p := a.Provider()
+	if p == nil {
+		return ""
+	}
+	if n, ok := p.(interface{ Name() string }); ok {
+		return n.Name()
+	}
+	// Fallback: empty name means "no constraint" in selection.
+	_ = p
+	return ""
+}

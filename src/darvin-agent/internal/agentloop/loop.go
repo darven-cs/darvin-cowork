@@ -370,3 +370,29 @@ func (l *Loop) executeTurn(req promptReq) {
 	// the harness emitted, so the renderer has a complete picture.
 	_, _ = harness.RunAttemptWithLifecycle(runCtx, l.harness, params)
 }
+
+// errNoHarness is surfaced when a session has no harness bound. Spec 04
+// §4.2: every AgentLoopSession is built with a Harness by factory.resolveHarness.
+// A nil here means the wiring is wrong; the renderer's bubble needs an
+// explicit AgentErrorEvent or it stays in streaming state.
+var errNoHarness = errors.New("acp: session has no harness bound")
+
+// attachmentsToImages converts the agent.ImageRef slice the renderer sent
+// into the harness.ImageAttachment shape. Field-for-field conversion; the
+// DataURL is forwarded as-is and the harness defers splitting to the
+// executor (or the embedded harness's runner closure).
+func attachmentsToImages(refs []agent.ImageRef) []harness.ImageAttachment {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]harness.ImageAttachment, 0, len(refs))
+	for _, r := range refs {
+		out = append(out, harness.ImageAttachment{
+			Path:    r.Path,
+			Name:    r.Name,
+			Size:    r.Size,
+			DataURL: r.DataURL,
+		})
+	}
+	return out
+}
