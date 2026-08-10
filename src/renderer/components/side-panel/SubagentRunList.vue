@@ -103,7 +103,7 @@ function sub(run: SubagentRun): string {
 
 function right(run: SubagentRun): string {
   if (run.status === 'running') return t('artifact.subagents.section.running');
-  if (run.durationMs > 0) return `${run.durationMs}ms`;
+  if (run.durationMs > 0) return t('artifact.subagents.row.elapsed', { ms: run.durationMs });
   return '';
 }
 </script>

@@ -105,9 +105,9 @@
   - **工作量**：~500-800 行 + 持久化。
   - **优先级**：🟡 中
 
-- [ ] **Sub-agent**
+- [x] a204c72 (2026-08-10) **Sub-agent**
   - **现状**：UI 占位 (`artifact.special.subagents` = "子代理能力尚未接入")。
-  - **建议**：已抽到独立子 spec → `specs/features/subagent/2026-08-09-subagent-design.md`（5 工具 + Manager + SQLite 持久化 + 并发限流 + stale 恢复）。
+  - **建议**：已抽到独立子 spec → `specs/features/subagent/2026-08-09-subagent-design.md`（5 工具 + Manager + SQLite 持久化 + 并发限流 + stale 恢复）；**已实现落地**：5 内置工具 + Subagents artifact 面板 UI + 4 IPC 通道 + i18n，见 commit `a204c72`。
   - **工作量**：~2700 行（Go 后端，不含 UI）。
   - **优先级**：🟡 中
 
@@ -153,11 +153,11 @@
 
 - Tier 1: 0/3 完成
 - Tier 2: 0/4 完成
-- Tier 3: 0/6 完成
+- Tier 3: 1/6 完成（Sub-agent，`a204c72`）
 - Tier 4: 0/2 完成
-- 总体: 0/15 项
+- 总体: 1/15 项
 
-最近一次更新: 2026-08-09（spec 初始化）
+最近一次更新: 2026-08-10（Sub-agent 落地，`a204c72`）
 
 ---
 
