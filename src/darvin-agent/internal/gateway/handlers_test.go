@@ -17,33 +17,33 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"darvin-cowork/backend/internal/agentloop"
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/sessionruntime"
 	"darvin-cowork/backend/internal/skills"
 	tool "darvin-cowork/backend/internal/tools"
 )
 
 // newTestHandler wires factory + SessionManager so handlers run against
 // production code paths. The prompt path goes through the factory's lazy
-// AgentLoopSession build; tests inject a Selector that returns a no-op
+// SessionRuntime build; tests inject a Selector that returns a no-op
 // embedded harness so the prompt path can drive a stub run closure
 // without dragging the full harness registry into every test.
 func newTestHandler(t *testing.T) (*Handler, *client) {
 	t.Helper()
 	prov := &blockingProvider{}
 	store := store.NewMemoryStore()
-	factory := &agentloop.AgentFactory{
+	factory := &sessionruntime.AgentFactory{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),
 		Store:    store,
 		Logger:   zap.NewNop(),
-		Selector: func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
-			return agentloop.NewEmbeddedTestHarness(a), nil
+		Selector: func(a *agent.Agent, _ *sessionruntime.AgentFactory) (harness.Harness, error) {
+			return sessionruntime.NewEmbeddedTestHarness(a), nil
 		},
 	}
 	sessions := NewSessionManager(WithAgentFactory(factory))
@@ -68,13 +68,13 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 	t.Helper()
 	prov := &blockingProvider{}
 	memStore := store.NewMemoryStore()
-	factory := &agentloop.AgentFactory{
+	factory := &sessionruntime.AgentFactory{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),
 		Store:    memStore,
 		Logger:   zap.NewNop(),
-		Selector: func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
-			return agentloop.NewEmbeddedTestHarness(a), nil
+		Selector: func(a *agent.Agent, _ *sessionruntime.AgentFactory) (harness.Harness, error) {
+			return sessionruntime.NewEmbeddedTestHarness(a), nil
 		},
 	}
 	sessions := NewSessionManager(WithAgentFactory(factory))
@@ -127,7 +127,7 @@ func TestDispatchPrompt(t *testing.T) {
 		t.Fatalf("result type: %T", resp.Result)
 	}
 	// sessionId is the Agent's own session so the caller can subscribe to
-	// it; messageId is a fresh 21-char nanoid minted by agentloop.Loop.
+	// it; messageId is a fresh 21-char nanoid minted by sessionruntime.Loop.
 	if res.SessionID != DefaultSessionID || !idRe21.MatchString(res.MessageID) {
 		t.Fatalf("id shape: %+v", res)
 	}
@@ -532,7 +532,7 @@ func TestDispatchListGetMessagesNilStores(t *testing.T) {
 
 // TestHandlePrompt_RoutesBySessionID: on the same WS connection, send
 // prompts for A and B in sequence. Both land on their respective
-// AgentLoopSession.Loop, and A / B's ActiveRunID do not interfere
+// SessionRuntime.Loop, and A / B's ActiveRunID do not interfere
 // with each other.
 func TestHandlePrompt_RoutesBySessionID(t *testing.T) {
 	_, c := newTestHandler(t)
@@ -562,16 +562,16 @@ func TestHandlePrompt_RoutesBySessionID(t *testing.T) {
 
 	entryA, _ := c.sessions.GetOrCreateEntry("a")
 	entryB, _ := c.sessions.GetOrCreateEntry("b")
-	waitForActiveRun(t, entryA.AgentLoop)
-	waitForActiveRun(t, entryB.AgentLoop)
-	if got := entryA.AgentLoop.Loop.ActiveRunID(); got == "" {
+	waitForActiveRun(t, entryA.SessionRuntime)
+	waitForActiveRun(t, entryB.SessionRuntime)
+	if got := entryA.SessionRuntime.Loop.ActiveRunID(); got == "" {
 		t.Errorf("a ActiveRunID is empty; expected in-flight")
 	}
-	if got := entryB.AgentLoop.Loop.ActiveRunID(); got == "" {
+	if got := entryB.SessionRuntime.Loop.ActiveRunID(); got == "" {
 		t.Errorf("b ActiveRunID is empty; expected in-flight")
 	}
-	if entryA.AgentLoop == entryB.AgentLoop {
-		t.Fatalf("a and b share AgentLoopSession — per-session isolation broken")
+	if entryA.SessionRuntime == entryB.SessionRuntime {
+		t.Fatalf("a and b share SessionRuntime — per-session isolation broken")
 	}
 }
 
@@ -596,8 +596,8 @@ func TestHandleAbort_RoutesBySessionIDAndRunID(t *testing.T) {
 
 	entryA, _ := c.sessions.GetOrCreateEntry("a")
 	entryB, _ := c.sessions.GetOrCreateEntry("b")
-	waitForActiveRun(t, entryA.AgentLoop)
-	waitForActiveRun(t, entryB.AgentLoop)
+	waitForActiveRun(t, entryA.SessionRuntime)
+	waitForActiveRun(t, entryB.SessionRuntime)
 
 	abortResp := dispatchRequest(context.Background(), &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"3"`), Method: "agent.abort",
@@ -607,8 +607,8 @@ func TestHandleAbort_RoutesBySessionIDAndRunID(t *testing.T) {
 		t.Fatalf("abort a: %+v", abortResp.Error)
 	}
 
-	waitForCondition(t, func() bool { return entryA.AgentLoop.Loop.ActiveRunID() == "" })
-	if got := entryB.AgentLoop.Loop.ActiveRunID(); got != "run-b" {
+	waitForCondition(t, func() bool { return entryA.SessionRuntime.Loop.ActiveRunID() == "" })
+	if got := entryB.SessionRuntime.Loop.ActiveRunID(); got != "run-b" {
 		t.Fatalf("b ActiveRunID = %q, want \"run-b\" (must NOT be cancelled)", got)
 	}
 }
@@ -630,7 +630,7 @@ func TestHandlePrompt_QueuedForActiveSession(t *testing.T) {
 		t.Fatalf("first prompt should not be queued")
 	}
 	entryA, _ := c.sessions.GetOrCreateEntry("a")
-	waitForActiveRun(t, entryA.AgentLoop)
+	waitForActiveRun(t, entryA.SessionRuntime)
 
 	second := dispatchRequest(context.Background(), &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"2"`), Method: "agent.prompt",
@@ -644,14 +644,14 @@ func TestHandlePrompt_QueuedForActiveSession(t *testing.T) {
 	}
 }
 
-// TestHandleSubscribeEvents_BuildsEntryNotAgentLoop: subscribe runs in
+// TestHandleSubscribeEvents_BuildsEntryNotSessionRuntime: subscribe runs in
 // two phases. It only creates the SessionEntry and must NOT lazily
-// build AgentLoopSession — otherwise subscribing to historical sessions
+// build SessionRuntime — otherwise subscribing to historical sessions
 // from the renderer would spin up N agents / loops / subscriptions.
 // The assertion reads byID directly instead of calling GetOrCreateEntry,
 // because the latter would trigger the "phase-2" upgrade and mask the
 // behaviour under test.
-func TestHandleSubscribeEvents_BuildsEntryNotAgentLoop(t *testing.T) {
+func TestHandleSubscribeEvents_BuildsEntryNotSessionRuntime(t *testing.T) {
 	_, c := newTestHandler(t)
 	resp := dispatchRequest(context.Background(), &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.subscribe_events",
@@ -669,8 +669,8 @@ func TestHandleSubscribeEvents_BuildsEntryNotAgentLoop(t *testing.T) {
 	if entry == nil {
 		t.Fatalf("entry vanished from byID")
 	}
-	if entry.AgentLoop != nil {
-		t.Fatalf("subscribe must NOT trigger AgentLoopSession build; got AgentLoop=%+v", entry.AgentLoop)
+	if entry.SessionRuntime != nil {
+		t.Fatalf("subscribe must NOT trigger SessionRuntime build; got SessionRuntime=%+v", entry.SessionRuntime)
 	}
 }
 
@@ -678,7 +678,7 @@ func TestHandleSubscribeEvents_BuildsEntryNotAgentLoop(t *testing.T) {
 // picked up and the activeRun was set. State-based instead of
 // subscription-event-based to avoid the "subscription arrives after
 // the event burst" race that makes waitForSubEvent time out.
-func waitForActiveRun(t *testing.T, sess *agentloop.AgentLoopSession) {
+func waitForActiveRun(t *testing.T, sess *sessionruntime.SessionRuntime) {
 	t.Helper()
 	waitForCondition(t, func() bool { return sess.Loop.ActiveRunID() != "" })
 }
@@ -1254,14 +1254,14 @@ func newTestHandlerWithPlugins(t *testing.T, plugins []tool.Plugin) (*Handler, *
 	t.Helper()
 	prov := &blockingProvider{}
 	store := store.NewMemoryStore()
-	factory := &agentloop.AgentFactory{
+	factory := &sessionruntime.AgentFactory{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),
 		Store:    store,
 		Logger:   zap.NewNop(),
 		Plugins:  plugins,
-		Selector: func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
-			return agentloop.NewEmbeddedTestHarness(a), nil
+		Selector: func(a *agent.Agent, _ *sessionruntime.AgentFactory) (harness.Harness, error) {
+			return sessionruntime.NewEmbeddedTestHarness(a), nil
 		},
 	}
 	sessions := NewSessionManager(WithAgentFactory(factory))

@@ -56,7 +56,7 @@ type SubagentInfo struct {
 	ResultTruncated bool           `json:"resultTruncated,omitempty"`
 }
 
-// SubagentsAccessor is the surface Agent and AgentLoopSession consume.
+// SubagentsAccessor is the surface Agent and SessionRuntime consume.
 // Implementations live in internal/subagent/.
 type SubagentsAccessor interface {
 	Spawn(ctx context.Context, spec SubagentSpec) (*SubagentInfo, error)

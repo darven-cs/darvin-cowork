@@ -197,7 +197,7 @@ npx eslint --ext .ts,.tsx,.vue <files>
 - `cmd/app/main.go`：15 行，仅 `os.Exit(runApp(os.Args[1:]))`；`runApp` 是 var，测试可替换入口。
 - `internal/runtime/`：single assembly entry；`Build(ctx, Options) (*Runtime, error)` 加载 config + DB + LLM provider + 装配 agent factory + bootstrap skills / MCP + 启动 gateway + bootstrap active session；`Run(args)` 接 SIGINT / SIGTERM；`Shutdown(ctx)` 关闭 server / harness / SQLite。
 - `internal/gateway/`：WS server（端口由 main 端从 stdout 解析）+ JSON-RPC framing + handler dispatch + per-session manager + per-session event ledger。
-- `internal/agentloop/`：`Loop` 单一所有者，按 session 串行 turn 队列；`Submit` / `Steer`（cancel in-flight + steerQueue + wake）/ `Close`；`agent.Prompt + agent.Run` 走 `harness.BuiltinEmbeddedHarness`。
+- `internal/sessionruntime/`：per-session agent 运行时。`AgentFactory` 装配 Agent + Harness + Loop + DeltaHook + Subagents；`Loop` 单一所有者，按 session 串行 turn 队列（`Submit` / `Steer` / `SubmitSkill` / `Stop` / `Abort` / `Close`）；`hydrate` 从 MessageStore / DigestStore 恢复会话历史；`SessionRuntime` 是生命周期容器（Close 链 Subagents → DeltaHook → Loop）。prompt 路径走 `harness.RunAttemptWithLifecycle`。
 - `internal/agents/`：`Agent.Prompt / Run / Abort / Subscribe`；`dispatcher` enqueue + runMsgID；subpackage `queue / session / store / executor / perm / ctxengine / msgid / protocol / runtime / usage`。
 - `internal/llm/`：streaming protocol + `anthropic/` 子包 + 兼容层 + registry；events 与 errors 单独文件。
 - `internal/tools/`：built-in shell / fs / sandbox + permission + registry + MCP bridge；exclusions 文件白名单。

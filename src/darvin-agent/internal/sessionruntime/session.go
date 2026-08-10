@@ -1,6 +1,6 @@
 // Bundles the Agent + Harness + Loop for a single active session.
 
-package agentloop
+package sessionruntime
 
 import (
 	agent "darvin-cowork/backend/internal/agents"
@@ -8,7 +8,7 @@ import (
 	"darvin-cowork/backend/internal/subagent"
 )
 
-// AgentLoopSession bundles the Agent + Harness + Loop for a single
+// SessionRuntime bundles the Agent + Harness + Loop for a single
 // session id. SessionManager lazily builds it on the first prompt
 // and tears it down on evict.
 //
@@ -17,7 +17,7 @@ import (
 // Agent.Prompt + Agent.Run directly. The skill path still calls
 // Agent directly because the skill flow needs Agent-held transient
 // state (RunSkillPrompt / RunSkillTools).
-type AgentLoopSession struct {
+type SessionRuntime struct {
 	SessionID string
 	Agent     *agent.Agent
 	Harness   harness.Harness
@@ -39,7 +39,7 @@ type AgentLoopSession struct {
 // why SessionManager runs Close on a background goroutine —
 // entry.cancel only triggers ctx.Done(); the actual Loop shutdown
 // comes from the goroutine watching ctx, not from cancel itself.
-func (s *AgentLoopSession) Close() {
+func (s *SessionRuntime) Close() {
 	if s == nil {
 		return
 	}

@@ -5,9 +5,9 @@ package runtime
 import (
 	"context"
 
-	"darvin-cowork/backend/internal/agentloop"
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/harness"
+	"darvin-cowork/backend/internal/sessionruntime"
 )
 
 // newEmbeddedHarness builds the in-process harness that drives
@@ -30,6 +30,6 @@ func newEmbeddedHarness(a *agent.Agent) harness.Harness {
 // defaultHarnessSelector is the runtime's default factory.Selector:
 // every agent is driven by an embedded harness closure that calls
 // back into that exact agent instance.
-func defaultHarnessSelector(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
+func defaultHarnessSelector(a *agent.Agent, _ *sessionruntime.AgentFactory) (harness.Harness, error) {
 	return newEmbeddedHarness(a), nil
 }

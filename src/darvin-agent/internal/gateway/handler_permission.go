@@ -33,10 +33,10 @@ func handlePermissionResponse(_ context.Context, id json.RawMessage, params json
 		return errorResp(id, CodeInvalidParams, "sessionId, requestId and behavior (allow|deny) are required", nil)
 	}
 	entry, err := c.sessions.GetOrCreateEntry(p.SessionID)
-	if err != nil || entry.AgentLoop == nil || entry.AgentLoop.Agent == nil {
+	if err != nil || entry.SessionRuntime == nil || entry.SessionRuntime.Agent == nil {
 		return errorResp(id, CodeAgentInitFailed, "no agent bound for session", nil)
 	}
-	entry.AgentLoop.Agent.ResolvePermission(p.RequestID, executor.PermissionResult{
+	entry.SessionRuntime.Agent.ResolvePermission(p.RequestID, executor.PermissionResult{
 		Behavior:     p.Behavior,
 		UpdatedInput: p.UpdatedInput,
 		Message:      p.Message,

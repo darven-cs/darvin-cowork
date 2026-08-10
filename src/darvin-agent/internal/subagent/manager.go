@@ -62,7 +62,7 @@ type runState struct {
 }
 
 // Runner is the pluggable turn-driver. Implementations are wired by
-// agentloop.Factory; tests can pass a stub that returns canned output.
+// sessionruntime.Factory; tests can pass a stub that returns canned output.
 // The runner must respect ctx cancellation, return the final assistant
 // text, count tool calls, and surface any error (which Manager maps to
 // status="error").

@@ -141,10 +141,10 @@ func handleSubagentAbort(ctx context.Context, id json.RawMessage, params json.Ra
 		return errorResp(id, CodeInvalidParams, "runId must be <parentSessionID>/sub/<rand>", nil)
 	}
 	entry, err := h.Sessions.GetOrCreateEntry(parent)
-	if err != nil || entry.AgentLoop == nil || entry.AgentLoop.Agent == nil {
+	if err != nil || entry.SessionRuntime == nil || entry.SessionRuntime.Agent == nil {
 		return successResp(id, map[string]any{"ok": true})
 	}
-	sm := entry.AgentLoop.Agent.Subagents()
+	sm := entry.SessionRuntime.Agent.Subagents()
 	if sm == nil {
 		return successResp(id, map[string]any{"ok": true})
 	}
@@ -176,8 +176,8 @@ func handleSubagentReadResult(ctx context.Context, id json.RawMessage, params js
 	parent := parentOfRunID(p.RunID)
 	if parent != "" {
 		entry, err := h.Sessions.GetOrCreateEntry(parent)
-		if err == nil && entry.AgentLoop != nil && entry.AgentLoop.Agent != nil {
-			if sm := entry.AgentLoop.Agent.Subagents(); sm != nil {
+		if err == nil && entry.SessionRuntime != nil && entry.SessionRuntime.Agent != nil {
+			if sm := entry.SessionRuntime.Agent.Subagents(); sm != nil {
 				text, rerr := sm.ReadResult(p.RunID, p.Offset, p.Limit)
 				if rerr == nil {
 					return successResp(id, SubagentReadResultResult{Text: text})

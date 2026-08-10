@@ -10,21 +10,21 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/agentloop"
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
+	"darvin-cowork/backend/internal/sessionruntime"
 	tool "darvin-cowork/backend/internal/tools"
 )
 
 // TestHandlePromptFactoryResolvesHarness asserts the factory's selector is
-// consulted when a session is lazily built, and the resulting AgentLoopSession
+// consulted when a session is lazily built, and the resulting SessionRuntime
 // carries the harness so Loop drives through it.
 func TestHandlePromptFactoryResolvesHarness(t *testing.T) {
 	var called bool
-	handler := harnessWireTestHandler(t, func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
+	handler := harnessWireTestHandler(t, func(a *agent.Agent, _ *sessionruntime.AgentFactory) (harness.Harness, error) {
 		called = true
-		return agentloop.NewEmbeddedTestHarness(a), nil
+		return sessionruntime.NewEmbeddedTestHarness(a), nil
 	})
 	client := newClientFromHandler(handler)
 
@@ -45,7 +45,7 @@ func TestHandlePromptFactoryResolvesHarness(t *testing.T) {
 // through the ledger to the subscriber.
 func TestHandlePromptGoesThroughHarness(t *testing.T) {
 	var runCalled atomic.Bool
-	handler := harnessWireTestHandler(t, func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
+	handler := harnessWireTestHandler(t, func(a *agent.Agent, _ *sessionruntime.AgentFactory) (harness.Harness, error) {
 		return harness.NewEmbedded(harness.EmbeddedConfig{
 			Run: func(ctx context.Context, p harness.RunAttemptParams) (*harness.AttemptResult, error) {
 				runCalled.Store(true)
@@ -77,7 +77,7 @@ func TestHandlePromptGoesThroughHarness(t *testing.T) {
 // TestHarnessNotRegistered asserts an explicit HarnessID that is absent
 // from the registry fails the session build.
 func TestHarnessNotRegistered(t *testing.T) {
-	handler := harnessWireTestHandler(t, func(*agent.Agent, *agentloop.AgentFactory) (harness.Harness, error) {
+	handler := harnessWireTestHandler(t, func(*agent.Agent, *sessionruntime.AgentFactory) (harness.Harness, error) {
 		// Selector must never be reached: the explicit id fails first.
 		t.Fatal("selector consulted despite explicit HarnessID")
 		return nil, nil
@@ -103,8 +103,8 @@ func TestHarnessNotRegistered(t *testing.T) {
 // The blocking provider keeps the run alive; the harness selector wires a
 // forwarder; Stop cancels the run context.
 func TestHandleAbortStopsHarness(t *testing.T) {
-	handler := harnessWireTestHandler(t, func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
-		return agentloop.NewEmbeddedTestHarness(a), nil
+	handler := harnessWireTestHandler(t, func(a *agent.Agent, _ *sessionruntime.AgentFactory) (harness.Harness, error) {
+		return sessionruntime.NewEmbeddedTestHarness(a), nil
 	})
 	client := newClientFromHandler(handler)
 
@@ -121,8 +121,8 @@ func TestHandleAbortStopsHarness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateEntry: %v", err)
 	}
-	waitForCondition(t, func() bool { return entry.AgentLoop.Loop.ActiveRunID() != "" })
-	runID := entry.AgentLoop.Loop.ActiveRunID()
+	waitForCondition(t, func() bool { return entry.SessionRuntime.Loop.ActiveRunID() != "" })
+	runID := entry.SessionRuntime.Loop.ActiveRunID()
 	if runID == "" {
 		t.Fatal("no in-flight run to abort")
 	}
@@ -135,16 +135,16 @@ func TestHandleAbortStopsHarness(t *testing.T) {
 		t.Fatalf("abort error: %+v", abort.Error)
 	}
 
-	waitForCondition(t, func() bool { return entry.AgentLoop.Loop.ActiveRunID() == "" })
+	waitForCondition(t, func() bool { return entry.SessionRuntime.Loop.ActiveRunID() == "" })
 }
 
 // harnessWireTestHandler builds a handler whose factory uses sel as its
 // harness selector.
-func harnessWireTestHandler(t *testing.T, sel agentloop.HarnessSelector) *Handler {
+func harnessWireTestHandler(t *testing.T, sel sessionruntime.HarnessSelector) *Handler {
 	t.Helper()
 	prov := &blockingProvider{}
 	st := store.NewMemoryStore()
-	factory := &agentloop.AgentFactory{
+	factory := &sessionruntime.AgentFactory{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),
 		Store:    st,

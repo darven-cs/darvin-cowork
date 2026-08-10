@@ -12,12 +12,12 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/agentloop"
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
+	"darvin-cowork/backend/internal/sessionruntime"
 	tool "darvin-cowork/backend/internal/tools"
 )
 
@@ -29,19 +29,19 @@ import (
 // test harness so resolveHarness passes without the production registry.
 //
 // Tests that need the prompt path to actually start a turn (e.g.
-// stoppedUntil / evict tests that observe AgentLoop.Agent.IsRunning) need an
+// stoppedUntil / evict tests that observe SessionRuntime.Agent.IsRunning) need an
 // embedded harness that drives Agent.Prompt + Agent.Run. The selector here
-// returns the no-op harness because attachAgentLoop in this file uses
-// installRunningAgentLoop to side-step the factory path and keep the turn
+// returns the no-op harness because attachSessionRuntime in this file uses
+// installRunningSessionRuntime to side-step the factory path and keep the turn
 // observable.
-func newTestAgentFactoryForSessionMgr() *agentloop.AgentFactory {
-	return &agentloop.AgentFactory{
+func newTestAgentFactoryForSessionMgr() *sessionruntime.AgentFactory {
+	return &sessionruntime.AgentFactory{
 		Provider: &blockingProvider{},
 		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 		Logger:   zap.NewNop(),
-		Selector: func(*agent.Agent, *agentloop.AgentFactory) (harness.Harness, error) {
-			return agentloop.HarnessForTest, nil
+		Selector: func(*agent.Agent, *sessionruntime.AgentFactory) (harness.Harness, error) {
+			return sessionruntime.HarnessForTest, nil
 		},
 	}
 }
@@ -95,26 +95,26 @@ func waitForCondition(t *testing.T, cond func() bool) {
 	t.Fatal("condition not met within budget")
 }
 
-// installRunningAgentLoop builds an AgentLoopSession with a blocking
+// installRunningSessionRuntime builds an SessionRuntime with a blocking
 // provider, pushes a turn into the in-flight state, and manually
 // attaches it to m's entry — equivalent to what the lazy build path
 // leaves behind, except it sidesteps GetOrCreateEntry's factory call
 // so factory-free tests do not build twice.
 //
 // The background goroutine mirrors the cancel watcher in
-// attachAgentLoopLocked; evict tests poll Submit until they observe
+// attachSessionRuntimeLocked; evict tests poll Submit until they observe
 // ErrLoopClosed to confirm the Loop is actually shut down.
-func installRunningAgentLoop(t *testing.T, m *SessionManager, id, runID string) *agentloop.AgentLoopSession {
+func installRunningSessionRuntime(t *testing.T, m *SessionManager, id, runID string) *sessionruntime.SessionRuntime {
 	t.Helper()
 	// The factory's selector runs after Build, so it can wire a harness
 	// whose Run closure drives the freshly-built agent.
 	factory := newTestAgentFactoryForSessionMgr()
-	factory.Selector = func(a *agent.Agent, _ *agentloop.AgentFactory) (harness.Harness, error) {
-		return agentloop.NewEmbeddedTestHarness(a), nil
+	factory.Selector = func(a *agent.Agent, _ *sessionruntime.AgentFactory) (harness.Harness, error) {
+		return sessionruntime.NewEmbeddedTestHarness(a), nil
 	}
-	sess, err := factory.NewAgentLoopSession(id)
+	sess, err := factory.NewSessionRuntime(id)
 	if err != nil {
-		t.Fatalf("NewAgentLoopSession(%q): %v", id, err)
+		t.Fatalf("NewSessionRuntime(%q): %v", id, err)
 	}
 	sub := sess.Agent.Subscribe(64)
 	t.Cleanup(func() {
@@ -132,7 +132,7 @@ func installRunningAgentLoop(t *testing.T, m *SessionManager, id, runID string) 
 		}
 		sess.Close()
 	})
-	ticket, err := sess.Loop.Submit(agentloop.PromptRequest{RunID: runID, Content: "test"})
+	ticket, err := sess.Loop.Submit(sessionruntime.PromptRequest{RunID: runID, Content: "test"})
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -150,7 +150,7 @@ func installRunningAgentLoop(t *testing.T, m *SessionManager, id, runID string) 
 		m.byID[id] = e
 		e.idleElem = m.idleOrder.PushFront(id)
 	}
-	e.AgentLoop = sess
+	e.SessionRuntime = sess
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
 	m.mu.Unlock()
@@ -316,7 +316,7 @@ func TestActiveRunNotEvicted(t *testing.T) {
 	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
-	installRunningAgentLoop(t, m, DefaultSessionID, "default-run")
+	installRunningSessionRuntime(t, m, DefaultSessionID, "default-run")
 	m.mu.Lock()
 	def := m.byID[DefaultSessionID]
 	if def.idleElem != nil {
@@ -347,7 +347,7 @@ func TestActiveRunOnlyReturnsLimit(t *testing.T) {
 		if _, err := m.GetOrCreateEntry(id); err != nil {
 			t.Fatalf("seed %s: %v", id, err)
 		}
-		installRunningAgentLoop(t, m, id, id+"-run")
+		installRunningSessionRuntime(t, m, id, id+"-run")
 	}
 	_, err := m.GetOrCreateEntry("s2")
 	if !errors.Is(err, ErrSessionsLimit) {
@@ -382,7 +382,7 @@ func TestReapIdleSessionsKeepsActive(t *testing.T) {
 	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
-	installRunningAgentLoop(t, m, DefaultSessionID, "run-1")
+	installRunningSessionRuntime(t, m, DefaultSessionID, "run-1")
 	clk.advance(200 * time.Millisecond)
 	m.reapIdleSessions()
 	if !m.Has(DefaultSessionID) {
@@ -395,7 +395,7 @@ func TestStopByRunIdMatches(t *testing.T) {
 	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
-	sess := installRunningAgentLoop(t, m, DefaultSessionID, "run-1")
+	sess := installRunningSessionRuntime(t, m, DefaultSessionID, "run-1")
 	if err := m.Stop(DefaultSessionID, "run-1"); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
@@ -418,9 +418,9 @@ func TestStopReturnsNotFoundAndMismatch(t *testing.T) {
 		t.Fatalf("seed default: %v", err)
 	}
 	if err := m.Stop(DefaultSessionID, "r"); !errors.Is(err, ErrRunMismatch) {
-		t.Fatalf("no-AgentLoop stop: err = %v, want ErrRunMismatch", err)
+		t.Fatalf("no-SessionRuntime stop: err = %v, want ErrRunMismatch", err)
 	}
-	installRunningAgentLoop(t, m, DefaultSessionID, "actual")
+	installRunningSessionRuntime(t, m, DefaultSessionID, "actual")
 	if err := m.Stop(DefaultSessionID, "stale"); !errors.Is(err, ErrRunMismatch) {
 		t.Fatalf("wrong-id stop: err = %v, want ErrRunMismatch", err)
 	}
@@ -431,7 +431,7 @@ func TestStoppedUntilBlocksPrompt(t *testing.T) {
 	if _, err := m.GetOrCreateEntry(DefaultSessionID); err != nil {
 		t.Fatalf("seed default: %v", err)
 	}
-	installRunningAgentLoop(t, m, DefaultSessionID, "run-1")
+	installRunningSessionRuntime(t, m, DefaultSessionID, "run-1")
 	if err := m.Stop(DefaultSessionID, "run-1"); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
@@ -447,13 +447,13 @@ func TestStoppedUntilBlocksPrompt(t *testing.T) {
 
 func TestSessionManager_LazyBuildPerSession(t *testing.T) {
 	prov := &blockingProvider{}
-	factory := &agentloop.AgentFactory{
+	factory := &sessionruntime.AgentFactory{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 		Logger:   zap.NewNop(),
-		Selector: func(*agent.Agent, *agentloop.AgentFactory) (harness.Harness, error) {
-			return agentloop.HarnessForTest, nil
+		Selector: func(*agent.Agent, *sessionruntime.AgentFactory) (harness.Harness, error) {
+			return sessionruntime.HarnessForTest, nil
 		},
 	}
 	m := NewSessionManager(WithAgentFactory(factory))
@@ -465,24 +465,24 @@ func TestSessionManager_LazyBuildPerSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateEntry b: %v", err)
 	}
-	if a.AgentLoop == nil || b.AgentLoop == nil {
-		t.Fatalf("expected both entries to have AgentLoopSession built; got a=%v b=%v", a.AgentLoop, b.AgentLoop)
+	if a.SessionRuntime == nil || b.SessionRuntime == nil {
+		t.Fatalf("expected both entries to have SessionRuntime built; got a=%v b=%v", a.SessionRuntime, b.SessionRuntime)
 	}
-	if a.AgentLoop == b.AgentLoop {
-		t.Fatalf("two ids share the same AgentLoopSession — per-session isolation broken")
+	if a.SessionRuntime == b.SessionRuntime {
+		t.Fatalf("two ids share the same SessionRuntime — per-session isolation broken")
 	}
-	if a.AgentLoop.SessionID != "a" || b.AgentLoop.SessionID != "b" {
-		t.Fatalf("AgentLoopSessionID mismatch: a=%q b=%q", a.AgentLoop.SessionID, b.AgentLoop.SessionID)
+	if a.SessionRuntime.SessionID != "a" || b.SessionRuntime.SessionID != "b" {
+		t.Fatalf("SessionRuntimeID mismatch: a=%q b=%q", a.SessionRuntime.SessionID, b.SessionRuntime.SessionID)
 	}
 }
 
 func TestSessionManager_StopGoesToPerSessionLoop(t *testing.T) {
 	m := NewSessionManager()
-	sa := installRunningAgentLoop(t, m, "a", "run-a")
+	sa := installRunningSessionRuntime(t, m, "a", "run-a")
 	if _, err := m.GetOrCreateEntry("b"); err != nil {
 		t.Fatalf("GetOrCreateEntry b: %v", err)
 	}
-	sb := installRunningAgentLoop(t, m, "b", "run-b")
+	sb := installRunningSessionRuntime(t, m, "b", "run-b")
 
 	if err := m.Stop("a", "run-a"); err != nil {
 		t.Fatalf("Stop a/run-a: %v", err)
@@ -493,12 +493,12 @@ func TestSessionManager_StopGoesToPerSessionLoop(t *testing.T) {
 	}
 }
 
-func TestSessionManager_EvictClosesAgentLoopSession(t *testing.T) {
+func TestSessionManager_EvictClosesSessionRuntime(t *testing.T) {
 	m, _ := withFakeClock(2, time.Hour)
 	if _, err := m.GetOrCreateEntry("a"); err != nil {
 		t.Fatalf("seed a: %v", err)
 	}
-	sa := installRunningAgentLoop(t, m, "a", "run-a")
+	sa := installRunningSessionRuntime(t, m, "a", "run-a")
 	if err := m.Stop("a", "run-a"); err != nil {
 		t.Fatalf("Stop a: %v", err)
 	}
@@ -514,8 +514,8 @@ func TestSessionManager_EvictClosesAgentLoopSession(t *testing.T) {
 		t.Fatalf("a must be evicted as LRU tail")
 	}
 	waitForCondition(t, func() bool {
-		_, err := sa.Loop.Submit(agentloop.PromptRequest{Content: "after-evict"})
-		return errors.Is(err, agentloop.ErrLoopClosed)
+		_, err := sa.Loop.Submit(sessionruntime.PromptRequest{Content: "after-evict"})
+		return errors.Is(err, sessionruntime.ErrLoopClosed)
 	})
 }
 
@@ -524,7 +524,7 @@ func TestSessionManager_EvictClosesAgentLoopSession(t *testing.T) {
 // startup (misconfigured / missing key) are closer to reality than
 // a mock factory.
 func TestSessionManager_LazyBuildFailureRollsBack(t *testing.T) {
-	factory := &agentloop.AgentFactory{
+	factory := &sessionruntime.AgentFactory{
 		Provider: nil,
 		Logger:   zap.NewNop(),
 	}
@@ -543,18 +543,18 @@ func TestSessionManager_LazyBuildFailureRollsBack(t *testing.T) {
 }
 
 // Regression for the subscription-then-prompt flow: when the renderer
-// subscribes to historical sessions during startup, AgentLoopSession is
+// subscribes to historical sessions during startup, SessionRuntime is
 // nil on those entries. The first prompt on such an id must hit the
-// "existing entry" branch and lazily build AgentLoopSession, instead of
-// returning CodeNoAgentLoopSession.
+// "existing entry" branch and lazily build SessionRuntime, instead of
+// returning CodeNoSessionRuntime.
 func TestSessionManager_PromptUpgradesEntryCreatedBySubscribe(t *testing.T) {
-	factory := &agentloop.AgentFactory{
+	factory := &sessionruntime.AgentFactory{
 		Provider: &blockingProvider{},
 		Tools:    tool.NewRegistry(),
 		Store:    store.NewMemoryStore(),
 		Logger:   zap.NewNop(),
-		Selector: func(*agent.Agent, *agentloop.AgentFactory) (harness.Harness, error) {
-			return agentloop.HarnessForTest, nil
+		Selector: func(*agent.Agent, *sessionruntime.AgentFactory) (harness.Harness, error) {
+			return sessionruntime.HarnessForTest, nil
 		},
 	}
 	m := NewSessionManager(WithAgentFactory(factory))
@@ -565,19 +565,19 @@ func TestSessionManager_PromptUpgradesEntryCreatedBySubscribe(t *testing.T) {
 	m.mu.Lock()
 	empty := m.byID["sub-then-prompt"]
 	m.mu.Unlock()
-	if empty.AgentLoop != nil {
-		t.Fatalf("EnsureEntry leaked AgentLoopSession: %+v", empty)
+	if empty.SessionRuntime != nil {
+		t.Fatalf("EnsureEntry leaked SessionRuntime: %+v", empty)
 	}
 
 	upgraded, err := m.GetOrCreateEntry("sub-then-prompt")
 	if err != nil {
 		t.Fatalf("GetOrCreateEntry upgrade: %v", err)
 	}
-	if upgraded.AgentLoop == nil {
-		t.Fatalf("expected AgentLoopSession built on the upgrade path; got nil")
+	if upgraded.SessionRuntime == nil {
+		t.Fatalf("expected SessionRuntime built on the upgrade path; got nil")
 	}
-	if upgraded.AgentLoop.SessionID != "sub-then-prompt" {
-		t.Fatalf("AgentLoopSessionID = %q, want %q", upgraded.AgentLoop.SessionID, "sub-then-prompt")
+	if upgraded.SessionRuntime.SessionID != "sub-then-prompt" {
+		t.Fatalf("SessionRuntimeID = %q, want %q", upgraded.SessionRuntime.SessionID, "sub-then-prompt")
 	}
 	if n := m.Len(); n != 1 {
 		t.Fatalf("Len = %d, want 1 (no leak)", n)
@@ -587,7 +587,7 @@ func TestSessionManager_PromptUpgradesEntryCreatedBySubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second GetOrCreateEntry: %v", err)
 	}
-	if second.AgentLoop != upgraded.AgentLoop {
-		t.Fatalf("second call must reuse the upgraded AgentLoopSession, not rebuild")
+	if second.SessionRuntime != upgraded.SessionRuntime {
+		t.Fatalf("second call must reuse the upgraded SessionRuntime, not rebuild")
 	}
 }

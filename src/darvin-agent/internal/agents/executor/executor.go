@@ -97,7 +97,7 @@ type Deps interface {
 	McpServers() []ctxengine.MCPServerInfo
 
 	// Subagents returns the per-session sub-agent manager wired by
-	// agentloop.AgentFactory; nil means sub-agent tools are unavailable.
+	// sessionruntime.AgentFactory; nil means sub-agent tools are unavailable.
 	Subagents() *subagent.Manager
 
 	// PersistCompaction records a compaction digest. Called after

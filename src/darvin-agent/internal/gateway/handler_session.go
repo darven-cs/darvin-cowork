@@ -304,7 +304,7 @@ func usageTotalCompletion(rec *store.UsageRecord) int {
 // handleCreateSession creates a new session and makes it active:
 //  1. Mint a 21-char nanoid via SessionManager.idGen.
 //  2. GetOrCreateEntry to build the SessionEntry, lazily building
-//     AgentLoopSession through the factory.
+//     SessionRuntime through the factory.
 //  3. Persist via SessionStore (default title); UpdateTitle when a
 //     non-empty title is provided.
 //  4. AppState.SetActiveSession to persist the active slot.

@@ -10,10 +10,10 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/agentloop"
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
+	"darvin-cowork/backend/internal/sessionruntime"
 	"darvin-cowork/backend/internal/skills"
 	tool "darvin-cowork/backend/internal/tools"
 )
@@ -30,13 +30,13 @@ func skillTestHandler(t *testing.T) (*Handler, *client) {
 	t.Helper()
 	prov := &blockingProvider{}
 	st := store.NewMemoryStore()
-	factory := &agentloop.AgentFactory{
+	factory := &sessionruntime.AgentFactory{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),
 		Store:    st,
 		Logger:   zap.NewNop(),
-		Selector: func(*agent.Agent, *agentloop.AgentFactory) (harness.Harness, error) {
-			return agentloop.HarnessForTest, nil
+		Selector: func(*agent.Agent, *sessionruntime.AgentFactory) (harness.Harness, error) {
+			return sessionruntime.HarnessForTest, nil
 		},
 	}
 	sessions := NewSessionManager(WithAgentFactory(factory))

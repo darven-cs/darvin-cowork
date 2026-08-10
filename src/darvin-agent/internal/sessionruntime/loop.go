@@ -1,7 +1,7 @@
-// Package agentloop wraps the agent runtime in a minimal per-session
+// Package sessionruntime wraps the agent runtime in a minimal per-session
 // surface used by the gateway handlers. Loop owns one session's turn
 // queue and the in-flight messageID.
-package agentloop
+package sessionruntime
 
 import (
 	"context"
@@ -339,7 +339,7 @@ func (l *Loop) executeTurn(req promptReq) {
 	}
 
 	if l.harness == nil {
-		// Spec 04 §4.2: every AgentLoopSession is built with a Harness (factory
+		// Spec 04 §4.2: every SessionRuntime is built with a Harness (factory
 		// resolveHarness picks one). A nil here is a wiring bug; surface it
 		// the same way the agent would have.
 		l.agent.Emit(event.AgentErrorEvent{
@@ -372,7 +372,7 @@ func (l *Loop) executeTurn(req promptReq) {
 }
 
 // errNoHarness is surfaced when a session has no harness bound. Spec 04
-// §4.2: every AgentLoopSession is built with a Harness by factory.resolveHarness.
+// §4.2: every SessionRuntime is built with a Harness by factory.resolveHarness.
 // A nil here means the wiring is wrong; the renderer's bubble needs an
 // explicit AgentErrorEvent or it stays in streaming state.
 var errNoHarness = errors.New("acp: session has no harness bound")

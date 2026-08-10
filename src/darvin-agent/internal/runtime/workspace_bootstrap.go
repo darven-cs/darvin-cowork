@@ -13,7 +13,7 @@ import (
 
 // WorkspaceBootstrap is the workspace-level cache of the three
 // bootstrap files (IDENTITY.md / SOUL.md / USER.md). Process-level
-// singleton: every AgentLoopSession sees the same snapshot, and a
+// singleton: every SessionRuntime sees the same snapshot, and a
 // bootstrap.write RPC invalidates the entry so the next Assemble
 // re-reads from disk.
 type WorkspaceBootstrap struct {

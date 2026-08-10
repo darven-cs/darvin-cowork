@@ -18,9 +18,9 @@ const (
 	// CodeSessionStalled: prompt inside the refusal window after Stop.
 	CodeSessionStalled = -32001
 
-	// CodeNoAgentLoopSession: handler hit an entry whose
-	// AgentLoopSession is not built (subscribe preceded prompt).
-	CodeNoAgentLoopSession = -32002
+	// CodeNoSessionRuntime: handler hit an entry whose
+	// SessionRuntime is not built (subscribe preceded prompt).
+	CodeNoSessionRuntime = -32002
 
 	// CodeAgentInitFailed: lazy build failed; renderer may retry.
 	CodeAgentInitFailed = -32003

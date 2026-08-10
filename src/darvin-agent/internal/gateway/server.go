@@ -56,7 +56,7 @@ func WithPort(port int) ServerOption {
 }
 
 // NewServer wires the *Handler (which carries the SessionManager /
-// EventLedger and the per-session agentloop.Loop dependencies) and the
+// EventLedger and the per-session sessionruntime.Loop dependencies) and the
 // server-local zap logger. By default the gateway binds the fixed
 // DefaultPort; pass WithPort(0) for an OS-assigned port (tests). The
 // actual port is reported via the stdout contract below.

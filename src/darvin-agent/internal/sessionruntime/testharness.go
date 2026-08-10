@@ -1,6 +1,6 @@
 // Test-only embedded harness that drives an agent prompt + run loop.
 
-package agentloop
+package sessionruntime
 
 import (
 	"context"

@@ -18,7 +18,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/agentloop"
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/config"
@@ -28,6 +27,7 @@ import (
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/mcp"
 	"darvin-cowork/backend/internal/memory"
+	"darvin-cowork/backend/internal/sessionruntime"
 	"darvin-cowork/backend/internal/skills"
 	tool "darvin-cowork/backend/internal/tools"
 )
@@ -48,7 +48,7 @@ type Options struct {
 	// HarnessSelector injects a custom harness selector for tests;
 	// nil falls back to defaultHarnessSelector (embedded harness that
 	// drives agent.Prompt + agent.Run).
-	HarnessSelector agentloop.HarnessSelector
+	HarnessSelector sessionruntime.HarnessSelector
 
 	// ExtraPlugins is appended to the factory's plugin list at Build
 	// time. nil in production; tests / ACP session/new may inject.
@@ -70,7 +70,7 @@ type Runtime struct {
 	Server             *gateway.Server
 	MCP                *mcp.Registry
 	Skills             *skills.BootstrapResult
-	Factory            *agentloop.AgentFactory
+	Factory            *sessionruntime.AgentFactory
 	Stores             Stores
 	WorkspaceBootstrap *WorkspaceBootstrap
 }

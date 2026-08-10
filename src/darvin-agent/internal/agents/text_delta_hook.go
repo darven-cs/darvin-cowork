@@ -56,7 +56,7 @@ func (h *TextDeltaHook) Attach(a *Agent) {
 }
 
 // Close unsubscribes, which closes the subscription channel and lets the
-// drain goroutine exit. Idempotent. Called from AgentLoopSession.Close on evict.
+// drain goroutine exit. Idempotent. Called from SessionRuntime.Close on evict.
 func (h *TextDeltaHook) Close() {
 	if h.sub != nil {
 		h.sub.Unsubscribe()

@@ -166,7 +166,7 @@ type McpRegisterParams struct {
 
 func handleMcpRegister(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Mcp == nil {
-		return errorResp(id, CodeNoAgentLoopSession, "mcp registry not configured", nil)
+		return errorResp(id, CodeNoSessionRuntime, "mcp registry not configured", nil)
 	}
 	var p McpRegisterParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -188,7 +188,7 @@ type McpUpdateParams struct {
 
 func handleMcpUpdate(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Mcp == nil {
-		return errorResp(id, CodeNoAgentLoopSession, "mcp registry not configured", nil)
+		return errorResp(id, CodeNoSessionRuntime, "mcp registry not configured", nil)
 	}
 	var p McpUpdateParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -214,7 +214,7 @@ type McpServerIDParams struct {
 
 func handleMcpUnregister(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Mcp == nil {
-		return errorResp(id, CodeNoAgentLoopSession, "mcp registry not configured", nil)
+		return errorResp(id, CodeNoSessionRuntime, "mcp registry not configured", nil)
 	}
 	var p McpServerIDParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -233,7 +233,7 @@ type McpSetEnabledParams struct {
 
 func handleMcpSetEnabled(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Mcp == nil {
-		return errorResp(id, CodeNoAgentLoopSession, "mcp registry not configured", nil)
+		return errorResp(id, CodeNoSessionRuntime, "mcp registry not configured", nil)
 	}
 	var p McpSetEnabledParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -274,7 +274,7 @@ func handleMcpTest(id json.RawMessage, params json.RawMessage, h *Handler) *Resp
 
 func handleMcpRetryResolution(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Mcp == nil {
-		return errorResp(id, CodeNoAgentLoopSession, "mcp registry not configured", nil)
+		return errorResp(id, CodeNoSessionRuntime, "mcp registry not configured", nil)
 	}
 	var p McpServerIDParams
 	if err := json.Unmarshal(params, &p); err != nil {

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"darvin-cowork/backend/internal/agentloop"
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
+	"darvin-cowork/backend/internal/sessionruntime"
 )
 
 type PromptParams struct {
@@ -83,11 +83,11 @@ type SteerResult struct {
 // ListSessionsResult is the JSON-RPC result for agent.list_sessions.
 // Matches DarvinListSessionsResponse in src/shared/darvin-api.ts:
 
-// handlePrompt routes the prompt to sessionID's AgentLoopSession.Loop.
+// handlePrompt routes the prompt to sessionID's SessionRuntime.Loop.
 // ErrSessionStalled (Stop refusal window) maps to CodeSessionStalled;
 // factory construction failure maps to CodeAgentInitFailed; the
-// handler-test stub case (entry.AgentLoop is nil) maps to
-// CodeNoAgentLoopSession. Empty sessionId falls back to DefaultSessionID,
+// handler-test stub case (entry.SessionRuntime is nil) maps to
+// CodeNoSessionRuntime. Empty sessionId falls back to DefaultSessionID,
 // matching the legacy CreateOrGet behaviour.
 func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage, c *client, h *Handler) *Response {
 	if len(params) == 0 {
@@ -112,11 +112,11 @@ func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage,
 		}
 		return errorResp(id, CodeAgentInitFailed, "get session", err)
 	}
-	if entry.AgentLoop == nil {
+	if entry.SessionRuntime == nil {
 		// Reached when the handler-test stub did not wire a factory.
-		return errorResp(id, CodeNoAgentLoopSession, "no AgentLoopSession bound", nil)
+		return errorResp(id, CodeNoSessionRuntime, "no SessionRuntime bound", nil)
 	}
-	ticket, err := entry.AgentLoop.Loop.Submit(agentloop.PromptRequest{RunID: p.RunID, Content: p.Content, Attachments: p.Attachments, Images: p.Images})
+	ticket, err := entry.SessionRuntime.Loop.Submit(sessionruntime.PromptRequest{RunID: p.RunID, Content: p.Content, Attachments: p.Attachments, Images: p.Images})
 	if err != nil {
 		return errorResp(id, CodeInternalError, "loop submit", err)
 	}
@@ -164,7 +164,7 @@ type CompactContextResult struct {
 
 // handleCompactContext triggers one manual context compaction. When
 // the session is not in a compactable state (running / no assembler /
-// no AgentLoopSession) it returns accepted=false and the renderer
+// no SessionRuntime) it returns accepted=false and the renderer
 // keeps the spinner as-is without entering the next. The compact
 // itself includes an LLM summary call and runs in the background to
 // avoid blocking the WS read loop; final success / failure is
@@ -180,10 +180,10 @@ func handleCompactContext(_ context.Context, id json.RawMessage, params json.Raw
 		return errorResp(id, CodeInvalidParams, "sessionId is required", nil)
 	}
 	entry, err := c.sessions.GetOrCreateEntry(p.SessionID)
-	if err != nil || entry.AgentLoop == nil || entry.AgentLoop.Agent == nil {
+	if err != nil || entry.SessionRuntime == nil || entry.SessionRuntime.Agent == nil {
 		return successResp(id, CompactContextResult{Accepted: false, SessionID: p.SessionID})
 	}
-	a := entry.AgentLoop.Agent
+	a := entry.SessionRuntime.Agent
 	if a.IsRunning() || a.Assembler() == nil || !a.AssemblerEnabled() {
 		return successResp(id, CompactContextResult{Accepted: false, SessionID: p.SessionID})
 	}
@@ -220,7 +220,7 @@ func runManualCompact(a *agent.Agent, sessionID string) {
 }
 
 // handleSubscribeEvents runs in two phases: EnsureEntry only creates the
-// SessionEntry and does not lazily build AgentLoopSession, so subscribing
+// SessionEntry and does not lazily build SessionRuntime, so subscribing
 // to historical sessions from the renderer does not spin up N agents /
 // loops / subscriptions. The real event source is materialised on the
 // first prompt arrival.
@@ -263,10 +263,10 @@ func handleSteer(ctx context.Context, id json.RawMessage, params json.RawMessage
 	if err != nil {
 		return errorResp(id, CodeInternalError, "session lookup", err)
 	}
-	if entry.AgentLoop == nil {
-		return errorResp(id, CodeNoAgentLoopSession, "session has no agent loop", nil)
+	if entry.SessionRuntime == nil {
+		return errorResp(id, CodeNoSessionRuntime, "session has no agent loop", nil)
 	}
-	ticket, err := entry.AgentLoop.Loop.Steer(agentloop.PromptRequest{
+	ticket, err := entry.SessionRuntime.Loop.Steer(sessionruntime.PromptRequest{
 		RunID:   p.RunID,
 		Content: p.Content,
 	})

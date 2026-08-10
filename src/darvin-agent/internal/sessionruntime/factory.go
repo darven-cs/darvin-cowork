@@ -1,6 +1,6 @@
 // AgentFactory assembles the Agent, Harness, and Loop for a new session.
 
-package agentloop
+package sessionruntime
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 
 // AgentFactory carries the shared dependencies needed to build an
 // *agent.Agent. main.go constructs one and injects it into
-// SessionManager, which calls NewAgentLoopSession on the lazy build path.
+// SessionManager, which calls NewSessionRuntime on the lazy build path.
 type AgentFactory struct {
 	Name          string
 	Instructions  string
@@ -57,7 +57,7 @@ type AgentFactory struct {
 	WorkspaceBootstrap agent.BootstrapReader
 
 	// HarnessID pins a specific harness by id. Empty defers to
-	// harness.SelectHarness at NewAgentLoopSession time.
+	// harness.SelectHarness at NewSessionRuntime time.
 	HarnessID string
 
 	// Selector is the factory's harness selector. nil falls back to the
@@ -69,13 +69,13 @@ type AgentFactory struct {
 // HarnessSelector chooses a harness for a given session.
 type HarnessSelector func(a *agent.Agent, f *AgentFactory) (harness.Harness, error)
 
-// NewAgentLoopSession constructs the Agent + Harness + Loop and attaches
+// NewSessionRuntime constructs the Agent + Harness + Loop and attaches
 // Loop's CurrentMessageID / CurrentRunID onto Agent so event IDs match
 // Loop's state. Order matters: build Loop first, then call
 // AttachMessageIDSrc, otherwise Deps.Current* resolves to "". When
 // MessageStore is wired, TextDeltaHook (streaming persistence) is also
-// attached and cleaned up by AgentLoopSession.Close on evict.
-func (f *AgentFactory) NewAgentLoopSession(sessionID string) (*AgentLoopSession, error) {
+// attached and cleaned up by SessionRuntime.Close on evict.
+func (f *AgentFactory) NewSessionRuntime(sessionID string) (*SessionRuntime, error) {
 	a, err := f.Build(sessionID)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func (f *AgentFactory) NewAgentLoopSession(sessionID string) (*AgentLoopSession,
 	a.AttachUserMessageIDSrc(l.CurrentUserMessageID)
 	deltaHook := agent.NewTextDeltaHook(f.MessageStore, f.Logger)
 	deltaHook.Attach(a)
-	sess := &AgentLoopSession{
+	sess := &SessionRuntime{
 		SessionID: sessionID,
 		Agent:     a,
 		Harness:   h,

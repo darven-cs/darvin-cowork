@@ -189,7 +189,7 @@ type Agent struct {
 	// SetToolResultTransformer; nil = no transform).
 	toolTransformer func(protocol.Result) protocol.Result
 
-	// subagents wired by agentloop.AgentFactory after New(); nil until then.
+	// subagents wired by sessionruntime.AgentFactory after New(); nil until then.
 	subagents *subagent.Manager
 }
 

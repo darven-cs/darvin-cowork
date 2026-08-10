@@ -1,6 +1,6 @@
 // Tests for the Loop turn queue, run IDs, abort, and steer behavior.
 
-package agentloop
+package sessionruntime
 
 import (
 	"context"

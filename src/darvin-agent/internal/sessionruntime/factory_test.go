@@ -1,6 +1,6 @@
 // Tests for the AgentFactory assembly and close behavior.
 
-package agentloop
+package sessionruntime
 
 import (
 	"context"
@@ -42,9 +42,9 @@ func newTestFactory() *AgentFactory {
 
 func TestFactory_BuildAttachesLoopAndSources(t *testing.T) {
 	f := newTestFactory()
-	sess, err := f.NewAgentLoopSession("alpha")
+	sess, err := f.NewSessionRuntime("alpha")
 	if err != nil {
-		t.Fatalf("NewAgentLoopSession: %v", err)
+		t.Fatalf("NewSessionRuntime: %v", err)
 	}
 	t.Cleanup(sess.Close)
 
@@ -70,14 +70,14 @@ func TestFactory_BuildAttachesLoopAndSources(t *testing.T) {
 
 func TestFactory_DifferentSessionIDsDifferentAgents(t *testing.T) {
 	f := newTestFactory()
-	a, err := f.NewAgentLoopSession("alpha")
+	a, err := f.NewSessionRuntime("alpha")
 	if err != nil {
-		t.Fatalf("NewAgentLoopSession alpha: %v", err)
+		t.Fatalf("NewSessionRuntime alpha: %v", err)
 	}
 	t.Cleanup(a.Close)
-	b, err := f.NewAgentLoopSession("beta")
+	b, err := f.NewSessionRuntime("beta")
 	if err != nil {
-		t.Fatalf("NewAgentLoopSession beta: %v", err)
+		t.Fatalf("NewSessionRuntime beta: %v", err)
 	}
 	t.Cleanup(b.Close)
 
@@ -100,9 +100,9 @@ func TestFactory_DifferentSessionIDsDifferentAgents(t *testing.T) {
 
 func TestFactory_CloseIsIdempotent(t *testing.T) {
 	f := newTestFactory()
-	sess, err := f.NewAgentLoopSession("alpha")
+	sess, err := f.NewSessionRuntime("alpha")
 	if err != nil {
-		t.Fatalf("NewAgentLoopSession: %v", err)
+		t.Fatalf("NewSessionRuntime: %v", err)
 	}
 	sess.Close()
 	sess.Close()

@@ -5,11 +5,11 @@ package runtime
 import (
 	"go.uber.org/zap"
 
-	"darvin-cowork/backend/internal/agentloop"
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/memory"
+	"darvin-cowork/backend/internal/sessionruntime"
 	tool "darvin-cowork/backend/internal/tools"
 )
 
@@ -31,7 +31,7 @@ type AgentFactoryDeps struct {
 	Config             agent.Config
 	Tools              *tool.Registry
 	AssemblerEnabled   bool
-	HarnessSelector    agentloop.HarnessSelector
+	HarnessSelector    sessionruntime.HarnessSelector
 	ExtraPlugins       []tool.Plugin
 	Memory             *memory.Manager
 	WorkspaceBootstrap *WorkspaceBootstrap
@@ -40,12 +40,12 @@ type AgentFactoryDeps struct {
 // newAgentFactory constructs the per-session factory. The Selector
 // is always set explicitly (defaultHarnessSelector when the caller
 // passes nil) so factory.Selector is never an implicit fallback.
-func newAgentFactory(d AgentFactoryDeps) *agentloop.AgentFactory {
+func newAgentFactory(d AgentFactoryDeps) *sessionruntime.AgentFactory {
 	selector := d.HarnessSelector
 	if selector == nil {
 		selector = defaultHarnessSelector
 	}
-	return &agentloop.AgentFactory{
+	return &sessionruntime.AgentFactory{
 		Name:               d.Name,
 		Instructions:       d.Instructions,
 		Model:              d.Model,

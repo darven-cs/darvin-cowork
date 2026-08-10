@@ -1,6 +1,6 @@
 // Tests for session hydration and record-to-message conversion.
 
-package agentloop
+package sessionruntime
 
 import (
 	"context"
@@ -70,9 +70,9 @@ func TestHydrate_RestoresConversationInOrder(t *testing.T) {
 	}
 
 	f := factoryWithMessageStore(ms)
-	sess, err := f.NewAgentLoopSession("alpha")
+	sess, err := f.NewSessionRuntime("alpha")
 	if err != nil {
-		t.Fatalf("NewAgentLoopSession: %v", err)
+		t.Fatalf("NewSessionRuntime: %v", err)
 	}
 	t.Cleanup(sess.Close)
 
@@ -109,9 +109,9 @@ func TestHydrate_RebuildsToolResultMessages(t *testing.T) {
 	}
 
 	f := factoryWithMessageStore(ms)
-	sess, err := f.NewAgentLoopSession("alpha")
+	sess, err := f.NewSessionRuntime("alpha")
 	if err != nil {
-		t.Fatalf("NewAgentLoopSession: %v", err)
+		t.Fatalf("NewSessionRuntime: %v", err)
 	}
 	t.Cleanup(sess.Close)
 
@@ -145,9 +145,9 @@ func TestHydrate_SkipsSystemAndIncomplete(t *testing.T) {
 	}
 
 	f := factoryWithMessageStore(ms)
-	sess, err := f.NewAgentLoopSession("alpha")
+	sess, err := f.NewSessionRuntime("alpha")
 	if err != nil {
-		t.Fatalf("NewAgentLoopSession: %v", err)
+		t.Fatalf("NewSessionRuntime: %v", err)
 	}
 	t.Cleanup(sess.Close)
 
@@ -162,9 +162,9 @@ func TestHydrate_SkipsSystemAndIncomplete(t *testing.T) {
 
 func TestHydrate_NilMessageStoreLeavesEmptySession(t *testing.T) {
 	f := factoryWithMessageStore(nil)
-	sess, err := f.NewAgentLoopSession("alpha")
+	sess, err := f.NewSessionRuntime("alpha")
 	if err != nil {
-		t.Fatalf("NewAgentLoopSession: %v", err)
+		t.Fatalf("NewSessionRuntime: %v", err)
 	}
 	t.Cleanup(sess.Close)
 	if got := sess.Agent.Session().Len(); got != 0 {
@@ -183,9 +183,9 @@ func TestHydrate_IgnoresOtherSessions(t *testing.T) {
 	}
 
 	f := factoryWithMessageStore(ms)
-	sess, err := f.NewAgentLoopSession("alpha")
+	sess, err := f.NewSessionRuntime("alpha")
 	if err != nil {
-		t.Fatalf("NewAgentLoopSession: %v", err)
+		t.Fatalf("NewSessionRuntime: %v", err)
 	}
 	t.Cleanup(sess.Close)
 	if got := sess.Agent.Session().Len(); got != 0 {

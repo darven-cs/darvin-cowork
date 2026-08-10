@@ -1,7 +1,7 @@
 // Package gateway: per-session state index. SessionManager holds an
 // in-memory session id → *SessionEntry map; persistence lives in
 // agent/store and this package only tracks "which sessions are active".
-// Entries lazily build AgentLoopSession on the first prompt; the
+// Entries lazily build SessionRuntime on the first prompt; the
 // subscribe path builds only the SessionEntry so subscribing to
 // historical sessions does not spin up an Agent per session.
 package gateway
@@ -15,9 +15,9 @@ import (
 
 	"github.com/jaevor/go-nanoid"
 
-	"darvin-cowork/backend/internal/agentloop"
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
+	"darvin-cowork/backend/internal/sessionruntime"
 )
 
 const (
@@ -40,18 +40,18 @@ const (
 )
 
 // SessionEntry is the per-session state held by SessionManager; fields
-// are mutex-protected, handlers do not write them directly. AgentLoop
+// are mutex-protected, handlers do not write them directly. SessionRuntime
 // is lazily built on the first prompt; an entry without it can only be
 // subscribed to, not submitted to / stopped.
 type SessionEntry struct {
-	Session   *session.Session
-	AgentLoop *agentloop.AgentLoopSession
+	Session        *session.Session
+	SessionRuntime *sessionruntime.SessionRuntime
 
 	lastTouchedMs  int64
 	stoppedUntilMs int64
 
 	// cancel triggers the background goroutine that calls
-	// AgentLoopSession.Loop.Close (see attachAgentLoopLocked).
+	// SessionRuntime.Loop.Close (see attachSessionRuntimeLocked).
 	cancel context.CancelFunc
 
 	idleElem *list.Element
@@ -66,7 +66,7 @@ var (
 	ErrSessionNotFound = errors.New("sessionmgr: session not found")
 
 	// ErrRunMismatch: Stop's runID does not match the active run, or the
-	// session has no AgentLoopSession yet. Stop is a no-op in both cases.
+	// session has no SessionRuntime yet. Stop is a no-op in both cases.
 	ErrRunMismatch = errors.New("sessionmgr: run id mismatch")
 
 	// ErrSessionStalled is returned when a prompt lands inside the
@@ -89,12 +89,12 @@ type SessionManager struct {
 
 	idGen func() string
 
-	// factory lazily builds AgentLoopSession on the unknown-id branch
+	// factory lazily builds SessionRuntime on the unknown-id branch
 	// of GetOrCreateEntry. nil disables the lazy build (handler tests
 	// / legacy main take the "session only" path).
-	factory *agentloop.AgentFactory
+	factory *sessionruntime.AgentFactory
 
-	// ledger attaches the AgentLoopSession event-bus subscription on
+	// ledger attaches the SessionRuntime event-bus subscription on
 	// the lazy build path.
 	ledger *EventLedger
 }
@@ -103,12 +103,12 @@ type SessionManager struct {
 type SessionManagerOption func(*SessionManager)
 
 // WithAgentFactory enables the lazy build path: once factory is wired,
-// GetOrCreateEntry calls factory.NewAgentLoopSession(id) on unknown ids.
-func WithAgentFactory(f *agentloop.AgentFactory) SessionManagerOption {
+// GetOrCreateEntry calls factory.NewSessionRuntime(id) on unknown ids.
+func WithAgentFactory(f *sessionruntime.AgentFactory) SessionManagerOption {
 	return func(m *SessionManager) { m.factory = f }
 }
 
-// WithEventLedger attaches the newly-built AgentLoopSession's event
+// WithEventLedger attaches the newly-built SessionRuntime's event
 // subscription to the WS event ledger so its events fan out to
 // clients subscribed to that session id.
 func WithEventLedger(l *EventLedger) SessionManagerOption {
@@ -150,8 +150,8 @@ func (m *SessionManager) Remove(id string) error {
 	if !ok {
 		return ErrSessionNotFound
 	}
-	if e.AgentLoop != nil {
-		_ = e.AgentLoop.Loop.Abort(context.Background())
+	if e.SessionRuntime != nil {
+		_ = e.SessionRuntime.Loop.Abort(context.Background())
 	}
 	if e.cancel != nil {
 		e.cancel()
@@ -175,7 +175,7 @@ func (m *SessionManager) Has(id string) bool {
 }
 
 // RefreshAllTools re-runs the factory plugin step (Unregister + Register)
-// for every agent with an already-built AgentLoopSession so the tool
+// for every agent with an already-built SessionRuntime so the tool
 // surface tracks skill / mcp changes. Returns the count refreshed.
 func (m *SessionManager) RefreshAllTools() int {
 	m.mu.Lock()
@@ -185,10 +185,10 @@ func (m *SessionManager) RefreshAllTools() int {
 	}
 	var n int
 	for _, e := range m.byID {
-		if e.AgentLoop == nil {
+		if e.SessionRuntime == nil {
 			continue
 		}
-		reg := e.AgentLoop.Agent.Tools()
+		reg := e.SessionRuntime.Agent.Tools()
 		tr, ok := reg.(protocol.ToolRegistrar)
 		if !ok {
 			continue
@@ -205,9 +205,9 @@ func (m *SessionManager) RefreshAllTools() int {
 }
 
 // GetOrCreateEntry returns the SessionEntry for id, creating it (and
-// lazily building AgentLoopSession when factory is wired) for unknown
+// lazily building SessionRuntime when factory is wired) for unknown
 // ids. On a hit it checks stoppedUntilMs (ErrSessionStalled), refreshes
-// lastTouchedMs, bumps the LRU head, and lazily builds AgentLoop if
+// lastTouchedMs, bumps the LRU head, and lazily builds SessionRuntime if
 // subscribe pre-created an empty entry. Lazy-build failure rolls back
 // byID + LRU so a half-built entry cannot stall the next retry; a full
 // cap of active runs returns ErrSessionsLimit (never interrupts a run).
@@ -221,8 +221,8 @@ func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {
 		}
 		e.lastTouchedMs = m.nowMs()
 		m.touchLRU(e)
-		if e.AgentLoop == nil && m.factory != nil {
-			if err := m.attachAgentLoopLocked(e); err != nil {
+		if e.SessionRuntime == nil && m.factory != nil {
+			if err := m.attachSessionRuntimeLocked(e); err != nil {
 				return nil, err
 			}
 		}
@@ -234,7 +234,7 @@ func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {
 		return nil, err
 	}
 	if m.factory != nil {
-		if err := m.attachAgentLoopLocked(e); err != nil {
+		if err := m.attachSessionRuntimeLocked(e); err != nil {
 			return nil, err
 		}
 	}
@@ -242,7 +242,7 @@ func (m *SessionManager) GetOrCreateEntry(id string) (*SessionEntry, error) {
 }
 
 // EnsureEntry returns the SessionEntry for id, creating it WITHOUT the
-// lazy AgentLoopSession build (the subscribe handler uses it so
+// lazy SessionRuntime build (the subscribe handler uses it so
 // subscribing to historical sessions does not spin up an Agent per
 // session). stoppedUntilMs / LRU / maxSessions match GetOrCreateEntry.
 func (m *SessionManager) EnsureEntry(id string) (*SessionEntry, error) {
@@ -286,11 +286,11 @@ func (m *SessionManager) createEntryLocked(id string) (*SessionEntry, error) {
 	return e, nil
 }
 
-// attachAgentLoopLocked calls factory.NewAgentLoopSession and attaches
+// attachSessionRuntimeLocked calls factory.NewSessionRuntime and attaches
 // the result (plus the ledger subscription); on failure it rolls back
 // byID + LRU. Caller holds m.mu.
-func (m *SessionManager) attachAgentLoopLocked(e *SessionEntry) error {
-	agentLoopSess, err := m.factory.NewAgentLoopSession(e.Session.ID)
+func (m *SessionManager) attachSessionRuntimeLocked(e *SessionEntry) error {
+	agentLoopSess, err := m.factory.NewSessionRuntime(e.Session.ID)
 	if err != nil {
 		delete(m.byID, e.Session.ID)
 		if e.idleElem != nil {
@@ -299,7 +299,7 @@ func (m *SessionManager) attachAgentLoopLocked(e *SessionEntry) error {
 		}
 		return err
 	}
-	e.AgentLoop = agentLoopSess
+	e.SessionRuntime = agentLoopSess
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
 	// Close blocks until the run goroutine exits; run in background so
@@ -338,7 +338,7 @@ func (m *SessionManager) Get(id string) (*session.Session, string) {
 // Stop aborts the turn matching (sessionID, runID).
 //
 //   - session unknown → ErrSessionNotFound
-//   - no AgentLoopSession / Loop.Stop false → ErrRunMismatch
+//   - no SessionRuntime / Loop.Stop false → ErrRunMismatch
 //   - success: cancels the in-flight turn and pushes stoppedUntilMs to
 //     now()+StopWindow (prompts inside the window get ErrSessionStalled).
 func (m *SessionManager) Stop(sessionID, runID string) error {
@@ -349,10 +349,10 @@ func (m *SessionManager) Stop(sessionID, runID string) error {
 	if !ok {
 		return ErrSessionNotFound
 	}
-	if e.AgentLoop == nil {
+	if e.SessionRuntime == nil {
 		return ErrRunMismatch
 	}
-	if !e.AgentLoop.Loop.Stop(runID) {
+	if !e.SessionRuntime.Loop.Stop(runID) {
 		return ErrRunMismatch
 	}
 	e.stoppedUntilMs = m.nowMs() + m.stopWindow.Milliseconds()
@@ -386,7 +386,7 @@ func (m *SessionManager) reapIdleLocked() {
 		}
 		id := elem.Value.(string)
 		e := m.byID[id]
-		if e.AgentLoop != nil && e.AgentLoop.Loop.ActiveRunID() != "" {
+		if e.SessionRuntime != nil && e.SessionRuntime.Loop.ActiveRunID() != "" {
 			return
 		}
 		if e.lastTouchedMs > cutoff {
@@ -402,7 +402,7 @@ func (m *SessionManager) evictLRULocked() bool {
 	for elem := m.idleOrder.Back(); elem != nil; elem = elem.Prev() {
 		id := elem.Value.(string)
 		e := m.byID[id]
-		if e.AgentLoop == nil || e.AgentLoop.Loop.ActiveRunID() == "" {
+		if e.SessionRuntime == nil || e.SessionRuntime.Loop.ActiveRunID() == "" {
 			m.evictLocked(id)
 			return true
 		}
@@ -416,11 +416,11 @@ func (m *SessionManager) evictLocked(id string) {
 	if !ok {
 		return
 	}
-	if e.AgentLoop != nil && e.AgentLoop.Loop.ActiveRunID() != "" {
+	if e.SessionRuntime != nil && e.SessionRuntime.Loop.ActiveRunID() != "" {
 		return
 	}
-	if e.AgentLoop != nil {
-		_ = e.AgentLoop.Loop.Abort(context.Background())
+	if e.SessionRuntime != nil {
+		_ = e.SessionRuntime.Loop.Abort(context.Background())
 	}
 	if e.cancel != nil {
 		e.cancel()

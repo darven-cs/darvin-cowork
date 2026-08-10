@@ -8,7 +8,7 @@ import (
 	"errors"
 	"strings"
 
-	"darvin-cowork/backend/internal/agentloop"
+	"darvin-cowork/backend/internal/sessionruntime"
 	"darvin-cowork/backend/internal/skills"
 )
 
@@ -66,7 +66,7 @@ type ListToolsParams struct {
 
 // handleListTools returns the merged agent tool registry view for the
 // given session (default when omitted). When the session has not yet
-// built an AgentLoopSession we lazily build it once so the first query
+// built an SessionRuntime we lazily build it once so the first query
 // already includes the full skill / mcp plugin surface.
 func handleListTools(id json.RawMessage, params json.RawMessage, h *Handler) *Response {
 	if h.Sessions == nil {
@@ -84,10 +84,10 @@ func handleListTools(id json.RawMessage, params json.RawMessage, h *Handler) *Re
 	if err != nil {
 		return errorResp(id, CodeInternalError, err.Error(), err)
 	}
-	if entry.AgentLoop == nil {
+	if entry.SessionRuntime == nil {
 		return successResp(id, ListToolsResult{Tools: []ToolDescriptorWire{}})
 	}
-	reg := entry.AgentLoop.Agent.Tools()
+	reg := entry.SessionRuntime.Agent.Tools()
 	entries := reg.List()
 	out := make([]ToolDescriptorWire, 0, len(entries))
 	for _, e := range entries {
@@ -227,8 +227,8 @@ func handleInvokeSkillUser(id json.RawMessage, params json.RawMessage, h *Handle
 		}
 		return errorResp(id, CodeAgentInitFailed, "get session", err)
 	}
-	if entry.AgentLoop == nil {
-		return errorResp(id, CodeNoAgentLoopSession, "no AgentLoopSession bound", nil)
+	if entry.SessionRuntime == nil {
+		return errorResp(id, CodeNoSessionRuntime, "no SessionRuntime bound", nil)
 	}
 
 	content := p.Content
@@ -238,7 +238,7 @@ func handleInvokeSkillUser(id json.RawMessage, params json.RawMessage, h *Handle
 			content += " " + p.Args
 		}
 	}
-	ticket, err := entry.AgentLoop.Loop.SubmitSkill(agentloop.SkillInvocation{
+	ticket, err := entry.SessionRuntime.Loop.SubmitSkill(sessionruntime.SkillInvocation{
 		SystemPrompt: sec.SystemPrompt,
 		Content:      content,
 		Tools:        sec.Tools,
