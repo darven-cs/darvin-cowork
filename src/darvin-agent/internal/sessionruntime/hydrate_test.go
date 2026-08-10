@@ -10,6 +10,7 @@ import (
 
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/todos"
 )
 
 // fakeMessageStore is an in-memory MessageStore used to test hydration
@@ -211,5 +212,53 @@ func TestRecordToMessages_InvalidToolCallsErrors(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected error for malformed tool_calls")
+	}
+}
+
+func TestHydrate_ReseedsTodosFromFullHistory(t *testing.T) {
+	todos.Clear("alpha")
+	defer todos.Clear("alpha")
+	ms := newFakeMessageStore()
+	todoJSON := `[{"id":"call_todo","name":"todo_write","arguments":{"todos":[{"content":"Phase A","status":"in_progress"},{"content":"Sub B","status":"pending","level":1}]}}]`
+	for _, r := range []store.MessageRecord{
+		{ID: "u1", SessionID: "alpha", Role: "user", Content: "plan it", Timestamp: 1, Done: true},
+		{ID: "a1", SessionID: "alpha", Role: "assistant", Content: "", ToolCalls: todoJSON, Timestamp: 2, Done: true},
+		{ID: "u2", SessionID: "alpha", Role: "user", Content: "continue", Timestamp: 3, Done: true},
+	} {
+		if err := ms.Save(context.Background(), &r); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+	// A compaction digest whose boundary starts after the todo_write: the
+	// in-memory session drops a1, but the store must still re-seed from the
+	// full history before the boundary slice.
+	f := factoryWithMessageStore(ms)
+	f.DigestStore = store.NewMemoryDigestStore()
+	if err := f.DigestStore.Save(context.Background(), &store.SessionDigest{
+		ID:                 "digest-1",
+		SessionID:          "alpha",
+		FirstKeptID:        "u2",
+		FirstKeptTimestamp: 3,
+	}); err != nil {
+		t.Fatalf("Save digest: %v", err)
+	}
+
+	sess, err := f.NewSessionRuntime("alpha")
+	if err != nil {
+		t.Fatalf("NewSessionRuntime: %v", err)
+	}
+	t.Cleanup(sess.Close)
+
+	// session is sliced at the digest boundary: the todo_write assistant is out
+	for _, m := range sess.Agent.Session().Messages() {
+		if m.ID == "a1" {
+			t.Error("todo_write assistant should be sliced out of the session")
+		}
+	}
+	// but the host store is re-seeded from the full persisted history
+	got, ok := todos.Get("alpha")
+	if !ok || len(got) != 2 || got[0].Content != "Phase A" || got[0].Status != "in_progress" ||
+		got[1].Content != "Sub B" || got[1].Level != 1 {
+		t.Fatalf("store = %+v ok=%v, want re-seeded list", got, ok)
 	}
 }

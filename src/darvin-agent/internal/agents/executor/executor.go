@@ -17,6 +17,7 @@ import (
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/subagent"
+	"darvin-cowork/backend/internal/todos"
 )
 
 // ErrMaxTurns is returned by RunConversation when the loop reaches the
@@ -182,7 +183,8 @@ func (e *defaultExecutor) RunConversation(ctx context.Context, d Deps) error {
 			}
 		}
 
-		// 2. LLM call
+		// 2. LLM call — host-tracked task list rides the request only.
+		messages = injectActiveTodos(d, messages)
 		d.Emit(event.LLMStartEvent{
 			EventBase: event.EventBase{EventCommon: ec()},
 			Model:     d.ModelName(),
@@ -464,7 +466,44 @@ func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c protoco
 	if mgr := d.Subagents(); mgr != nil {
 		tctx = subagent.WithContext(tctx, mgr)
 	}
-	return t.Execute(tctx, c.Arguments)
+	res = t.Execute(tctx, c.Arguments)
+	if c.Name == todos.WriteToolName {
+		trackActiveTodos(d, c.Arguments, res)
+	}
+	return res
+}
+
+// injectActiveTodos appends the host-tracked task list to the request as a
+// synthetic user message. It touches only the local request slice — the
+// session and the persisted user message stay raw. Empty list → no injection.
+func injectActiveTodos(d Deps, messages []protocol.Message) []protocol.Message {
+	block := todos.Block(d.Session().ID)
+	if block == "" {
+		return messages
+	}
+	out := make([]protocol.Message, len(messages)+1)
+	copy(out, messages)
+	out[len(messages)] = protocol.Message{Role: protocol.RoleUser, Content: block}
+	return out
+}
+
+// trackActiveTodos keeps the host-side current task list in sync with the
+// model's todo_write calls. The store lives apart from the conversation
+// history so context compaction cannot fold it away; a failed call leaves
+// the previous list intact.
+func trackActiveTodos(d Deps, args map[string]any, res protocol.Result) {
+	if res.IsError {
+		return
+	}
+	items, ok := todos.ParseArgs(args)
+	if !ok {
+		return
+	}
+	if len(items) == 0 {
+		todos.Clear(d.Session().ID)
+		return
+	}
+	todos.Set(d.Session().ID, items)
 }
 
 func newTurnID() string {

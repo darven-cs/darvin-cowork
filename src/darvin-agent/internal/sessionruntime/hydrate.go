@@ -13,6 +13,7 @@ import (
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/todos"
 )
 
 const hydrateTimeout = 5 * time.Second
@@ -53,6 +54,7 @@ func hydrateSession(ctx context.Context, f *AgentFactory, sess *session.Session)
 		}
 		history = append(history, converted...)
 	}
+	seedTodosFromHistory(sess.ID, history)
 
 	var digests []store.SessionDigest
 	if f.DigestStore != nil {
@@ -99,6 +101,43 @@ func splitAtBoundary(msgs []protocol.Message, id string, ts int64) []protocol.Me
 		}
 	}
 	return msgs
+}
+
+// seedTodosFromHistory restores the host-side current task list from the
+// full persisted history. It runs before the compaction-boundary slice so a
+// todo_write that predates the latest digest still re-seeds the store on
+// restart — PersistCompaction keeps the messages table intact; only the
+// in-memory slice is cut at the digest boundary.
+func seedTodosFromHistory(sessionID string, msgs []protocol.Message) {
+	args := lastTodoWriteArgs(msgs)
+	if args == nil {
+		return
+	}
+	items, ok := todos.ParseArgs(args)
+	if !ok {
+		return
+	}
+	if len(items) == 0 {
+		todos.Clear(sessionID)
+		return
+	}
+	todos.Set(sessionID, items)
+}
+
+// lastTodoWriteArgs returns the arguments of the most recent todo_write call
+// in msgs, or nil when none exists.
+func lastTodoWriteArgs(msgs []protocol.Message) map[string]any {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != protocol.RoleAssistant {
+			continue
+		}
+		for _, tc := range msgs[i].ToolCalls {
+			if tc.Name == todos.WriteToolName {
+				return tc.Arguments
+			}
+		}
+	}
+	return nil
 }
 
 // recordToMessages converts one persisted MessageRecord into the

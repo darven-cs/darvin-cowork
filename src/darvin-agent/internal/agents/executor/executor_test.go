@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/subagent"
+	"darvin-cowork/backend/internal/todos"
 	tool "darvin-cowork/backend/internal/tools"
 )
 
@@ -695,5 +697,147 @@ func TestAssemblerActive_PassesLastUsage(t *testing.T) {
 	}
 	if rec.lastParams[0].LastUsage.PromptTokens != 0 {
 		t.Errorf("turn 0 LastUsage.PromptTokens = %d, want 0 (first turn baseline)", rec.lastParams[0].LastUsage.PromptTokens)
+	}
+}
+
+// stubTodoTool registers under the real todo_write name so the executor's
+// dispatch hook can be exercised with success or failure.
+type stubTodoTool struct{ fail bool }
+
+func (s stubTodoTool) Name() string        { return todos.WriteToolName }
+func (s stubTodoTool) Description() string { return "stub todo_write" }
+func (s stubTodoTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"todos":{"type":"array"}},"required":["todos"]}`)
+}
+func (s stubTodoTool) Execute(_ context.Context, _ map[string]any) tool.Result {
+	if s.fail {
+		return tool.Result{IsError: true, Content: "boom"}
+	}
+	return tool.Result{Content: "todo list updated: 2 items (0 completed)"}
+}
+
+// todoWriteScript returns a two-turn script: todo_write then stop.
+func todoWriteScript() [][]llm.StreamEvent {
+	return [][]llm.StreamEvent{
+		{
+			llm.StartEvent{},
+			llm.ToolCallStartEvent{ID: "c1", Name: todos.WriteToolName},
+			llm.ToolCallEndEvent{ID: "c1", Name: todos.WriteToolName, Arguments: map[string]any{
+				"todos": []any{
+					map[string]any{"content": "Phase A", "status": "in_progress"},
+					map[string]any{"content": "Sub B", "status": "pending", "level": float64(1)},
+				},
+			}},
+			llm.DoneEvent{Response: llm.CompletionResponse{FinishReason: llm.FinishReasonToolCalls}},
+		},
+		{llm.StartEvent{}, llm.TextDeltaEvent{Delta: "done"}, llm.DoneEvent{Response: llm.CompletionResponse{FinishReason: llm.FinishReasonStop}}},
+	}
+}
+
+func TestActiveTodosDispatchUpdate(t *testing.T) {
+	todos.Clear("test")
+	d := newFakeDeps(t, &scriptedProvider{script: todoWriteScript()}, []tool.Tool{stubTodoTool{}})
+	ex := New()
+	if err := ex.RunConversation(context.Background(), d); err != nil {
+		t.Fatalf("RunConversation: %v", err)
+	}
+	got, ok := todos.Get("test")
+	if !ok {
+		t.Fatal("store not updated")
+	}
+	if len(got) != 2 || got[0].Content != "Phase A" || got[0].Status != "in_progress" ||
+		got[1].Content != "Sub B" || got[1].Level != 1 {
+		t.Fatalf("store = %+v", got)
+	}
+	todos.Clear("test")
+}
+
+func TestActiveTodosDispatchErrorKeepsStore(t *testing.T) {
+	todos.Set("test", []todos.Item{{Content: "Previous", Status: "pending"}})
+	defer todos.Clear("test")
+	d := newFakeDeps(t, &scriptedProvider{script: todoWriteScript()}, []tool.Tool{stubTodoTool{fail: true}})
+	ex := New()
+	if err := ex.RunConversation(context.Background(), d); err != nil {
+		t.Fatalf("RunConversation: %v", err)
+	}
+	got, ok := todos.Get("test")
+	if !ok || len(got) != 1 || got[0].Content != "Previous" {
+		t.Fatalf("store should keep previous list on error, got %+v ok=%v", got, ok)
+	}
+}
+
+func TestActiveTodosEmptyListClears(t *testing.T) {
+	todos.Set("test", []todos.Item{{Content: "Old", Status: "pending"}})
+	defer todos.Clear("test")
+	prov := &scriptedProvider{script: [][]llm.StreamEvent{
+		{
+			llm.StartEvent{},
+			llm.ToolCallStartEvent{ID: "c1", Name: todos.WriteToolName},
+			llm.ToolCallEndEvent{ID: "c1", Name: todos.WriteToolName, Arguments: map[string]any{"todos": []any{}}},
+			llm.DoneEvent{Response: llm.CompletionResponse{FinishReason: llm.FinishReasonToolCalls}},
+		},
+		{llm.StartEvent{}, llm.TextDeltaEvent{Delta: "done"}, llm.DoneEvent{Response: llm.CompletionResponse{FinishReason: llm.FinishReasonStop}}},
+	}}
+	d := newFakeDeps(t, prov, []tool.Tool{stubTodoTool{}})
+	ex := New()
+	if err := ex.RunConversation(context.Background(), d); err != nil {
+		t.Fatalf("RunConversation: %v", err)
+	}
+	if _, ok := todos.Get("test"); ok {
+		t.Error("empty list should clear the store")
+	}
+}
+
+func TestActiveTodosInjection(t *testing.T) {
+	todos.Set("test", []todos.Item{{Content: "Phase A", Status: "in_progress"}})
+	defer todos.Clear("test")
+	prov := &scriptedProvider{script: [][]llm.StreamEvent{
+		{llm.StartEvent{}, llm.TextDeltaEvent{Delta: "ok"}, llm.DoneEvent{Response: llm.CompletionResponse{FinishReason: llm.FinishReasonStop}}},
+	}}
+	d := newFakeDeps(t, prov, nil)
+	d.sess.Append(protocol.Message{Role: protocol.RoleUser, Content: "hello"})
+	ex := New()
+	if err := ex.RunConversation(context.Background(), d); err != nil {
+		t.Fatalf("RunConversation: %v", err)
+	}
+	if len(prov.gotReqs) == 0 {
+		t.Fatal("no provider request captured")
+	}
+	msgs := prov.gotReqs[len(prov.gotReqs)-1].Messages
+	if len(msgs) < 2 {
+		t.Fatalf("messages = %d, want >= 2 (user + active-todos)", len(msgs))
+	}
+	last := msgs[len(msgs)-1]
+	if last.Role != protocol.RoleUser || !strings.Contains(last.Content, "<active-todos>") {
+		t.Errorf("last message = (%s, %q), want active-todos block", last.Role, last.Content)
+	}
+	if !strings.Contains(last.Content, "- [in_progress] Phase A") {
+		t.Errorf("block missing item text: %q", last.Content)
+	}
+	// the session must stay raw
+	for _, m := range d.sess.Messages() {
+		if strings.Contains(m.Content, "<active-todos>") {
+			t.Errorf("session polluted with active-todos block: %q", m.Content)
+		}
+	}
+}
+
+func TestActiveTodosNoInjectionWhenEmpty(t *testing.T) {
+	todos.Clear("test")
+	prov := &scriptedProvider{script: [][]llm.StreamEvent{
+		{llm.StartEvent{}, llm.TextDeltaEvent{Delta: "ok"}, llm.DoneEvent{Response: llm.CompletionResponse{FinishReason: llm.FinishReasonStop}}},
+	}}
+	d := newFakeDeps(t, prov, nil)
+	d.sess.Append(protocol.Message{Role: protocol.RoleUser, Content: "hello"})
+	ex := New()
+	if err := ex.RunConversation(context.Background(), d); err != nil {
+		t.Fatalf("RunConversation: %v", err)
+	}
+	msgs := prov.gotReqs[len(prov.gotReqs)-1].Messages
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %d, want 1 (no injection)", len(msgs))
+	}
+	if strings.Contains(msgs[0].Content, "<active-todos>") {
+		t.Error("unexpected active-todos injection")
 	}
 }
