@@ -250,8 +250,8 @@ func TestClient_Initialize_HandshakeShape(t *testing.T) {
 	}
 
 	sent := ft.sentSnapshot()
-	if len(sent) != 1 {
-		t.Fatalf("sent = %d, want 1", len(sent))
+	if len(sent) != 2 {
+		t.Fatalf("sent = %d, want 2 (initialize + notifications/initialized)", len(sent))
 	}
 	var req Request
 	if err := json.Unmarshal(sent[0], &req); err != nil {
@@ -265,6 +265,18 @@ func TestClient_Initialize_HandshakeShape(t *testing.T) {
 		if !strings.Contains(string(params), want) {
 			t.Errorf("params missing %s: %s", want, params)
 		}
+	}
+	// The second frame is the spec-mandated initialized notification: a
+	// JSON-RPC message with a method but no id field.
+	var notif map[string]any
+	if err := json.Unmarshal(sent[1], &notif); err != nil {
+		t.Fatal(err)
+	}
+	if notif["method"] != "notifications/initialized" {
+		t.Errorf("second frame method = %v, want notifications/initialized", notif["method"])
+	}
+	if _, hasID := notif["id"]; hasID {
+		t.Error("notification must not carry an id field")
 	}
 }
 
@@ -365,5 +377,123 @@ func TestIsConnectionError(t *testing.T) {
 				t.Errorf("isConnectionError(%v) = %v, want %v", tc.err, got, tc.want)
 			}
 		})
+	}
+}
+
+// fakeInboundTransport embeds the response-script fake and adds the
+// server-initiated message surface the Client's inbound loop consumes.
+type fakeInboundTransport struct {
+	fakeTransport
+	inbound chan transport.Frame
+	rawSent [][]byte
+}
+
+func newFakeInboundTransport() *fakeInboundTransport {
+	return &fakeInboundTransport{
+		fakeTransport: *newFakeTransport(),
+		inbound:       make(chan transport.Frame, 8),
+	}
+}
+
+func (f *fakeInboundTransport) Inbound() <-chan transport.Frame { return f.inbound }
+
+func (f *fakeInboundTransport) SendRaw(body []byte) error {
+	f.mu.Lock()
+	cp := make([]byte, len(body))
+	copy(cp, body)
+	f.rawSent = append(f.rawSent, cp)
+	f.mu.Unlock()
+	return nil
+}
+
+func TestClient_NotificationRoutedToChannel(t *testing.T) {
+	ft := newFakeInboundTransport()
+	c := NewClient(ft)
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+
+	ft.inbound <- transport.Frame{Body: []byte(`{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}`)}
+	select {
+	case notif := <-c.Notifications():
+		if !strings.Contains(string(notif), "tools/list_changed") {
+			t.Fatalf("notification = %s", notif)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("notification not delivered")
+	}
+}
+
+func TestClient_RootsListRequestReplied(t *testing.T) {
+	ft := newFakeInboundTransport()
+	c := NewClient(ft)
+	c.SetRoots([]Root{{URI: "file:///tmp/ws", Name: "workspace"}})
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+
+	ft.inbound <- transport.Frame{Body: []byte(`{"jsonrpc":"2.0","id":7,"method":"roots/list","params":{}}`)}
+	var reply []byte
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		ft.mu.Lock()
+		if len(ft.rawSent) > 0 {
+			reply = append([]byte(nil), ft.rawSent[0]...)
+		}
+		ft.mu.Unlock()
+		if reply != nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if reply == nil {
+		t.Fatal("no reply to roots/list")
+	}
+	var resp struct {
+		ID     int64 `json:"id"`
+		Result struct {
+			Roots []Root `json:"roots"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(reply, &resp); err != nil {
+		t.Fatalf("reply not valid JSON: %v (%s)", err, reply)
+	}
+	if resp.ID != 7 {
+		t.Errorf("reply id = %d, want 7", resp.ID)
+	}
+	if len(resp.Result.Roots) != 1 || resp.Result.Roots[0].URI != "file:///tmp/ws" {
+		t.Errorf("roots = %+v", resp.Result.Roots)
+	}
+}
+
+func TestClient_UnknownServerRequestRepliesMethodNotFound(t *testing.T) {
+	ft := newFakeInboundTransport()
+	c := NewClient(ft)
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+
+	ft.inbound <- transport.Frame{Body: []byte(`{"jsonrpc":"2.0","id":9,"method":"sampling/createMessage","params":{}}`)}
+	var reply []byte
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		ft.mu.Lock()
+		if len(ft.rawSent) > 0 {
+			reply = append([]byte(nil), ft.rawSent[0]...)
+		}
+		ft.mu.Unlock()
+		if reply != nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if reply == nil {
+		t.Fatal("no reply to unknown request")
+	}
+	if !strings.Contains(string(reply), "-32601") {
+		t.Fatalf("reply = %s, want method-not-found error code", reply)
 	}
 }

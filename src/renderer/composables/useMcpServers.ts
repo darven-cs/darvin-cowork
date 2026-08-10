@@ -14,6 +14,10 @@ import type {
   DarvinMcpServer,
   DarvinMcpServerCreate,
   DarvinMcpServerPatch,
+  DarvinMcpServerExposedTool,
+  DarvinMcpResource,
+  DarvinMcpPrompt,
+  DarvinMcpPromptMessage,
   DarvinTestMcpConnectionResponse,
 } from '../../shared/darvin-api';
 import { showToast } from '../services/toast';
@@ -119,6 +123,52 @@ async function retryResolution(id: string): Promise<void> {
   }
 }
 
+async function listResources(id: string): Promise<DarvinMcpResource[]> {
+  try {
+    const r = await window.darvin.listMcpResources(id);
+    return r.resources;
+  } catch {
+    return [];
+  }
+}
+
+async function listPrompts(id: string): Promise<DarvinMcpPrompt[]> {
+  try {
+    const r = await window.darvin.listMcpPrompts(id);
+    return r.prompts;
+  } catch {
+    return [];
+  }
+}
+
+async function getPrompt(id: string, name: string): Promise<DarvinMcpPromptMessage[]> {
+  try {
+    const r = await window.darvin.getMcpPrompt(id, name);
+    return r.messages;
+  } catch {
+    return [];
+  }
+}
+
+async function getLogs(id: string): Promise<string[]> {
+  try {
+    const r = await window.darvin.getMcpLogs(id);
+    return r.lines;
+  } catch {
+    return [];
+  }
+}
+
+/** 无 toast 的工具列表拉取：卡片在 exposedTools 缺失时兜底用。 */
+async function fetchTools(id: string): Promise<DarvinMcpServerExposedTool[]> {
+  try {
+    const r = await window.darvin.testMcpConnection({ id });
+    return r.tools ?? [];
+  } catch {
+    return [];
+  }
+}
+
 function ensureSubscribed(): void {
   if (subscribed) return;
   subscribed = true;
@@ -150,6 +200,11 @@ export function useMcpServers() {
     setEnabled,
     testConnection,
     retryResolution,
+    listResources,
+    listPrompts,
+    getPrompt,
+    getLogs,
+    fetchTools,
   };
 }
 

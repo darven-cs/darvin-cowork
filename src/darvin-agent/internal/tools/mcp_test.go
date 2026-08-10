@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"darvin-cowork/backend/internal/mcp"
@@ -13,16 +14,30 @@ import (
 
 type fakeMcpSource struct {
 	servers []mcp.ServerStatus
+	specs   map[string]mcp.ServerSpec
 	callRes *mcp.CallToolResult
 	callErr error
 }
 
 func (f *fakeMcpSource) List() []mcp.ServerStatus { return f.servers }
+func (f *fakeMcpSource) GetSpec(serverID string) (mcp.ServerSpec, bool) {
+	if f.specs == nil {
+		return mcp.ServerSpec{}, false
+	}
+	s, ok := f.specs[serverID]
+	return s, ok
+}
 func (f *fakeMcpSource) CallTool(_ context.Context, _, _ string, _ map[string]any) (*mcp.CallToolResult, error) {
 	if f.callErr != nil {
 		return nil, f.callErr
 	}
 	return f.callRes, nil
+}
+
+// trustSpec returns a ServerSpec for serverID carrying the given trust
+// level, for Register-time wiring assertions.
+func trustSpec(serverID, trust string) mcp.ServerSpec {
+	return mcp.ServerSpec{ID: serverID, Name: serverID, TrustLevel: trust}
 }
 
 func mcpToolDescriptor(name string) mcp.ToolDescriptor {
@@ -271,5 +286,120 @@ func TestMcpToolParametersRawPreservesAnyOf(t *testing.T) {
 	}
 	if len(anyOf) != 2 {
 		t.Errorf("items.anyOf length = %d, want 2 (anyOf construct must survive the round-trip)", len(anyOf))
+	}
+}
+
+func hintPtr(v bool) *bool { return &v }
+
+func TestMcpToolClassifyDangerTrusted(t *testing.T) {
+	mt := &McpTool{serverID: "fs", toolDesc: mcpToolDescriptor("write_file"), trustLevel: mcp.TrustTrusted}
+	level, reason, need := mt.ClassifyDanger(nil)
+	if need {
+		t.Errorf("trusted server tool should not need approval (level=%s reason=%s)", level, reason)
+	}
+	if level != "safe" {
+		t.Errorf("level = %q, want safe", level)
+	}
+}
+
+func TestMcpToolClassifyDangerDestructive(t *testing.T) {
+	mt := &McpTool{
+		serverID:   "srv",
+		toolDesc:   mcpToolDescriptor("deleteAllData"),
+		trustLevel: mcp.TrustAsk,
+		annotations: &mcp.ToolAnnotation{
+			DestructiveHint: hintPtr(true),
+			ReadOnlyHint:    hintPtr(false),
+		},
+	}
+	level, _, need := mt.ClassifyDanger(nil)
+	if !need {
+		t.Error("destructiveHint tool must require approval")
+	}
+	if level != "destructive" {
+		t.Errorf("level = %q, want destructive", level)
+	}
+}
+
+func TestMcpToolClassifyDangerReadOnly(t *testing.T) {
+	mt := &McpTool{
+		serverID:   "srv",
+		toolDesc:   mcpToolDescriptor("search"),
+		trustLevel: mcp.TrustAsk,
+		annotations: &mcp.ToolAnnotation{
+			ReadOnlyHint: hintPtr(true),
+		},
+	}
+	level, _, need := mt.ClassifyDanger(nil)
+	if need {
+		t.Errorf("readOnly tool should not need approval (level=%s)", level)
+	}
+}
+
+func TestMcpToolClassifyDangerUnknown(t *testing.T) {
+	// No annotations (2024-11-05 server): unknown = caution, needs approval.
+	mt := &McpTool{serverID: "srv", toolDesc: mcpToolDescriptor("writeThing"), trustLevel: mcp.TrustAsk}
+	level, reason, need := mt.ClassifyDanger(nil)
+	if !need {
+		t.Error("un-annotated tool under ask trust must require approval")
+	}
+	if level != "caution" {
+		t.Errorf("level = %q, want caution", level)
+	}
+	if reason == "" {
+		t.Error("reason should explain the missing readOnlyHint")
+	}
+}
+
+func TestMcpToolExecuteTruncatesLargeResult(t *testing.T) {
+	big := make([]byte, mcpResultCap+1000)
+	for i := range big {
+		big[i] = 'a'
+	}
+	src := &fakeMcpSource{
+		callRes: &mcp.CallToolResult{
+			Content: []mcp.ToolContent{{Type: "text", Text: string(big)}},
+		},
+	}
+	mt := &McpTool{serverID: "fs", toolDesc: mcpToolDescriptor("read_file"), source: src}
+	res := mt.Execute(context.Background(), map[string]any{})
+	if len(res.Content) >= mcpResultCap+1000 {
+		t.Errorf("Execute did not truncate: len=%d", len(res.Content))
+	}
+	if !strings.Contains(res.Content, "truncated") {
+		t.Error("truncated result should carry a truncation marker")
+	}
+}
+
+func TestMcpPluginRegisterWiresTrustLevel(t *testing.T) {
+	ann := &mcp.ToolAnnotation{DestructiveHint: hintPtr(true)}
+	src := &fakeMcpSource{
+		servers: []mcp.ServerStatus{
+			{ServerID: "trusted_srv", Connected: true, Tools: []mcp.ToolDescriptor{{Name: "boom", InputSchema: map[string]any{"type": "object"}, Annotations: ann}}},
+			{ServerID: "ask_srv", Connected: true, Tools: []mcp.ToolDescriptor{{Name: "boom", InputSchema: map[string]any{"type": "object"}, Annotations: ann}}},
+			{ServerID: "builtin_srv", Connected: true, Tools: []mcp.ToolDescriptor{{Name: "boom", InputSchema: map[string]any{"type": "object"}, Annotations: ann}}},
+		},
+		specs: map[string]mcp.ServerSpec{
+			"trusted_srv": trustSpec("trusted_srv", mcp.TrustTrusted),
+			"ask_srv":     trustSpec("ask_srv", ""), // empty → ask
+			"builtin_srv": {ID: "builtin_srv", Name: "builtin_srv", IsBuiltIn: true},
+		},
+	}
+	reg := NewRegistry()
+	p := NewMcpPlugin(src)
+	if err := p.Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	trustedTool := reg.Get("mcp__trusted_srv__boom").(*McpTool)
+	if trustedTool.trustLevel != mcp.TrustTrusted {
+		t.Errorf("trusted tool trustLevel = %q, want trusted", trustedTool.trustLevel)
+	}
+	askTool := reg.Get("mcp__ask_srv__boom").(*McpTool)
+	if askTool.trustLevel != mcp.TrustAsk {
+		t.Errorf("ask tool trustLevel = %q, want ask (default)", askTool.trustLevel)
+	}
+	builtinTool := reg.Get("mcp__builtin_srv__boom").(*McpTool)
+	if builtinTool.trustLevel != mcp.TrustTrusted {
+		t.Errorf("builtin tool trustLevel = %q, want trusted (first-party default)", builtinTool.trustLevel)
 	}
 }

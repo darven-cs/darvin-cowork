@@ -92,19 +92,45 @@ func (s *StdioTransport) readerLoop(stdout io.Reader) {
 				case int:
 					idNum = int64(v)
 				}
-				// Dispatch even for id:0 (valid request ID). The pending map
-				// is keyed by int64, so id:0 maps to key 0.
-				s.dispatchResponse(idNum, Frame{Body: msg})
+				if s.dispatchResponse(idNum, Frame{Body: msg}) {
+					continue
+				}
+				// An id that no in-flight request is waiting on is a
+				// server-initiated request (roots/list, ping, ...). The
+				// Client replies via SendRaw.
+				s.pushInbound(Frame{Body: msg})
 				continue
 			}
 		}
 
-		// Notification (no "id" field): dispatch to all listeners.
-		// For v0, notifications are logged; future versions will wire
-		// them to a callback so the Client can handle server-initiated
-		// requests (ping, sampling/createMessage, etc.).
-		s.Logger.Debug("mcp-stdio-notification", zap.ByteString("msg", msg))
+		// Notification (no "id" field): server-initiated push (log_message,
+		// tools/list_changed, ...). The Client forwards it to subscribers.
+		s.pushInbound(Frame{Body: msg})
 	}
+}
+
+// pushInbound delivers a server-initiated frame to the inbound channel
+// without ever blocking the reader goroutine — a full buffer drops the
+// frame (the reader must keep draining stdout).
+func (s *StdioTransport) pushInbound(f Frame) {
+	select {
+	case s.inbound <- f:
+	default:
+		s.Logger.Debug("mcp-stdio-inbound-dropped", zap.ByteString("msg", f.Body))
+	}
+}
+
+// Inbound returns the channel of server-initiated messages. Only valid
+// after Connect; the client owns the read side.
+func (s *StdioTransport) Inbound() <-chan Frame { return s.inbound }
+
+// SendRaw writes a complete JSON-RPC frame to stdin without waiting for a
+// response. Used to reply to server-initiated requests. The stdin mutex
+// keeps the write atomic with respect to concurrent Call Sends.
+func (s *StdioTransport) SendRaw(body []byte) error {
+	s.stdinMu.Lock()
+	defer s.stdinMu.Unlock()
+	return s.writeMessage(body)
 }
 
 // readMessage reads one message, handling both newline-delimited JSON
@@ -147,9 +173,9 @@ func (s *StdioTransport) readMessage(buf *bufio.Reader) ([]byte, error) {
 }
 
 // dispatchResponse looks up the pending channel for id and sends the
-// frame. If no pending channel exists (stale or duplicate response),
-// the frame is discarded.
-func (s *StdioTransport) dispatchResponse(id int64, frame Frame) {
+// frame. Returns true if a pending request matched (the frame was a
+// response); false if the id is unknown — a server-initiated request.
+func (s *StdioTransport) dispatchResponse(id int64, frame Frame) bool {
 	s.pendingMu.Lock()
 	ch, ok := s.pending[id]
 	if ok {
@@ -163,6 +189,7 @@ func (s *StdioTransport) dispatchResponse(id int64, frame Frame) {
 			// Channel already closed; discard.
 		}
 	}
+	return ok
 }
 
 // closeAllPending sends err to every in-flight pending channel and
@@ -191,23 +218,40 @@ func (s *StdioTransport) waitForExit(cmd *exec.Cmd) {
 	s.closeAllPending(ErrTransportClosed)
 }
 
-// drainStderr consumes stderr and logs each line. Runs until stderr
-// is closed.
+// drainStderr consumes stderr and logs each line, keeping a bounded tail
+// for the UI log drawer. Runs until stderr is closed.
 func (s *StdioTransport) drainStderr() {
-	if s.Logger == nil {
-		_, _ = io.Copy(io.Discard, s.stderr)
-		return
-	}
 	scanner := bufio.NewScanner(s.stderr)
 	scanner.Buffer(make([]byte, 0, 64<<10), 1<<20)
 	for scanner.Scan() {
-		s.Logger.Debug("mcp-stdio-stderr", zap.String("line", scanner.Text()))
+		line := scanner.Text()
+		if s.Logger != nil {
+			s.Logger.Debug("mcp-stdio-stderr", zap.String("line", line))
+		}
+		s.stderrMu.Lock()
+		if len(s.stderrTail) == stderrTailCap {
+			copy(s.stderrTail, s.stderrTail[1:])
+			s.stderrTail[len(s.stderrTail)-1] = line
+		} else {
+			s.stderrTail = append(s.stderrTail, line)
+		}
+		s.stderrMu.Unlock()
 	}
 }
 
+// TailLogs returns a copy of the recent stderr lines.
+func (s *StdioTransport) TailLogs() []string {
+	s.stderrMu.Lock()
+	defer s.stderrMu.Unlock()
+	return append([]string(nil), s.stderrTail...)
+}
+
 // writeMessage writes raw JSON to stdin, prefixed with newline for
-// SDK 1.x compatibility.
+// SDK 1.x compatibility. Serialized under stdinMu so the reply path
+// (SendRaw) cannot interleave bytes with an in-flight Call's Send.
 func (s *StdioTransport) writeMessage(body []byte) error {
+	s.stdinMu.Lock()
+	defer s.stdinMu.Unlock()
 	// SDK 1.x expects newline-delimited JSON with a trailing newline.
 	msg := append(append(body[:0], body...), '\n')
 	if _, err := s.stdin.Write(msg); err != nil {

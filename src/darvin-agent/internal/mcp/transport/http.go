@@ -8,16 +8,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 // HTTPTransport speaks MCP-over-HTTP: one POST per JSON-RPC request, the
-// response body becomes the next Recv frame. SSE is accepted via the Accept
-// header per the MCP spec but v0 does not parse event frames — servers that
-// stream via SSE will hang in Recv until they time out. Spec 35 will revisit
-// if a real server needs it.
+// response body becomes the next Recv frame. Responses may be application/json
+// (the common synchronous case) or text/event-stream (streamable HTTP); Recv
+// parses the SSE `message` event for the latter. A 401/410 response signals a
+// stale MCP session (ErrSessionExpired) so the Client can re-initialize and
+// replay the call.
 type HTTPTransport struct {
 	URL     string
 	Headers map[string]string
@@ -26,6 +28,9 @@ type HTTPTransport struct {
 	mu           sync.Mutex // guards sessionID + lastResponse across Send/Recv.
 	sessionID    string
 	lastResponse []byte
+	// lastContentType records the Content-Type of the last response so Recv
+	// can decide whether to parse SSE frames.
+	lastContentType string
 
 	client *http.Client
 	alive  atomic.Bool
@@ -83,6 +88,13 @@ func (h *HTTPTransport) Send(ctx context.Context, body []byte) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusGone {
+		// MCP session expired (401/410) — the client must re-initialize
+		// before this call can be replayed. Signalled as a sentinel error
+		// so the Client can distinguish it from a hard connection break.
+		h.alive.Store(false)
+		return ErrSessionExpired
+	}
 	if resp.StatusCode != http.StatusOK {
 		h.alive.Store(false)
 		// Drain a small slice so the connection can be reused, then return.
@@ -98,6 +110,7 @@ func (h *HTTPTransport) Send(ctx context.Context, body []byte) error {
 
 	h.mu.Lock()
 	h.lastResponse = respBody
+	h.lastContentType = resp.Header.Get("Content-Type")
 	if sid := resp.Header.Get(httpHeaderSession); sid != "" {
 		h.sessionID = sid
 	}
@@ -119,7 +132,53 @@ func (h *HTTPTransport) Recv(ctx context.Context) (Frame, error) {
 	if h.lastResponse == nil {
 		return Frame{}, ErrTransportClosed
 	}
-	return Frame{Body: h.lastResponse}, nil
+	body := h.lastResponse
+	h.lastResponse = nil // consume; the next Send repopulates it
+	if strings.Contains(strings.ToLower(h.lastContentType), "text/event-stream") {
+		msg, err := parseSSEMessage(body)
+		if err != nil {
+			return Frame{}, err
+		}
+		return Frame{Body: msg}, nil
+	}
+	return Frame{Body: body}, nil
+}
+
+// parseSSEMessage extracts the JSON-RPC `message` event from a
+// text/event-stream body. Streamable-HTTP servers respond to a POST with
+// an SSE stream whose `event: message` frame carries the JSON-RPC response
+// (or a notification). The first message event wins — the synchronous
+// client only needs the response for the in-flight request.
+func parseSSEMessage(body []byte) ([]byte, error) {
+	events := bytes.Split(body, []byte("\n\n"))
+	for _, ev := range events {
+		if len(bytes.TrimSpace(ev)) == 0 {
+			continue
+		}
+		eventType := ""
+		var dataLines [][]byte
+		for _, line := range bytes.Split(ev, []byte("\n")) {
+			trimmed := bytes.TrimSpace(line)
+			switch {
+			case bytes.HasPrefix(trimmed, []byte("event:")):
+				eventType = strings.TrimSpace(string(trimmed[len("event:"):]))
+			case bytes.HasPrefix(trimmed, []byte("data:")):
+				dataLines = append(dataLines, bytes.TrimSpace(trimmed[len("data:"):]))
+			}
+		}
+		if len(dataLines) == 0 {
+			continue
+		}
+		data := bytes.Join(dataLines, nil)
+		// A `message` event is the JSON-RPC payload; a lone data block with
+		// no event type is treated as one too.
+		if eventType == "message" || eventType == "" {
+			return data, nil
+		}
+		// Non-message events (notifications) are ignored by the synchronous
+		// client; keep scanning for the message event.
+	}
+	return nil, fmt.Errorf("mcp http: no message event in SSE response")
 }
 
 func (h *HTTPTransport) Close() error {

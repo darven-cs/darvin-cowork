@@ -6,6 +6,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -151,28 +152,30 @@ func (r *Registry) connectServer(serverID string) {
 		res.Env = mergeEnv(spec.Env, nil)
 	}
 
-	// Step 2: build the transport from the resolved command.
+	// Step 2: build the transport from the resolved command. Tests may
+	// inject a fake constructor via WithTransportBuilder.
 	var t transport.Transport
-	switch spec.Transport {
-	case TransportStdio:
-		// beginSpawn key dedups simultaneous connectServer calls for the
-		// same server. Multiple users configuring the same server
-		// at the same time share one spawn.
-		t = r.buildStdioTransport(spec, res)
-	case TransportHTTP:
-		t = &transport.HTTPTransport{
-			URL:     spec.URL,
-			Headers: spec.Headers,
+	if r.transportBuilder != nil {
+		t = r.transportBuilder(spec, res)
+	} else {
+		switch spec.Transport {
+		case TransportStdio:
+			t = r.buildStdioTransport(spec, res)
+		case TransportHTTP:
+			t = &transport.HTTPTransport{
+				URL:     spec.URL,
+				Headers: spec.Headers,
+			}
+		case TransportSSE:
+			t = &transport.SSETransport{
+				URL:     spec.URL,
+				Headers: spec.Headers,
+			}
+		default:
+			r.recordConnectionError(serverID, fmt.Sprintf("unsupported transport %q", spec.Transport))
+			notifier.OnConnectionChanged(serverID, ConnectionError, fmt.Sprintf("unsupported transport %q", spec.Transport))
+			return
 		}
-	case TransportSSE:
-		t = &transport.SSETransport{
-			URL:     spec.URL,
-			Headers: spec.Headers,
-		}
-	default:
-		r.recordConnectionError(serverID, fmt.Sprintf("unsupported transport %q", spec.Transport))
-		notifier.OnConnectionChanged(serverID, ConnectionError, fmt.Sprintf("unsupported transport %q", spec.Transport))
-		return
 	}
 
 	// Step 3: dial, handshake, list tools. Any failure closes the
@@ -180,6 +183,9 @@ func (r *Registry) connectServer(serverID string) {
 	client := NewClient(t).WithReconnectFactory(func() (transport.Transport, error) {
 		return nil, errors.New("reconnect not implemented in v0")
 	})
+	if len(r.roots) > 0 {
+		client.SetRoots(r.roots)
+	}
 	if err := client.Connect(ctx); err != nil {
 		_ = client.Close()
 		r.recordConnectionError(serverID, fmt.Sprintf("connect: %v", err))
@@ -209,6 +215,158 @@ func (r *Registry) connectServer(serverID string) {
 	}
 	r.mu.Unlock()
 	notifier.OnConnectionChanged(serverID, ConnectionConnected, "")
+
+	// Async follow-ups: refresh resources/prompts and consume server
+	// notifications (tools/list_changed) without blocking the connect.
+	// Skipped under a test transportBuilder — fake transports do not speak
+	// the resource/prompt protocol, so pulls would consume script steps.
+	if r.transportBuilder == nil {
+		r.refreshCapabilities(serverID)
+		go r.consumeNotifications(serverID)
+	}
+}
+
+// refreshCapabilities pulls the server's resources/prompts listings in the
+// background so a slow capability server never delays connect. Failures are
+// logged, not fatal — the server stays connected with tools only.
+func (r *Registry) refreshCapabilities(serverID string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		client, ok := r.liveClient(serverID)
+		if !ok {
+			return
+		}
+		resources, err := client.ListResources(ctx)
+		if err == nil {
+			r.updateCapabilities(serverID, resources, nil)
+		}
+		prompts, err := client.ListPrompts(ctx)
+		if err == nil {
+			r.updateCapabilities(serverID, nil, prompts)
+		}
+	}()
+}
+
+// updateCapabilities stores the async resource / prompt listings on the
+// entry. A nil list means "pull did not complete"; an empty list means the
+// server declared no items.
+func (r *Registry) updateCapabilities(serverID string, resources []ResourceDescriptor, prompts []PromptDescriptor) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.servers[serverID]
+	if !ok {
+		return
+	}
+	if resources != nil {
+		entry.status.Resources = resources
+	}
+	if prompts != nil {
+		entry.status.Prompts = prompts
+	}
+}
+
+// consumeNotifications drains the client's notification channel and reacts
+// to tools/list_changed by re-listing tools and nudging the notifier so the
+// tool surface and renderer stay current. Runs until the client is closed.
+func (r *Registry) consumeNotifications(serverID string) {
+	client, ok := r.liveClient(serverID)
+	if !ok {
+		return
+	}
+	for body := range client.Notifications() {
+		var msg struct {
+			Method string `json:"method"`
+		}
+		if json.Unmarshal(body, &msg) != nil {
+			continue
+		}
+		switch msg.Method {
+		case "notifications/tools/list_changed":
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			tools, err := client.ListTools(ctx)
+			cancel()
+			if err != nil {
+				continue
+			}
+			r.mu.Lock()
+			if entry, ok := r.servers[serverID]; ok {
+				entry.status.Tools = tools
+			}
+			r.mu.Unlock()
+			r.notifier.OnToolsChanged(serverID)
+		}
+	}
+}
+
+// ListResources returns the cached resource listing for a connected server.
+func (r *Registry) ListResources(serverID string) ([]ResourceDescriptor, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.servers[serverID]
+	if !ok {
+		return nil, fmt.Errorf("mcp: server %s not registered", serverID)
+	}
+	if !entry.status.Connected || entry.status.Resources == nil {
+		return nil, fmt.Errorf("mcp: server %s has no resource listing", serverID)
+	}
+	return append([]ResourceDescriptor(nil), entry.status.Resources...), nil
+}
+
+// ListPrompts returns the cached prompt listing for a connected server.
+func (r *Registry) ListPrompts(serverID string) ([]PromptDescriptor, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.servers[serverID]
+	if !ok {
+		return nil, fmt.Errorf("mcp: server %s not registered", serverID)
+	}
+	if !entry.status.Connected || entry.status.Prompts == nil {
+		return nil, fmt.Errorf("mcp: server %s has no prompt listing", serverID)
+	}
+	return append([]PromptDescriptor(nil), entry.status.Prompts...), nil
+}
+
+// ReadResource fetches one resource's content over the live client.
+func (r *Registry) ReadResource(ctx context.Context, serverID, uri string) ([]ResourceContent, error) {
+	client, ok := r.liveClient(serverID)
+	if !ok {
+		return nil, fmt.Errorf("mcp: server %s not connected", serverID)
+	}
+	return client.ReadResource(ctx, uri)
+}
+
+// GetPrompt renders one prompt template over the live client.
+func (r *Registry) GetPrompt(ctx context.Context, serverID, name string, args map[string]any) ([]PromptMessage, error) {
+	client, ok := r.liveClient(serverID)
+	if !ok {
+		return nil, fmt.Errorf("mcp: server %s not connected", serverID)
+	}
+	return client.GetPrompt(ctx, name, args)
+}
+
+// logTailer is implemented by transports that retain a runtime log tail.
+type logTailer interface {
+	TailLogs() []string
+}
+
+// ServerLogs returns the recent runtime log lines for a connected server
+// (stderr ring for stdio transports). Empty for non-stdio transports.
+func (r *Registry) ServerLogs(serverID string) []string {
+	r.mu.RLock()
+	entry, ok := r.servers[serverID]
+	var client *Client
+	if ok {
+		client = entry.client
+	}
+	r.mu.RUnlock()
+	if client == nil {
+		return nil
+	}
+	if lt, ok := client.Transport().(logTailer); ok {
+		return lt.TailLogs()
+	}
+	return nil
 }
 
 // recordResolution updates the entry's resolution field after a resolve.

@@ -14,6 +14,9 @@ package mcp
 type Notifier struct {
 	OnConnectionChanged func(serverID string, status ConnectionStatus, errMsg string)
 	OnResolutionChanged func(serverID string, res LaunchResolution)
+	// OnToolsChanged fires when a server's tool list changes at runtime
+	// (notifications/tools/list_changed); the handler re-applies plugins.
+	OnToolsChanged func(serverID string)
 }
 
 // ConnectionStatus is the short lifecycle label Registry reports to the
@@ -37,5 +40,6 @@ func noopNotifier() Notifier {
 	return Notifier{
 		OnConnectionChanged: func(string, ConnectionStatus, string) {},
 		OnResolutionChanged: func(string, LaunchResolution) {},
+		OnToolsChanged:      func(string) {},
 	}
 }

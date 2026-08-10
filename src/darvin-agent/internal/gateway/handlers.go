@@ -198,6 +198,16 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleMcpRetryResolution(req.ID, req.Params, h)
 	case "agent.mcp.bootstrap":
 		return handleMcpBootstrap(req.ID, req.Params, h)
+	case "agent.mcp.resources.list":
+		return handleMcpResourcesList(req.ID, req.Params, h)
+	case "agent.mcp.resource.read":
+		return handleMcpResourceRead(ctx, req.ID, req.Params, h)
+	case "agent.mcp.prompts.list":
+		return handleMcpPromptsList(req.ID, req.Params, h)
+	case "agent.mcp.prompt.get":
+		return handleMcpPromptGet(ctx, req.ID, req.Params, h)
+	case "agent.mcp.logs.get":
+		return handleMcpLogsGet(req.ID, req.Params, h)
 	case "agent.tools.list":
 		return handleListTools(req.ID, req.Params, h)
 	case "agent.skill.invoke_user":

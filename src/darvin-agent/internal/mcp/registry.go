@@ -4,10 +4,13 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	"go.uber.org/zap"
+
+	"darvin-cowork/backend/internal/mcp/transport"
 )
 
 // Registry is the process-wide index of MCP servers. One entry per
@@ -32,7 +35,40 @@ type Registry struct {
 	persistence ResolutionPersistence
 	notifier    Notifier
 
+	// roots is the workspace root list advertised to every connected
+	// server via roots/list. Refreshed by SetRoots when the workspace moves.
+	roots []Root
+
+	// transportBuilder, when set, replaces the spec→transport construction
+	// in connectServer. Tests inject fake transports to exercise the
+	// reconnect path without spawning real MCP processes.
+	transportBuilder func(spec ServerSpec, res LaunchResolution) transport.Transport
+
 	logger *zap.Logger
+}
+
+// SetRoots refreshes the workspace roots advertised to connected servers.
+// Existing clients are updated in place; new connects pick them up too.
+func (r *Registry) SetRoots(roots []Root) {
+	r.mu.Lock()
+	r.roots = append([]Root(nil), roots...)
+	clients := make([]*Client, 0, len(r.servers))
+	for _, e := range r.servers {
+		if e.client != nil {
+			clients = append(clients, e.client)
+		}
+	}
+	r.mu.Unlock()
+	for _, c := range clients {
+		c.SetRoots(r.roots)
+	}
+}
+
+// WithTransportBuilder installs a custom transport constructor. Tests only;
+// production uses the built-in stdio / http / sse builders keyed by spec.
+func (r *Registry) WithTransportBuilder(fn func(spec ServerSpec, res LaunchResolution) transport.Transport) *Registry {
+	r.transportBuilder = fn
+	return r
 }
 
 type serverEntry struct {
@@ -67,6 +103,9 @@ func (r *Registry) SetNotifier(n Notifier) {
 	}
 	if n.OnResolutionChanged == nil {
 		n.OnResolutionChanged = func(string, LaunchResolution) {}
+	}
+	if n.OnToolsChanged == nil {
+		n.OnToolsChanged = func(string) {}
 	}
 	r.notifier = n
 }
@@ -138,6 +177,9 @@ func (r *Registry) Update(ctx context.Context, serverID string, patch ServerSpec
 	}
 	if patch.RegistryID != "" {
 		merged.RegistryID = patch.RegistryID
+	}
+	if patch.TrustLevel != "" {
+		merged.TrustLevel = patch.TrustLevel
 	}
 	fp := ComputeFingerprint(merged)
 	old := entry.client
@@ -283,24 +325,52 @@ func (r *Registry) GetToolsByName(name string) (string, *ToolDescriptor, bool) {
 
 // CallTool invokes toolName on serverID. Errors when the server is
 // missing or not connected; the caller (McpTool) surfaces that back to
-// the agent loop.
+// the agent loop. Two recoverable failures get one transparent retry:
+//
+//   - transport.ErrSessionExpired (HTTP 401/410): the streamable-HTTP
+//     session went stale — re-handshake on the same client and replay.
+//   - connection error: the server's stdio process may have crashed —
+//     connectServer rebuilds the transport, re-handshakes, and re-lists
+//     tools before retrying once.
 func (r *Registry) CallTool(ctx context.Context, serverID, toolName string, args map[string]any) (*CallToolResult, error) {
-	r.mu.RLock()
-	entry, ok := r.servers[serverID]
-	var client *Client
-	var connected bool
-	if ok {
-		client = entry.client
-		connected = entry.status.Connected
-	}
-	r.mu.RUnlock()
+	client, ok := r.liveClient(serverID)
 	if !ok {
-		return nil, fmt.Errorf("mcp: server %s not registered", serverID)
-	}
-	if client == nil || !connected {
 		return nil, fmt.Errorf("mcp: server %s not connected", serverID)
 	}
-	return client.CallTool(ctx, toolName, args)
+	res, err := client.CallTool(ctx, toolName, args)
+	if err == nil {
+		return res, nil
+	}
+	if errors.Is(err, transport.ErrSessionExpired) {
+		if _, ierr := client.Initialize(ctx); ierr == nil {
+			if res2, err2 := client.CallTool(ctx, toolName, args); err2 == nil {
+				return res2, nil
+			}
+		}
+		return res, err
+	}
+	if isConnectionError(err) {
+		// Best-effort recovery: re-resolve + re-connect + re-handshake.
+		// Synchronous so the retry below sees the fresh client.
+		r.connectServer(serverID)
+		if c2, ok := r.liveClient(serverID); ok {
+			if res2, err2 := c2.CallTool(ctx, toolName, args); err2 == nil {
+				return res2, nil
+			}
+		}
+	}
+	return res, err
+}
+
+// liveClient returns the current client for serverID when it is connected.
+func (r *Registry) liveClient(serverID string) (*Client, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.servers[serverID]
+	if !ok || entry.client == nil || !entry.status.Connected {
+		return nil, false
+	}
+	return entry.client, true
 }
 
 // Test returns the current connection state for serverID without dialing.
@@ -318,4 +388,9 @@ type ServerStatus struct {
 	Connected       bool
 	ConnectionError string
 	Tools           []ToolDescriptor
+	// Resources / Prompts are the async capability listings pulled shortly
+	// after connect; nil until the pull completes (servers that never
+	// declare the capability stay nil).
+	Resources []ResourceDescriptor
+	Prompts   []PromptDescriptor
 }

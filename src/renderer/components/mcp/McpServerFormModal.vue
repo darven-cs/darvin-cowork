@@ -42,6 +42,7 @@ interface FormState {
   envStr: string;
   url: string;
   headersStr: string;
+  trustLevel: 'trusted' | 'ask';
 }
 
 function blankForm(): FormState {
@@ -55,6 +56,7 @@ function blankForm(): FormState {
     envStr: '',
     url: '',
     headersStr: '',
+    trustLevel: 'ask',
   };
 }
 
@@ -78,6 +80,7 @@ watch(
       envStr: formatKv(editing.env ?? {}),
       url: editing.url ?? '',
       headersStr: formatKv(editing.headers ?? {}),
+      trustLevel: editing.trustLevel ?? 'ask',
     };
   },
   { immediate: true },
@@ -104,6 +107,7 @@ function onSave(): void {
           command: form.value.command.trim(),
           args: parseArgs(form.value.argsStr),
           env: parseKv(form.value.envStr),
+          trustLevel: form.value.trustLevel,
         },
       });
     } else {
@@ -115,6 +119,7 @@ function onSave(): void {
         command: form.value.command.trim(),
         args: parseArgs(form.value.argsStr),
         env: parseKv(form.value.envStr),
+        trustLevel: form.value.trustLevel,
       };
       emit('save', req);
     }
@@ -129,6 +134,7 @@ function onSave(): void {
           transportType: 'http',
           url: form.value.url.trim(),
           headers: parseKv(form.value.headersStr),
+          trustLevel: form.value.trustLevel,
         },
       });
     } else {
@@ -139,6 +145,7 @@ function onSave(): void {
         transportType: 'http',
         url: form.value.url.trim(),
         headers: parseKv(form.value.headersStr),
+        trustLevel: form.value.trustLevel,
       };
       emit('save', req);
     }
@@ -192,6 +199,19 @@ function onSave(): void {
               <option value="http">http</option>
               <option value="sse" disabled>sse (v1)</option>
             </select>
+          </div>
+
+          <div class="space-y-1">
+            <label class="font-sans text-xs text-text-muted">{{ t('mcp.field.trust_level') }}</label>
+            <select
+              v-model="form.trustLevel"
+              class="w-full rounded border border-border bg-bg px-3 py-1.5 font-sans text-sm text-text outline-none transition-colors focus:border-primary"
+              data-testid="mcp-form-trust"
+            >
+              <option value="ask">{{ t('mcp.trust.ask') }}</option>
+              <option value="trusted">{{ t('mcp.trust.trusted') }}</option>
+            </select>
+            <p class="font-sans text-[10px] text-text-subtle">{{ t('mcp.trust.hint') }}</p>
           </div>
 
           <template v-if="form.transportType === 'stdio'">

@@ -83,3 +83,44 @@ func TestServerSpecMarshalCamelCase(t *testing.T) {
 		}
 	}
 }
+
+// TestServerSpecTrustLevelRoundTrip: trustLevel crosses the wire as a
+// plain string; an absent field decodes to "" and EffectiveTrustLevel
+// resolves it to "ask".
+func TestServerSpecTrustLevelRoundTrip(t *testing.T) {
+	payload := `{"id":"gh","trustLevel":"trusted"}`
+	var spec ServerSpec
+	if err := json.Unmarshal([]byte(payload), &spec); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if spec.EffectiveTrustLevel() != TrustTrusted {
+		t.Fatalf("EffectiveTrustLevel = %q, want trusted", spec.EffectiveTrustLevel())
+	}
+	var empty ServerSpec
+	if empty.EffectiveTrustLevel() != TrustAsk {
+		t.Fatalf("default EffectiveTrustLevel = %q, want ask", empty.EffectiveTrustLevel())
+	}
+}
+
+// TestToolAnnotationRoundTrip: the MCP tool annotation block decodes from
+// the wire shape servers emit (camelCase hint booleans). A nil DestructiveHint
+// distinguishes "not declared" from an explicit false.
+func TestToolAnnotationRoundTrip(t *testing.T) {
+	payload := `{"name":"x","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":true,"destructiveHint":false}}`
+	var td ToolDescriptor
+	if err := json.Unmarshal([]byte(payload), &td); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if td.Annotations == nil {
+		t.Fatal("Annotations = nil, want parsed block")
+	}
+	if td.Annotations.ReadOnlyHint == nil || !*td.Annotations.ReadOnlyHint {
+		t.Fatal("ReadOnlyHint should be true")
+	}
+	if td.Annotations.DestructiveHint == nil || *td.Annotations.DestructiveHint {
+		t.Fatal("DestructiveHint should be explicitly false")
+	}
+	if td.Annotations.OpenWorldHint != nil {
+		t.Fatal("OpenWorldHint should stay nil when not declared")
+	}
+}

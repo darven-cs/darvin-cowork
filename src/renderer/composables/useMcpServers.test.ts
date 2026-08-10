@@ -33,6 +33,9 @@ interface FakeDarvin {
   setMcpServerEnabled: ReturnType<typeof vi.fn>;
   testMcpConnection: ReturnType<typeof vi.fn>;
   retryMcpLaunchResolution: ReturnType<typeof vi.fn>;
+  listMcpResources: ReturnType<typeof vi.fn>;
+  listMcpPrompts: ReturnType<typeof vi.fn>;
+  getMcpPrompt: ReturnType<typeof vi.fn>;
   onMcpServersChanged: ReturnType<typeof vi.fn>;
   onMcpConnectionChanged: ReturnType<typeof vi.fn>;
   __serverListeners: ServersListener[];
@@ -65,6 +68,9 @@ function installFakeDarvin(): FakeDarvin {
     setMcpServerEnabled: vi.fn(),
     testMcpConnection: vi.fn(),
     retryMcpLaunchResolution: vi.fn(),
+    listMcpResources: vi.fn(),
+    listMcpPrompts: vi.fn(),
+    getMcpPrompt: vi.fn(),
     onMcpServersChanged: vi.fn(),
     onMcpConnectionChanged: vi.fn(),
     __serverListeners: [],
@@ -229,5 +235,35 @@ describe('useMcpServers', () => {
     await new Promise((r) => setTimeout(r, 10));
     fake.__emitConn({ id: 'unknown', status: 'connected' });
     expect(servers.value.find((s) => s.id === 'unknown')).toBeUndefined();
+  });
+});
+describe('useMcpServers — resources & prompts', () => {
+  it('listResources returns the resource array on success', async () => {
+    const fake = installFakeDarvin();
+    fake.listMcpResources.mockResolvedValue({
+      resources: [{ uri: 'file:///tmp/a.txt', name: 'a' }],
+    });
+    const { listResources } = useMcpServers();
+    const got = await listResources('filesystem');
+    expect(got).toHaveLength(1);
+    expect(got[0].uri).toBe('file:///tmp/a.txt');
+  });
+
+  it('listResources falls back to [] on failure', async () => {
+    installFakeDarvin();
+    const { listResources } = useMcpServers();
+    const got = await listResources('gh');
+    expect(got).toEqual([]);
+  });
+
+  it('listPrompts + getPrompt round-trip', async () => {
+    const fake = installFakeDarvin();
+    fake.listMcpPrompts.mockResolvedValue({ prompts: [{ name: 'summarize' }] });
+    fake.getMcpPrompt.mockResolvedValue({ messages: [{ role: 'user', content: 'hi' }] });
+    const { listPrompts, getPrompt } = useMcpServers();
+    const prompts = await listPrompts('filesystem');
+    expect(prompts[0].name).toBe('summarize');
+    const msgs = await getPrompt('filesystem', 'summarize');
+    expect(msgs[0].content).toBe('hi');
   });
 });

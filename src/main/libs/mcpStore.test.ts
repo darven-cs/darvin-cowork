@@ -166,5 +166,33 @@ describe('buildServerFromCreate', () => {
     expect(s.description).toBe('');
     expect(s.enabled).toBe(true);
     expect(s.isBuiltIn).toBe(false);
+    expect(s.trustLevel).toBe('ask');
+  });
+
+  it('preserves explicit trustLevel', () => {
+    const s = buildServerFromCreate('m2', {
+      name: 'X',
+      transportType: 'stdio',
+      command: 'c',
+      trustLevel: 'trusted',
+    });
+    expect(s.trustLevel).toBe('trusted');
+  });
+
+  it('round-trips trustLevel through create + get + update', () => {
+    const created = store.createServer(
+      buildServerFromCreate('m3', {
+        name: 'T',
+        transportType: 'stdio',
+        command: 'npx',
+        trustLevel: 'trusted',
+      }),
+    );
+    expect(created.trustLevel).toBe('trusted');
+    expect(store.getServer('m3')?.trustLevel).toBe('trusted');
+
+    const updated = store.updateServer('m3', { trustLevel: 'ask' });
+    expect(updated?.trustLevel).toBe('ask');
+    expect(store.getServer('m3')?.trustLevel).toBe('ask');
   });
 });

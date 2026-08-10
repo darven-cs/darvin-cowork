@@ -216,6 +216,9 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		if err := toolsReg.SetWorkspaceRoot(root); err != nil {
 			return err
 		}
+		// Advertise the workspace root to MCP servers via roots/list so
+		// filesystem-aware servers can operate on the active project.
+		mcpReg.SetRoots([]mcp.Root{{URI: "file://" + root, Name: "workspace"}})
 		newSkills := bootstrapSkills(ctx, log, root, toolsReg)
 		skillPlugin.SetBootstrapResult(newSkills)
 		if handler != nil {
@@ -244,6 +247,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	mcpReg.SetNotifier(mcp.Notifier{
 		OnConnectionChanged: handler.OnMcpConnectionChanged,
 		OnResolutionChanged: handler.OnMcpResolutionChanged,
+		OnToolsChanged:      handler.OnMcpToolsChanged,
 	})
 
 	server := gateway.NewServer(handler, log)

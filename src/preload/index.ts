@@ -58,6 +58,11 @@ import type {
   DarvinSubagentGetMessagesResponse,
   DarvinSubagentListResponse,
   DarvinSubagentReadResultResponse,
+  DarvinMcpResourcesListResponse,
+  DarvinMcpResourceReadResponse,
+  DarvinMcpPromptsListResponse,
+  DarvinMcpPromptGetResponse,
+  DarvinMcpLogsResponse,
   DarvinTestMcpConnectionRequest,
   DarvinTestMcpConnectionResponse,
   DarvinWorkspaceInfoResponse,
@@ -274,6 +279,21 @@ const api: DarvinApi = {
   },
   async retryMcpLaunchResolution(req: { id: string }): Promise<{ ok: boolean }> {
     return ipcRenderer.invoke('mcp:retry_resolution', req);
+  },
+  async listMcpResources(id: string): Promise<DarvinMcpResourcesListResponse> {
+    return ipcRenderer.invoke('mcp:resources_list', { id });
+  },
+  async readMcpResource(id: string, uri: string): Promise<DarvinMcpResourceReadResponse> {
+    return ipcRenderer.invoke('mcp:resource_read', { id, uri });
+  },
+  async listMcpPrompts(id: string): Promise<DarvinMcpPromptsListResponse> {
+    return ipcRenderer.invoke('mcp:prompts_list', { id });
+  },
+  async getMcpPrompt(id: string, name: string, args?: Record<string, unknown>): Promise<DarvinMcpPromptGetResponse> {
+    return ipcRenderer.invoke('mcp:prompt_get', { id, name, arguments: args });
+  },
+  async getMcpLogs(id: string): Promise<DarvinMcpLogsResponse> {
+    return ipcRenderer.invoke('mcp:logs_get', { id });
   },
   onMcpServersChanged(handler: (servers: DarvinMcpServer[]) => void): () => void {
     const wrap = (_e: unknown, servers: DarvinMcpServer[]) => handler(servers);

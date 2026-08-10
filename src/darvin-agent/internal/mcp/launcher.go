@@ -194,7 +194,10 @@ func (r *ResolverManager) pickResolver(spec ServerSpec) Resolver {
 			// means production code falls through to the real spawn.
 			return &npxResolver{rootDir: r.rootDir, run: r.executor}
 		case "uvx", "uv":
-			return &stubResolver{kind: ResolverUvx, msg: "uvx resolver not yet implemented"}
+			// uvxResolver pre-installs a Python MCP server via `uv tool
+			// install --prefix` so the runtime spawn is the local binary
+			// instead of paying uvx resolution on every launch.
+			return &uvxResolver{rootDir: r.rootDir, run: r.executor}
 		case "go":
 			return &stubResolver{kind: ResolverGo, msg: "go resolver not yet implemented"}
 		}
@@ -444,6 +447,129 @@ func (n *npxResolver) Resolve(ctx context.Context, spec ServerSpec) (LaunchResol
 		ResolvedAt:       time.Now(),
 		Status:           StatusReady,
 	}, nil
+}
+
+// uvxResolver pre-installs a Python MCP server so the runtime spawn is the
+// local binary instead of paying uvx resolution on every launch. It uses
+// `uv tool install --prefix <dir>` which places the executable at
+// <dir>/bin/<name>; the package's basename is the conventional binary name.
+//
+// Install layout mirrors npxResolver:
+//
+//	<rootDir>/<serverID>-<pkgName>/bin/<entry>
+type uvxResolver struct {
+	rootDir string
+	run     func(ctx context.Context, name string, args ...string) ([]byte, []byte, error)
+}
+
+func (u *uvxResolver) Kind() ResolverKind { return ResolverUvx }
+
+func (u *uvxResolver) exec(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	if u.run != nil {
+		return u.run(ctx, name, args...)
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return []byte(stdout.String()), []byte(stderr.String()), err
+}
+
+func (u *uvxResolver) Resolve(ctx context.Context, spec ServerSpec) (LaunchResolution, error) {
+	pkg, _, err := parseNpxArgs(spec.Args) // "uvx -y pkg@ver args" is npx-shaped
+	if err != nil {
+		return LaunchResolution{
+			ResolverKind: ResolverUvx,
+			Status:       StatusUnsupported,
+			Error:        err.Error(),
+		}, nil
+	}
+
+	installDir := filepath.Join(u.rootDir,
+		sanitizeForPath(spec.ID)+"-"+sanitizeForPath(pkg.Name))
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		return LaunchResolution{
+			ResolverKind: ResolverUvx,
+			PackageName:  pkg.Name,
+			Status:       StatusFailed,
+			Error:        fmt.Sprintf("mkdir: %v", err),
+		}, nil
+	}
+
+	installSpec := pkg.Name
+	if pkg.Version != "" && pkg.Version != "latest" {
+		installSpec += "@" + pkg.Version
+	}
+	_, stderr, err := u.exec(ctx, "uv", "tool", "install",
+		"--prefix", installDir,
+		"--quiet",
+		installSpec,
+	)
+	if err != nil {
+		return LaunchResolution{
+			ResolverKind:     ResolverUvx,
+			PackageName:      pkg.Name,
+			RequestedVersion: pkg.Version,
+			InstallDir:       installDir,
+			Status:           StatusFailed,
+			Error:            "uv tool install: " + err.Error(),
+			FailureStderr:    truncateString(string(stderr), 4000),
+		}, nil
+	}
+
+	binPath, err := findUvxBin(installDir, pkg.Name)
+	if err != nil {
+		return LaunchResolution{
+			ResolverKind:     ResolverUvx,
+			PackageName:      pkg.Name,
+			RequestedVersion: pkg.Version,
+			InstallDir:       installDir,
+			Status:           StatusFailed,
+			Error:            err.Error(),
+		}, nil
+	}
+
+	return LaunchResolution{
+		ResolverKind:     ResolverUvx,
+		PackageName:      pkg.Name,
+		RequestedVersion: pkg.Version,
+		InstallDir:       installDir,
+		Command:          binPath,
+		Args:             nil, // the binary takes the server's extra args
+		ResolvedAt:       time.Now(),
+		Status:           StatusReady,
+	}, nil
+}
+
+// findUvxBin locates the installed executable under <dir>/bin. The binary
+// name is the basename of the package ("name" from "@scope/name"); fall
+// back to the first entry in <dir>/bin if the conventional name is absent.
+func findUvxBin(installDir, pkgName string) (string, error) {
+	base := filepath.Base(pkgName)
+	candidate := filepath.Join(installDir, "bin", base)
+	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		return candidate, nil
+	}
+	binDir := filepath.Join(installDir, "bin")
+	entries, err := os.ReadDir(binDir)
+	if err != nil {
+		return "", fmt.Errorf("uv tool install: no bin found in %s", installDir)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			return filepath.Join(binDir, e.Name()), nil
+		}
+	}
+	return "", fmt.Errorf("uv tool install: empty bin dir %s", binDir)
+}
+
+// truncateString caps a long diagnostic string.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // pickBinEntry returns the bin script path declared in a package.json

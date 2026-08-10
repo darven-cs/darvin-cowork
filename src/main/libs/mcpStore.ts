@@ -143,10 +143,12 @@ function rowToServer(row: McpServerRow): DarvinMcpServer {
   const url = get('url');
   const gh = get('githubUrl');
   const reg = get('registryId');
+  const trust = get('trustLevel');
   if (cmd !== undefined) out.command = cmd;
   if (url !== undefined) out.url = url;
   if (gh !== undefined) out.githubUrl = gh;
   if (reg !== undefined) out.registryId = reg;
+  if (trust === 'trusted' || trust === 'ask') out.trustLevel = trust;
   const args = cfg.args;
   if (Array.isArray(args)) out.args = args.filter((x): x is string => typeof x === 'string');
   const env = cfg.env;
@@ -236,6 +238,7 @@ export class McpStore {
       headers: server.headers,
       githubUrl: server.githubUrl,
       registryId: server.registryId,
+      trustLevel: server.trustLevel,
     };
     this.db
       .prepare(
@@ -284,6 +287,7 @@ export class McpStore {
     if (patch.env !== undefined) next.env = patch.env;
     if (patch.url !== undefined) next.url = patch.url;
     if (patch.headers !== undefined) next.headers = patch.headers;
+    if (patch.trustLevel !== undefined) next.trustLevel = patch.trustLevel;
     const now = Date.now();
     next.updatedAt = now;
     const config = {
@@ -294,6 +298,7 @@ export class McpStore {
       headers: next.headers,
       githubUrl: next.githubUrl,
       registryId: next.registryId,
+      trustLevel: next.trustLevel,
     };
     this.db
       .prepare(
@@ -395,6 +400,7 @@ export function buildServerFromCreate(
     env: req.env,
     url: req.url,
     headers: req.headers,
+    trustLevel: req.trustLevel ?? 'ask',
     isBuiltIn: false,
   };
 }

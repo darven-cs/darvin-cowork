@@ -27,6 +27,11 @@ import type {
   DarvinMcpConnectionStatus,
   DarvinMcpLaunchResolution,
   DarvinMcpResolutionChangedEvent,
+  DarvinMcpResourcesListResponse,
+  DarvinMcpResourceReadResponse,
+  DarvinMcpPromptsListResponse,
+  DarvinMcpPromptGetResponse,
+  DarvinMcpLogsResponse,
   DarvinMcpServer,
   DarvinMcpServerCreate,
   DarvinMcpServerPatch,
@@ -162,6 +167,31 @@ export class McpManager {
     return this.client.mcp.retryResolution({ id });
   }
 
+  async listResources(id: string): Promise<DarvinMcpResourcesListResponse> {
+    if (!this.client.isConnected()) return { resources: [] };
+    return this.client.mcp.resourcesList({ id });
+  }
+
+  async readResource(id: string, uri: string): Promise<DarvinMcpResourceReadResponse> {
+    if (!this.client.isConnected()) return { contents: [] };
+    return this.client.mcp.resourceRead({ id, uri });
+  }
+
+  async listPrompts(id: string): Promise<DarvinMcpPromptsListResponse> {
+    if (!this.client.isConnected()) return { prompts: [] };
+    return this.client.mcp.promptsList({ id });
+  }
+
+  async getPrompt(id: string, name: string, args?: Record<string, unknown>): Promise<DarvinMcpPromptGetResponse> {
+    if (!this.client.isConnected()) return { messages: [] };
+    return this.client.mcp.promptGet({ id, name, arguments: args });
+  }
+
+  async getLogs(id: string): Promise<DarvinMcpLogsResponse> {
+    if (!this.client.isConnected()) return { lines: [] };
+    return this.client.mcp.logsGet({ id });
+  }
+
   shutdown(): void {
     this.offConnection?.();
     this.offConnection = undefined;
@@ -190,6 +220,9 @@ export class McpManager {
     if (s) {
       s.launchStatus = e.resolution.status;
       s.launchError = e.resolution.error ?? undefined;
+      s.launchStage = e.resolution.failureStage;
+      s.launchElapsedMs = e.resolution.failureElapsedMs;
+      s.launchStderr = e.resolution.failureStderr;
       this.broadcastServers();
     }
   }

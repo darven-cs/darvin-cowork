@@ -27,6 +27,11 @@ import type {
   DarvinListToolsResponse,
   DarvinMcpConnectionChangedEvent,
   DarvinMcpResolutionChangedEvent,
+  DarvinMcpResourcesListResponse,
+  DarvinMcpResourceReadResponse,
+  DarvinMcpPromptsListResponse,
+  DarvinMcpPromptGetResponse,
+  DarvinMcpLogsResponse,
   DarvinMcpServer,
   DarvinMcpServerPatch,
   DarvinPromptRequest,
@@ -351,6 +356,16 @@ export class AgentClient extends EventEmitter {
       this.request<{ ok: boolean }>('agent.mcp.retry_resolution', req),
     bootstrap: (req: { servers: DarvinMcpServer[] }): Promise<{ ok: boolean }> =>
       this.request<{ ok: boolean }>('agent.mcp.bootstrap', req),
+    resourcesList: (req: { id: string }): Promise<DarvinMcpResourcesListResponse> =>
+      this.request<DarvinMcpResourcesListResponse>('agent.mcp.resources.list', req),
+    resourceRead: (req: { id: string; uri: string }): Promise<DarvinMcpResourceReadResponse> =>
+      this.request<DarvinMcpResourceReadResponse>('agent.mcp.resource.read', req),
+    promptsList: (req: { id: string }): Promise<DarvinMcpPromptsListResponse> =>
+      this.request<DarvinMcpPromptsListResponse>('agent.mcp.prompts.list', req),
+    promptGet: (req: { id: string; name: string; arguments?: Record<string, unknown> }): Promise<DarvinMcpPromptGetResponse> =>
+      this.request<DarvinMcpPromptGetResponse>('agent.mcp.prompt.get', req),
+    logsGet: (req: { id: string }): Promise<DarvinMcpLogsResponse> =>
+      this.request<DarvinMcpLogsResponse>('agent.mcp.logs.get', req),
     onConnectionChanged: (cb: (e: DarvinMcpConnectionChangedEvent) => void): (() => void) => {
       this.mcpConnListeners.add(cb);
       return () => {

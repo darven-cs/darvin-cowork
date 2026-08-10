@@ -851,6 +851,31 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle('mcp:resources_list', async (_e, req: { id: string }) => {
+  if (!req?.id) throw new Error('id required');
+  return mcpManager.listResources(req.id);
+});
+
+ipcMain.handle('mcp:resource_read', async (_e, req: { id: string; uri: string }) => {
+  if (!req?.id || !req?.uri) throw new Error('id and uri required');
+  return mcpManager.readResource(req.id, req.uri);
+});
+
+ipcMain.handle('mcp:prompts_list', async (_e, req: { id: string }) => {
+  if (!req?.id) throw new Error('id required');
+  return mcpManager.listPrompts(req.id);
+});
+
+ipcMain.handle('mcp:prompt_get', async (_e, req: { id: string; name: string; arguments?: Record<string, unknown> }) => {
+  if (!req?.id || !req?.name) throw new Error('id and name required');
+  return mcpManager.getPrompt(req.id, req.name, req.arguments);
+});
+
+ipcMain.handle('mcp:logs_get', async (_e, req: { id: string }) => {
+  if (!req?.id) throw new Error('id required');
+  return mcpManager.getLogs(req.id);
+});
+
 // 图片附件 base64 读取上限（10MB 阈值）。
 const MAX_READ_AS_DATA_URL_BYTES = 10 * 1024 * 1024;
 

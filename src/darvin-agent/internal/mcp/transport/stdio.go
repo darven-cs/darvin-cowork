@@ -38,16 +38,33 @@ type StdioTransport struct {
 	closed   atomic.Bool
 	initOnce sync.Once
 
+	// stdinMu serializes raw stdin writes between the Client's Call path
+	// (Send) and the server-request reply path (SendRaw).
+	stdinMu sync.Mutex
+
 	// Reader goroutine state.
 	readerDone chan struct{}
 	pendingMu  sync.Mutex
 	pending    map[int64]chan Frame // keyed by JSON-RPC request ID
+
+	// inbound carries server-initiated messages that no in-flight request
+	// is waiting for: notifications (no id) and server requests (an id with
+	// no pending match, e.g. roots/list or ping). The Client consumes it.
+	inbound chan Frame
+
+	// stderrTail is a bounded ring of the server's recent stderr lines so
+	// the UI can surface runtime logs without plumbing every line.
+	stderrMu   sync.Mutex
+	stderrTail []string
 
 	// lastFrame stores the most recently received response so that Recv
 	// can return it after Send has already waited for the response via the
 	// pending channel. It is only accessed under the Client's mutex.
 	lastFrame Frame
 }
+
+// stderrTailCap bounds the retained stderr ring.
+const stderrTailCap = 200
 
 // stdioCloseGrace is the time we wait for a well-behaved server to exit
 // after we close stdin before escalating to SIGKILL.
@@ -65,6 +82,7 @@ func (s *StdioTransport) Connect(ctx context.Context) error {
 		s.pending = make(map[int64]chan Frame)
 		s.readerDone = make(chan struct{})
 		s.waitCh = make(chan struct{}, 1) // buffered so close() always succeeds
+		s.inbound = make(chan Frame, 32)  // bounded; reader never blocks on it
 	})
 
 	if s.alive.Load() {

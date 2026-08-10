@@ -14,6 +14,11 @@ import (
 // stream has been shut down (subprocess exited, http client closed, etc.).
 var ErrTransportClosed = errors.New("mcp transport closed")
 
+// ErrSessionExpired is returned by HTTPTransport when the server rejects a
+// request with 401/410 — the MCP session id is stale and must be re-created
+// via a fresh initialize before the call can be replayed.
+var ErrSessionExpired = errors.New("mcp transport: session expired")
+
 // Frame is one wire-level MCP message — the JSON-RPC envelope has already
 // been unwrapped from its Content-Length (stdio) or HTTP (http) framing.
 // Err is set by the stdio reader goroutine to signal fatal read errors

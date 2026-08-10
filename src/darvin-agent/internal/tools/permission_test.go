@@ -4,6 +4,7 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -119,5 +120,55 @@ func TestReadFileGrantedAttachment(t *testing.T) {
 	}
 	if res.Content != "hello attachment" {
 		t.Errorf("content = %q, want %q", res.Content, "hello attachment")
+	}
+}
+
+// stubDangerTool is a Tool that self-classifies via DangerClassifier.
+type stubDangerTool struct {
+	level  string
+	reason string
+	need   bool
+}
+
+func (t *stubDangerTool) Name() string        { return "mcp__srv__danger" }
+func (t *stubDangerTool) Description() string { return "danger tool" }
+func (t *stubDangerTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
+func (t *stubDangerTool) Execute(context.Context, map[string]any) Result {
+	return Result{Content: "done"}
+}
+func (t *stubDangerTool) ClassifyDanger(map[string]any) (string, string, bool) {
+	return t.level, t.reason, t.need
+}
+
+func TestEvaluatePermissionConsultsDangerClassifier(t *testing.T) {
+	r := NewRegistry()
+	if err := r.RegisterTool(&stubDangerTool{level: "destructive", need: true}, KindMcp, map[string]any{
+		"pluginID":    "mcp",
+		"mcpServerID": "srv",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// DangerClassifier with need=true → approval required, level preserved.
+	eval := r.EvaluatePermission("mcp__srv__danger", map[string]any{})
+	if !eval.Need {
+		t.Errorf("eval = %+v, want Need=true for classifier tool", eval)
+	}
+	if eval.Level != "destructive" {
+		t.Errorf("Level = %q, want destructive", eval.Level)
+	}
+	if eval.Authorized != true {
+		t.Errorf("Authorized = %v, want true (approval allowed, not hard-blocked)", eval.Authorized)
+	}
+
+	// A classifier that reports safe passes through with no approval.
+	r2 := NewRegistry()
+	if err := r2.RegisterTool(&stubDangerTool{level: "safe", need: false}, KindMcp, nil); err != nil {
+		t.Fatal(err)
+	}
+	eval = r2.EvaluatePermission("mcp__srv__danger", map[string]any{})
+	if eval.Need {
+		t.Errorf("safe classifier eval = %+v, want Need=false", eval)
 	}
 }

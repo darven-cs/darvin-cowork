@@ -56,6 +56,8 @@ func commandLine(args map[string]any) string {
 // ClassifyPermission returns the danger level for a tool call. Only the shell
 // tool carries command-level danger today; file tools inside the workspace are
 // the authorized generation area and stay safe (write/edit = authorized root).
+// Plugins that self-classify (e.g. MCP tools annotated readOnly/destructive)
+// implement DangerClassifier and are consulted by EvaluatePermission.
 func ClassifyPermission(toolName string, args map[string]any) (level, reason string, need bool) {
 	if toolName != "shell" {
 		return "safe", "", false
@@ -74,11 +76,30 @@ func ClassifyPermission(toolName string, args map[string]any) (level, reason str
 	return "safe", "", false
 }
 
+// DangerClassifier is implemented by tools that carry their own danger
+// classification (e.g. MCP tools whose server declared readOnlyHint /
+// destructiveHint). EvaluatePermission consults it before the shell
+// fallback so plugin tools can prompt for approval.
+type DangerClassifier interface {
+	ClassifyDanger(args map[string]any) (level, reason string, need bool)
+}
+
 // EvaluatePermission combines path-containment ("authorized roots") with
 // command-level danger into one decision for the executor gate.
 func (r *Registry) EvaluatePermission(toolName string, args map[string]any) PermissionEval {
 	if reason, path, escaped := r.pathEscape(toolName, args); escaped {
 		return PermissionEval{Authorized: false, Need: true, Level: "caution", Reason: reason, EscapedPath: path}
+	}
+	// Plugin tools that self-classify get first say; their need/level are
+	// authoritative for the executor's approval loop.
+	if e, ok := r.GetEntry(toolName); ok {
+		if c, ok := e.Tool.(DangerClassifier); ok {
+			level, reason, need := c.ClassifyDanger(args)
+			if need {
+				return PermissionEval{Authorized: true, Need: true, Level: level, Reason: reason}
+			}
+			return PermissionEval{Authorized: true, Need: false, Level: "safe"}
+		}
 	}
 	if level, reason, need := ClassifyPermission(toolName, args); need {
 		return PermissionEval{Authorized: true, Need: true, Level: level, Reason: reason}

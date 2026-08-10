@@ -4,6 +4,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -196,5 +197,70 @@ func TestHTTPClose_MarksDead(t *testing.T) {
 	}
 	if err := tp.Close(); err != nil {
 		t.Fatalf("second Close must be a no-op, got %v", err)
+	}
+}
+
+func TestHTTP_SSEResponseParsedToMessage(t *testing.T) {
+	// Streamable-HTTP server: responds with an SSE stream whose message
+	// event carries the JSON-RPC response.
+	sseBody := "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\n\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(sseBody))
+	}))
+	defer srv.Close()
+
+	tp := &HTTPTransport{URL: srv.URL}
+	if err := tp.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tp.Close() }()
+
+	if err := tp.Send(context.Background(), []byte(`{"jsonrpc":"2.0","id":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := tp.Recv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`
+	if string(frame.Body) != want {
+		t.Fatalf("body = %q, want %q", frame.Body, want)
+	}
+}
+
+func TestHTTP_Send_401ReturnsSessionExpired(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	tp := &HTTPTransport{URL: srv.URL}
+	if err := tp.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tp.Close() }()
+
+	err := tp.Send(context.Background(), []byte(`{}`))
+	if !errors.Is(err, ErrSessionExpired) {
+		t.Fatalf("err = %v, want ErrSessionExpired", err)
+	}
+}
+
+func TestHTTP_Send_410ReturnsSessionExpired(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusGone)
+	}))
+	defer srv.Close()
+
+	tp := &HTTPTransport{URL: srv.URL}
+	if err := tp.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tp.Close() }()
+
+	err := tp.Send(context.Background(), []byte(`{}`))
+	if !errors.Is(err, ErrSessionExpired) {
+		t.Fatalf("err = %v, want ErrSessionExpired", err)
 	}
 }

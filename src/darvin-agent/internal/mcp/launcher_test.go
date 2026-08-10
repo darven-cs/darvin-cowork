@@ -333,3 +333,80 @@ func TestPickBinEntry_Nil(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestUvxResolver_HappyPath(t *testing.T) {
+	rootDir := t.TempDir()
+	rm := NewResolverManager(rootDir).withExecutor(func(_ context.Context, name string, args ...string) ([]byte, []byte, error) {
+		// Fake `uv tool install --prefix <dir> <pkg>` → create <dir>/bin/<name>.
+		if name != "uv" {
+			return nil, nil, errors.New("unexpected command: " + name)
+		}
+		if len(args) < 2 || args[0] != "tool" || args[1] != "install" {
+			return nil, nil, errors.New("unexpected uv args: " + strings.Join(args, " "))
+		}
+		prefix := ""
+		for i := 0; i < len(args); i++ {
+			if args[i] == "--prefix" && i+1 < len(args) {
+				prefix = args[i+1]
+			}
+		}
+		if prefix == "" {
+			return nil, nil, errors.New("no --prefix in uv args")
+		}
+		binDir := filepath.Join(prefix, "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			return nil, nil, err
+		}
+		// Conventional bin name = basename of the package ("mcp-server-x").
+		prog := filepath.Join(binDir, "mcp-server-x")
+		if err := os.WriteFile(prog, []byte("#!/bin/sh\necho fake\n"), 0o755); err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, nil
+	})
+
+	res, err := rm.pickResolver(ServerSpec{Transport: TransportStdio, Command: "uvx"}).Resolve(context.Background(), ServerSpec{
+		ID:        "py",
+		Transport: TransportStdio,
+		Command:   "uvx",
+		Args:      []string{"-y", "mcp-server-x@1.0.0", "--flag"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusReady {
+		t.Fatalf("status = %s, want ready (err=%s)", res.Status, res.Error)
+	}
+	if res.ResolverKind != ResolverUvx {
+		t.Fatalf("kind = %s, want uvx", res.ResolverKind)
+	}
+	wantInstallDir := filepath.Join(rootDir, sanitizeForPath("py")+"-"+sanitizeForPath("mcp-server-x"))
+	if res.InstallDir != wantInstallDir {
+		t.Errorf("installDir = %q, want %q", res.InstallDir, wantInstallDir)
+	}
+	wantBin := filepath.Join(wantInstallDir, "bin", "mcp-server-x")
+	if res.Command != wantBin {
+		t.Errorf("command = %q, want %q", res.Command, wantBin)
+	}
+}
+
+func TestUvxResolver_InstallFails(t *testing.T) {
+	rm := NewResolverManager(t.TempDir()).withExecutor(func(_ context.Context, name string, _ ...string) ([]byte, []byte, error) {
+		if name != "uv" {
+			return nil, nil, errors.New("unexpected command")
+		}
+		return nil, []byte("error: network unreachable"), errors.New("exit 1")
+	})
+	res, err := rm.pickResolver(ServerSpec{Transport: TransportStdio, Command: "uvx"}).Resolve(context.Background(), ServerSpec{
+		ID: "py", Command: "uvx", Args: []string{"-y", "mcp-server-x"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusFailed {
+		t.Fatalf("status = %s, want failed", res.Status)
+	}
+	if res.FailureStderr == "" {
+		t.Error("expected FailureStderr to capture uv stderr")
+	}
+}

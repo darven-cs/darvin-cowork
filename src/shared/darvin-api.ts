@@ -675,6 +675,10 @@ export interface DarvinMcpServerExposedTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** MCP 工具安全注解（2025-03-26 协议）；缺省表示 server 未声明。 */
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  openWorldHint?: boolean;
 }
 
 /** 单 MCP server 的 renderer 视图;spec / status 合一。 */
@@ -692,10 +696,16 @@ export interface DarvinMcpServer {
   isBuiltIn: boolean;
   githubUrl?: string;
   registryId?: string;
+  /** 工具调用权限策略："trusted" 放行、"ask"(默认) 对非只读工具弹确认。 */
+  trustLevel?: 'trusted' | 'ask';
   createdAt: number;
   updatedAt: number;
   launchStatus?: DarvinMcpLaunchStatus;
   launchError?: string;
+  /** 失败详情（来自 resolution_changed）：阶段 / 耗时(ms) / stderr 摘要。 */
+  launchStage?: string;
+  launchElapsedMs?: number;
+  launchStderr?: string;
   connectionStatus?: DarvinMcpConnectionStatus;
   connectionError?: string;
   exposedTools?: DarvinMcpServerExposedTool[];
@@ -711,6 +721,7 @@ export interface DarvinMcpServerCreate {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  trustLevel?: 'trusted' | 'ask';
 }
 
 export interface DarvinMcpServerPatch {
@@ -723,6 +734,7 @@ export interface DarvinMcpServerPatch {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  trustLevel?: 'trusted' | 'ask';
 }
 
 export interface DarvinListMcpServersResponse {
@@ -758,6 +770,10 @@ export interface DarvinTestMcpConnectionResponse {
   ok: boolean;
   error?: string;
   tools?: DarvinMcpServerExposedTool[];
+  /** 认证诊断三态：none / possible / required（Go 端 DiagnoseAuth 输出）。 */
+  authStatus?: 'none' | 'possible' | 'required';
+  /** 可操作建议文案（如「服务器需要 OAuth 授权」）。 */
+  authSuggestion?: string;
 }
 
 export interface DarvinRetryMcpLaunchResolutionRequest {
@@ -766,6 +782,57 @@ export interface DarvinRetryMcpLaunchResolutionRequest {
 
 export interface DarvinRetryMcpLaunchResolutionResponse {
   ok: boolean;
+}
+
+/** MCP resources/prompts（Go 端 resources.go 的 wire 形状）。 */
+export interface DarvinMcpResource {
+  uri: string;
+  name?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface DarvinMcpResourceContent {
+  uri: string;
+  mimeType?: string;
+  text?: string;
+}
+
+export interface DarvinMcpPromptArgument {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+export interface DarvinMcpPrompt {
+  name: string;
+  description?: string;
+  arguments?: DarvinMcpPromptArgument[];
+}
+
+export interface DarvinMcpPromptMessage {
+  role: string;
+  content?: string;
+}
+
+export interface DarvinMcpResourcesListResponse {
+  resources: DarvinMcpResource[];
+}
+
+export interface DarvinMcpResourceReadResponse {
+  contents: DarvinMcpResourceContent[];
+}
+
+export interface DarvinMcpPromptsListResponse {
+  prompts: DarvinMcpPrompt[];
+}
+
+export interface DarvinMcpPromptGetResponse {
+  messages: DarvinMcpPromptMessage[];
+}
+
+export interface DarvinMcpLogsResponse {
+  lines: string[];
 }
 
 export interface DarvinMcpConnectionChangedEvent {
@@ -788,6 +855,10 @@ export interface DarvinMcpLaunchResolution {
   args: string[];
   env: Record<string, string>;
   error: string | null;
+  /** 失败阶段（launch / initialize / tools-list 等）+ 耗时(ms) + stderr 摘要。 */
+  failureStage?: string;
+  failureElapsedMs?: number;
+  failureStderr?: string;
   installedAt: number | null;
   resolvedAt: number | null;
   updatedAt: number;
@@ -1011,6 +1082,16 @@ export interface DarvinApi {
   testMcpConnection(req: DarvinTestMcpConnectionRequest): Promise<DarvinTestMcpConnectionResponse>;
   /** 重新跑 resolver（适用 npx install 失败后人工点重试）。 */
   retryMcpLaunchResolution(req: DarvinRetryMcpLaunchResolutionRequest): Promise<DarvinRetryMcpLaunchResolutionResponse>;
+  /** 列 server 的资源（resources/list 缓存，连接后异步拉取）。 */
+  listMcpResources(id: string): Promise<DarvinMcpResourcesListResponse>;
+  /** 读单个资源内容。 */
+  readMcpResource(id: string, uri: string): Promise<DarvinMcpResourceReadResponse>;
+  /** 列 server 的提示模板（prompts/list 缓存）。 */
+  listMcpPrompts(id: string): Promise<DarvinMcpPromptsListResponse>;
+  /** 渲染一个提示模板。 */
+  getMcpPrompt(id: string, name: string, args?: Record<string, unknown>): Promise<DarvinMcpPromptGetResponse>;
+  /** 读 server 最近运行时日志（stdio stderr 环形缓冲）。 */
+  getMcpLogs(id: string): Promise<DarvinMcpLogsResponse>;
   /** 订阅 server 列表变更（create/update/delete/setEnabled 之后 main 推）。 */
   onMcpServersChanged(handler: (servers: DarvinMcpServer[]) => void): () => void;
   /** 订阅单 server 连接状态变更（Go → main → renderer push）。 */
