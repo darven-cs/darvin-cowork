@@ -39,7 +39,7 @@
 | `notebook_edit` (Jupyter .ipynb) | ✅ | `internal/tools/notebook_edit.go` |
 | `mcp__<server>__<tool>` (MCP bridge) | ✅ | `internal/tools/mcp.go` |
 | `bash_output` / `kill_shell` / `wait` / `list_jobs` (后台任务) | 🔄 spec 已写，**未实现** | `specs/features/builtin-tools-c-bg-jobs/` |
-| `todo` / `goal` (任务/目标管理) | 🔄 spec 已写，**未实现** | `specs/features/builtin-tools-d-todo-goal/` |
+| `todo_write` / `complete_step` (结构化任务跟踪) | ✅ | `internal/tools/todo.go` |
 | `compress` (按需上下文压缩) | ❌ spec 未写 | — |
 | `use_capability` (MCP proxy 抽象) | 🔄 spec 已写，**未实现** | `specs/features/use-capability-mcp-proxy/` |
 
@@ -61,10 +61,9 @@
   - **工作量**：~150 行 + 1 个 source 适配;UI 不需要改。
   - **优先级**：🔴 最高
 
-- [ ] **Todo + Goal 工具**
-  - **现状**：`plus.todo.*` `plus.goal.*` 两条 UI 都是占位("能力尚未接入");Tier 1 在之前 gap analysis 就标过;`specs/features/builtin-tools-d-todo-goal/` 已有 spec。
-  - **建议**：走 D spec;~300-400 行,独立子包。
-  - **工作量**：~300-400 行。
+- [x] 49efed0 (2026-08-10) **Todo + Goal 工具**
+  - **现状**：`plus.todo.*` `plus.goal.*` 两条 UI 都是占位("能力尚未接入")。
+  - **建议**：走 D spec;~300-400 行。**后端已落地**：`todo_write`（stateless 清单，args 即状态）+ `complete_step`（证据强制签收），见 commit `49efed0`；`update_goal` 明确不做（缺 host goal FSM，见 D spec §7）；**前端 TodoPanel 渲染为后续项**。
   - **优先级**：🔴 最高
 
 ---
@@ -151,13 +150,13 @@
 
 ## 4. 完成进度
 
-- Tier 1: 0/3 完成
+- Tier 1: 1/3 完成（Todo + Goal 后端，`49efed0`；前端面板后续）
 - Tier 2: 0/4 完成
 - Tier 3: 1/6 完成（Sub-agent，`a204c72`）
 - Tier 4: 0/2 完成
-- 总体: 1/15 项
+- 总体: 2/15 项
 
-最近一次更新: 2026-08-10（Sub-agent 落地，`a204c72`）
+最近一次更新: 2026-08-10（Todo + Goal 后端落地，`49efed0`）
 
 ---
 
