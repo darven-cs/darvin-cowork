@@ -103,11 +103,11 @@ Go agent 相关：
 - CI 入口包含 `npm run lint` + `npm run test`。
 - 新增逻辑：能不写测试就不写（避免覆盖债堆积）；覆盖时优先覆盖纯函数 / IPC 协议解析 / 路径与序列化工具，避免给 Electron 主进程写集成测试。
 
-UI / Electron 行为验证走 `playwright-cli`（不入 CI，dev 手动跑）。主进程在 `!app.isPackaged` 时已自动开 `remote-debugging-port=9222` + `remote-allow-origins=*`（见 `src/main/index.ts`），跑 `npm start` 拉起 Electron 后端口即可用。
+UI / Electron 行为验证走项目自带的 `electron-cdp` skill（不入 CI，dev 手动跑）：用 `chromium.connectOverCDP` 拨主进程自动开的 `remote-debugging-port=9222`（`!app.isPackaged` 时，见 `src/main/index.ts`），驱动 `npm start` 拉起的窗口，不新开浏览器。驱动脚本 `.claude/skills/electron-cdp/scripts/edrv.mjs`（`eval` / `eval-file` / `ipc` / `click` / `fill` / `wait` …，playwright 库从全局 `@playwright/cli` 安装解析）；完整命令与测试模式见该 skill。
 
 前置环境检查（每次接活时跑一次）：
 
-1. CLI 是否已装：
+1. 全局 `@playwright/cli` 是否已装（驱动脚本依赖它自带的 playwright 库）：
    ```bash
    playwright-cli --help
    ```
@@ -115,13 +115,13 @@ UI / Electron 行为验证走 `playwright-cli`（不入 CI，dev 手动跑）。
    ```bash
    npm install -g @playwright/cli@latest
    ```
-2. 项目级 skills 是否已装：
+2. 项目级 skill 是否就位：
    ```bash
-   playwright-cli install --skills
+   ls .claude/skills/electron-cdp/scripts/edrv.mjs
    ```
-   没装就跑这条装上；已装就跳过，之后直接用 skills 驱动 Electron 窗口。
+   缺 skill 时用 `skill-creator` 重建；驱动脚本随 skill 入库。
 
-验证流程：先 `npm start` 起 Electron，再在另一终端按需调用 `playwright-cli` / skills 操作。
+验证流程：先 `npm start` 起 Electron（`prestart` 自动 build agent），再按需驱动窗口：`node .claude/skills/electron-cdp/scripts/edrv.mjs <cmd>`。通用浏览器自动化（非 Electron）仍可用 `playwright-cli` 技能。
 
 ## 质量门槛
 
