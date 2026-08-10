@@ -25,6 +25,7 @@ export const ArtifactSpecialTab = {
   FileList: 'fileList',
   Browser: 'browser',
   Subagents: 'subagents',
+  Todo: 'todo',
 } as const;
 export type ArtifactSpecialTab = typeof ArtifactSpecialTab[keyof typeof ArtifactSpecialTab];
 
@@ -72,7 +73,7 @@ export function previewTabId(artifactId: string): string {
 }
 
 export function isSpecialTabId(id: string | null): id is ArtifactSpecialTab {
-  return id === 'fileList' || id === 'browser' || id === 'subagents';
+  return id === 'fileList' || id === 'browser' || id === 'subagents' || id === 'todo';
 }
 
 export function useArtifacts() {

@@ -95,6 +95,7 @@
       <FileListView v-if="activeTabId === ArtifactSpecialTab.FileList" :session-id="props.sessionId" />
       <BrowserTab v-else-if="activeTabId === ArtifactSpecialTab.Browser" />
       <SubagentPanelContent v-else-if="activeTabId === ArtifactSpecialTab.Subagents" :session-id="props.sessionId" />
+      <TodoPanelContent v-else-if="activeTabId === ArtifactSpecialTab.Todo" :session-id="props.sessionId" />
       <template v-else-if="activeArtifactItem">
         <ArtifactRenderer v-if="!showCode" :key="reloadKey" :artifact="activeArtifactItem" />
         <pre v-else class="h-full w-full overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs text-text">{{ activeArtifactItem.content }}</pre>
@@ -115,6 +116,7 @@ import ArtifactRenderer from './ArtifactRenderer.vue';
 import FileListView from './FileListView.vue';
 import BrowserTab from './BrowserTab.vue';
 import SubagentPanelContent from './SubagentPanelContent.vue';
+import TodoPanelContent from './TodoPanelContent.vue';
 import IconButton from '../common/IconButton.vue';
 import { t } from '../../services/i18n';
 import { showToast } from '../../services/toast';
@@ -128,6 +130,7 @@ const specialTabs: { id: ArtifactSpecialTab; label: string; icon: string }[] = [
   { id: ArtifactSpecialTab.FileList, label: t('artifact.special.fileList'), icon: 'file-list' },
   { id: ArtifactSpecialTab.Browser, label: t('artifact.special.browser'), icon: 'browser' },
   { id: ArtifactSpecialTab.Subagents, label: t('artifact.special.subagents'), icon: 'subagents' },
+  { id: ArtifactSpecialTab.Todo, label: t('artifact.special.todo'), icon: 'list' },
 ];
 
 /** 不可切 code 视图的 kind（分段控件只留 preview 段）。 */

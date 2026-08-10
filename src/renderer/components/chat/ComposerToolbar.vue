@@ -49,6 +49,7 @@ import { useFloatingPanel } from '../../composables/useFloatingPanel';
 import { useSession } from '../../composables/useSession';
 import { useMessages } from '../../composables/useMessages';
 import { useImportedFiles } from '../../composables/useImportedFiles';
+import { useArtifacts, ArtifactSpecialTab } from '../../composables/useArtifacts';
 
 defineProps<{ canSend: boolean }>();
 const emit = defineEmits<{ send: []; suite: []; mic: [] }>();
@@ -56,6 +57,7 @@ const emit = defineEmits<{ send: []; suite: []; mic: [] }>();
 const fp = useFloatingPanel();
 const session = useSession();
 const messages = useMessages();
+const artifacts = useArtifacts();
 const { busy, pickAttachments } = useImportedFiles();
 
 function onPick(id: 'upload' | 'goal' | 'todo' | 'settings') {
@@ -63,6 +65,12 @@ function onPick(id: 'upload' | 'goal' | 'todo' | 'settings') {
     void pickAttachments();
     return;
   }
+  if (id === 'goal' || id === 'todo') {
+    const sid = session.activeSessionId.value;
+    if (sid) artifacts.activateTab(sid, ArtifactSpecialTab.Todo);
+    return;
+  }
+  // settings 未接线：保留 warn 兜底，避免落入静默 no-op
   // eslint-disable-next-line no-console
   console.warn('PlusMenu pick:', id);
 }
