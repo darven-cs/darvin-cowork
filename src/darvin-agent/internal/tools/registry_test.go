@@ -175,6 +175,7 @@ func TestRegistryRegisterTagsBuiltInKind(t *testing.T) {
 		"code_index": true, "notebook_edit": true,
 		"delegate_subagent": true, "list_subagents": true, "abort_subagent": true,
 		"parallel_subagents": true, "read_subagent_result": true,
+		"todo_write": true, "complete_step": true,
 	}
 	entries := reg.ListByKind(KindBuiltIn)
 	if len(entries) != len(want) {
