@@ -94,13 +94,7 @@
     <div class="min-h-0 flex-1 overflow-hidden">
       <FileListView v-if="activeTabId === ArtifactSpecialTab.FileList" :session-id="props.sessionId" />
       <BrowserTab v-else-if="activeTabId === ArtifactSpecialTab.Browser" />
-      <div
-        v-else-if="activeTabId === ArtifactSpecialTab.Subagents"
-        class="flex h-full flex-col items-center justify-center px-6 text-center"
-        data-testid="artifact-subagents-placeholder"
-      >
-        <p class="font-display text-base italic text-text-muted">{{ t('artifact.subagents.placeholder') }}</p>
-      </div>
+      <SubagentPanelContent v-else-if="activeTabId === ArtifactSpecialTab.Subagents" :session-id="props.sessionId" />
       <template v-else-if="activeArtifactItem">
         <ArtifactRenderer v-if="!showCode" :key="reloadKey" :artifact="activeArtifactItem" />
         <pre v-else class="h-full w-full overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs text-text">{{ activeArtifactItem.content }}</pre>
@@ -120,6 +114,7 @@ import { useChatActions } from '../../composables/useChatActions';
 import ArtifactRenderer from './ArtifactRenderer.vue';
 import FileListView from './FileListView.vue';
 import BrowserTab from './BrowserTab.vue';
+import SubagentPanelContent from './SubagentPanelContent.vue';
 import IconButton from '../common/IconButton.vue';
 import { t } from '../../services/i18n';
 import { showToast } from '../../services/toast';

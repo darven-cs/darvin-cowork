@@ -1,5 +1,5 @@
 <template>
-  <aside class="relative flex h-full flex-col border-l border-border bg-bg" :style="{ width: `${panelWidth}px` }">
+  <aside class="relative flex min-h-0 h-full flex-col border-l border-border bg-bg" :style="{ width: `${panelWidth}px` }">
     <ArtifactPanel v-if="sessionId" :session-id="sessionId" />
     <div v-else class="flex flex-1 items-center justify-center px-6 text-center" data-testid="artifact-empty">
       <p class="font-display text-base italic text-text-muted">{{ t('artifact.empty') }}</p>

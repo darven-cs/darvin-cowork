@@ -16,6 +16,7 @@ import (
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/llm"
+	"darvin-cowork/backend/internal/subagent"
 	tool "darvin-cowork/backend/internal/tools"
 )
 
@@ -119,6 +120,7 @@ func (f *fakeDeps) RecordUsage(u llm.Usage, _ string) { f.lastUsage = u }
 func (f *fakeDeps) LastUsage() llm.Usage              { return f.lastUsage }
 func (f *fakeDeps) CurrentMessageID() string          { return f.messageID }
 func (f *fakeDeps) CurrentRunID() string              { return f.runID }
+func (f *fakeDeps) Subagents() *subagent.Manager      { return nil }
 func (f *fakeDeps) EvaluatePermission(toolName string, args map[string]any) tool.PermissionEval {
 	return f.tools.EvaluatePermission(toolName, args)
 }

@@ -847,6 +847,50 @@ export const DarvinPushEvent = {
 } as const;
 export type DarvinPushEvent = typeof DarvinPushEvent[keyof typeof DarvinPushEvent];
 
+/** 单个 sub-agent run 的 renderer 视图（Go agent.subagent.list wire）。 */
+export interface SubagentRun {
+  id: string;
+  parentId: string;
+  status: 'pending' | 'running' | 'done' | 'error' | 'aborted' | 'timeout';
+  prompt: string;
+  description: string;
+  scope: string[];
+  model: string;
+  toolCallId?: string;
+  startedAt: number;
+  endedAt: number;
+  toolCalls: number;
+  errorMsg?: string;
+  durationMs: number;
+  resultText?: string;
+  resultTruncated?: boolean;
+}
+
+/** sub-agent 会话里的一条消息（agent.subagent.get_messages wire）。 */
+export interface SubagentMessage {
+  id: string;
+  sessionId: string;
+  role: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'system';
+  content: string;
+  toolCalls?: string;
+  createdAt: number;
+  done?: boolean;
+  error?: string | null;
+  toolLabel?: string | null;
+}
+
+export interface DarvinSubagentListResponse {
+  subagents: SubagentRun[];
+}
+
+export interface DarvinSubagentGetMessagesResponse {
+  messages: SubagentMessage[];
+}
+
+export interface DarvinSubagentReadResultResponse {
+  text: string;
+}
+
 export interface DarvinApi {
   createSession(req?: { title?: string }): Promise<DarvinCreateSessionResponse>;
   listSessions(): Promise<DarvinListSessionsResponse>;
@@ -976,4 +1020,13 @@ export interface DarvinApi {
 
   /** 列合并后的工具面（内置 + skill + mcp），renderer / 调试用。 */
   listTools(): Promise<DarvinListToolsResponse>;
+
+  /** 拉取某主 session 派生出的 sub-agent runs（Subagents artifact tab）。 */
+  subagentList(parentSessionId: string): Promise<DarvinSubagentListResponse>;
+  /** 拉取某个 sub-agent run 的会话消息（按 run id 分桶）。 */
+  subagentGetMessages(runId: string): Promise<DarvinSubagentGetMessagesResponse>;
+  /** 取消一个 running 的 sub-agent run。 */
+  subagentAbort(runId: string): Promise<{ ok: boolean }>;
+  /** 字节偏移分页读 sub-agent 结果。 */
+  subagentReadResult(runId: string, offsetBytes: number, limitBytes: number): Promise<DarvinSubagentReadResultResponse>;
 }

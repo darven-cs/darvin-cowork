@@ -5,6 +5,7 @@ package agentloop
 import (
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/harness"
+	"darvin-cowork/backend/internal/subagent"
 )
 
 // AgentLoopSession bundles the Agent + Harness + Loop for a single
@@ -25,6 +26,10 @@ type AgentLoopSession struct {
 	// streaming persistence. May be nil (tests / factories without a
 	// MessageStore wired).
 	DeltaHook *agent.TextDeltaHook
+	// Subagents is the per-session manager for sub-agent runs spawned
+	// via delegate_subagent / parallel_subagents. nil when the factory
+	// has no SubagentStore wired.
+	Subagents *subagent.Manager
 }
 
 // Close shuts down the DeltaHook subscription + Loop and waits for
@@ -37,6 +42,9 @@ type AgentLoopSession struct {
 func (s *AgentLoopSession) Close() {
 	if s == nil {
 		return
+	}
+	if s.Subagents != nil {
+		s.Subagents.Close()
 	}
 	if s.DeltaHook != nil {
 		s.DeltaHook.Close()

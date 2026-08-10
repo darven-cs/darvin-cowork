@@ -38,6 +38,7 @@ func loadDatabase(_ context.Context, cfg *config.Config, log *zap.Logger) (Store
 		&store.AppState{},
 		&store.ImportedFile{},
 		&store.SessionUsage{},
+		&store.Subagent{},
 	); err != nil {
 		return Stores{}, fmt.Errorf("auto migrate: %w", err)
 	}
@@ -50,5 +51,6 @@ func loadDatabase(_ context.Context, cfg *config.Config, log *zap.Logger) (Store
 		AppState:      store.NewAppStateStore(db),
 		ImportedFiles: store.NewImportedFileStore(db),
 		Usages:        store.NewSQLiteUsageStore(db),
+		Subagents:     store.NewSQLiteSubagentStore(db),
 	}, nil
 }

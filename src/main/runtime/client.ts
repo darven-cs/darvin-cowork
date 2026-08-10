@@ -37,6 +37,8 @@ import type {
   DarvinSkillSummary,
   DarvinTestMcpConnectionRequest,
   DarvinTestMcpConnectionResponse,
+  SubagentMessage,
+  SubagentRun,
 } from '../../shared/darvin-api';
 
 /**
@@ -370,6 +372,25 @@ export class AgentClient extends EventEmitter {
   tools = {
     list: (): Promise<DarvinListToolsResponse> =>
       this.request<DarvinListToolsResponse>('agent.tools.list', {}),
+  };
+
+  /**
+   * Subagent 命名空间：给 renderer 的 Subagents artifact tab 拉列表 /
+   * 读历史 / 取消 run / 分页读结果。
+   */
+  subagent = {
+    list: (parentSessionId: string): Promise<{ subagents: SubagentRun[] }> =>
+      this.request<{ subagents: SubagentRun[] }>('agent.subagent.list', { sessionId: parentSessionId }),
+    getMessages: (runId: string): Promise<{ messages: SubagentMessage[] }> =>
+      this.request<{ messages: SubagentMessage[] }>('agent.subagent.get_messages', { runId }),
+    abort: (runId: string): Promise<{ ok: boolean }> =>
+      this.request<{ ok: boolean }>('agent.subagent.abort', { runId }),
+    readResult: (runId: string, offsetBytes: number, limitBytes: number): Promise<{ text: string }> =>
+      this.request<{ text: string }>('agent.subagent.read_result', {
+        runId,
+        offset_bytes: offsetBytes,
+        limit_bytes: limitBytes,
+      }),
   };
 
   onEvent(cb: (e: DarvinEvent) => void): () => void {

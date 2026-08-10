@@ -1,7 +1,11 @@
 <template>
   <div
     class="grid h-screen overflow-hidden bg-bg text-text"
-    :style="{ gridTemplateColumns, transition: dragging ? 'none' : 'grid-template-columns 180ms cubic-bezier(0.4, 0, 0.2, 1)' }"
+    :style="{
+      gridTemplateColumns,
+      gridTemplateRows: 'minmax(0, 1fr)',
+      transition: dragging ? 'none' : 'grid-template-columns 180ms cubic-bezier(0.4, 0, 0.2, 1)',
+    }"
   >
     <Sidebar class="col-start-1" :collapsed="sidebarCollapsed" @navigate="onSidebarNavigate" />
     <component

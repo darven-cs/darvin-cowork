@@ -118,3 +118,31 @@ type SessionUsage struct {
 }
 
 func (SessionUsage) TableName() string { return "session_usages" }
+
+// Subagent is one sub-agent run spawned by a parent session via the
+// delegate_subagent / parallel_subagents tools. ID is namespaced
+// "<parentSessionID>/sub/<rand>"; ParentID is the parent session id and
+// is indexed for ListByParent queries. The full final assistant text is
+// kept in ResultText up to a truncation threshold; FullResultPath is
+// reserved for an off-by-default file dump and stays empty in this
+// implementation.
+type Subagent struct {
+	ID             string `gorm:"primaryKey"`
+	ParentID       string `gorm:"index"`
+	Status         string `gorm:"default:'pending'"`
+	Prompt         string
+	Description    string
+	ScopeJSON      string
+	Model          string
+	ToolCallID     string    `gorm:"index"`
+	StartedAt      time.Time `gorm:"autoCreateTime"`
+	EndedAt        time.Time
+	ResultText     string `gorm:"type:text"`
+	FullResultPath string `gorm:"type:text"`
+	ToolCalls      int
+	ErrorMsg       string `gorm:"type:text"`
+	Depth          int    `gorm:"default:0"`
+	TimeoutMs      int    `gorm:"default:0"`
+}
+
+func (Subagent) TableName() string { return "subagent_runs" }

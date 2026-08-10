@@ -86,6 +86,9 @@ import type {
   DarvinSetSkillEnabledRequest,
   DarvinSetSkillEnabledResponse,
   DarvinSetWorkspaceResult,
+  DarvinSubagentGetMessagesResponse,
+  DarvinSubagentListResponse,
+  DarvinSubagentReadResultResponse,
   DarvinSwitchSessionResponse,
   DarvinUninstallSkillResponse,
   DarvinUpgradeSkillResponse,
@@ -745,6 +748,39 @@ ipcMain.handle('mcp:list', async (): Promise<DarvinListMcpServersResponse> => {
 ipcMain.handle('tools:list', async (): Promise<DarvinListToolsResponse> => {
   return client.tools.list();
 });
+
+// Subagents artifact tab 数据源：list / messages / abort / read_result。
+ipcMain.handle(
+  'subagent:list',
+  async (_e, parentSessionId: string): Promise<DarvinSubagentListResponse> => {
+    if (!parentSessionId) throw new Error('parentSessionId required');
+    return client.subagent.list(parentSessionId);
+  },
+);
+
+ipcMain.handle(
+  'subagent:get_messages',
+  async (_e, runId: string): Promise<DarvinSubagentGetMessagesResponse> => {
+    if (!runId) throw new Error('runId required');
+    return client.subagent.getMessages(runId);
+  },
+);
+
+ipcMain.handle(
+  'subagent:abort',
+  async (_e, runId: string): Promise<{ ok: boolean }> => {
+    if (!runId) throw new Error('runId required');
+    return client.subagent.abort(runId);
+  },
+);
+
+ipcMain.handle(
+  'subagent:read_result',
+  async (_e, runId: string, offsetBytes: number, limitBytes: number): Promise<DarvinSubagentReadResultResponse> => {
+    if (!runId) throw new Error('runId required');
+    return client.subagent.readResult(runId, offsetBytes, limitBytes);
+  },
+);
 
 ipcMain.handle(
   'mcp:create',

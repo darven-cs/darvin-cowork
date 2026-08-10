@@ -86,6 +86,7 @@ type Stores struct {
 	ImportedFiles *store.ImportedFileStore
 	Usages        *store.SQLiteUsageStore
 	Digests       store.DigestStore
+	Subagents     *store.SQLiteSubagentStore
 }
 
 // Shutdown stops the gateway server, disposes every registered
@@ -172,6 +173,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		MessageStore:       stores.Messages,
 		UsageStore:         stores.Usages,
 		DigestStore:        stores.Digests,
+		SubagentStore:      stores.Subagents,
 		Logger:             log,
 		Config:             agentCfg,
 		Tools:              toolsReg,
@@ -235,6 +237,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 			Skills:           skillsResult.Registry,
 			SkillRunner:      skillsResult.Runner,
 			Mcp:              mcpReg,
+			SubagentStore:    stores.Subagents,
 			Log:              log,
 		})
 

@@ -21,6 +21,7 @@ import (
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/memory"
+	"darvin-cowork/backend/internal/subagent"
 )
 
 // BootstrapReader returns the workspace-level bootstrap file content
@@ -187,6 +188,9 @@ type Agent struct {
 	// toolTransformer normalises a tool result before the LLM (set via
 	// SetToolResultTransformer; nil = no transform).
 	toolTransformer func(protocol.Result) protocol.Result
+
+	// subagents wired by agentloop.AgentFactory after New(); nil until then.
+	subagents *subagent.Manager
 }
 
 // ErrSessionRequired is returned by New when NewAgentConfig.Session is nil.
@@ -380,6 +384,12 @@ func (a *Agent) CurrentUserMessageID() string {
 func (a *Agent) SetGrantedReads(paths []string) {
 	a.perm.SetGrantedReads(paths, a.tools)
 }
+
+// AttachSubagents wires the per-session sub-agent manager (factory-side).
+func (a *Agent) AttachSubagents(m *subagent.Manager) { a.subagents = m }
+
+// Subagents returns the manager, or nil before AttachSubagents.
+func (a *Agent) Subagents() *subagent.Manager { return a.subagents }
 
 // ApprovePath approves a path in the permission modal flow. The sibling
 // methods expose the rest of the gate: EvaluatePermission classifies a

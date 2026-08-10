@@ -5,17 +5,20 @@ package agentloop
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.uber.org/zap"
 
 	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/ctxengine"
+	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/harness"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/memory"
+	"darvin-cowork/backend/internal/subagent"
 	tool "darvin-cowork/backend/internal/tools"
 )
 
@@ -23,18 +26,19 @@ import (
 // *agent.Agent. main.go constructs one and injects it into
 // SessionManager, which calls NewAgentLoopSession on the lazy build path.
 type AgentFactory struct {
-	Name         string
-	Instructions string
-	Model        agent.ModelRef
-	Provider     llm.ModelProvider
-	Store        store.SessionStore
-	MessageStore store.MessageStore
-	UsageStore   store.UsageStore
-	DigestStore  store.DigestStore
-	Logger       *zap.Logger
-	Config       agent.Config
-	Tools        *tool.Registry
-	Assembler    ctxengine.ContextEngine
+	Name          string
+	Instructions  string
+	Model         agent.ModelRef
+	Provider      llm.ModelProvider
+	Store         store.SessionStore
+	MessageStore  store.MessageStore
+	UsageStore    store.UsageStore
+	DigestStore   store.DigestStore
+	SubagentStore store.SubagentStore
+	Logger        *zap.Logger
+	Config        agent.Config
+	Tools         *tool.Registry
+	Assembler     ctxengine.ContextEngine
 
 	// Plugins are applied to the agent's tool registry after every Build
 	// (skill / mcp). SessionManager.RefreshAllTools reuses the same list.
@@ -88,13 +92,130 @@ func (f *AgentFactory) NewAgentLoopSession(sessionID string) (*AgentLoopSession,
 	a.AttachUserMessageIDSrc(l.CurrentUserMessageID)
 	deltaHook := agent.NewTextDeltaHook(f.MessageStore, f.Logger)
 	deltaHook.Attach(a)
-	return &AgentLoopSession{
+	sess := &AgentLoopSession{
 		SessionID: sessionID,
 		Agent:     a,
 		Harness:   h,
 		Loop:      l,
 		DeltaHook: deltaHook,
-	}, nil
+	}
+	if f.SubagentStore != nil {
+		sess.Subagents = subagent.NewManager(subagent.Deps{
+			Store:         f.SubagentStore,
+			ParentSession: sessionID,
+			Runner:        f.buildSubagentRunner(a, l),
+			MaxConcurrent: 8,
+			ResultBufCap:  1 << 20,
+		})
+		a.AttachSubagents(sess.Subagents)
+	}
+	return sess, nil
+}
+
+// buildSubagentRunner returns a subagent.Runner that drives a real
+// *agent.Agent under a scoped ToolRegistry. The sub-agent session id
+// is namespaced under the parent; the persisted MessageStore rows are
+// isolated by that id so the renderer can fetch sub-agent history
+// without leaking into the parent's view.
+func (f *AgentFactory) buildSubagentRunner(parent *agent.Agent, parentLoop *Loop) subagent.Runner {
+	return func(ctx context.Context, req subagent.RunnerRequest) (subagent.RunnerResult, error) {
+		scopedReg := f.Tools.ScopedForSkill(req.Scope)
+		modelRef := f.Model
+		if req.Model != "" {
+			modelRef = agent.ModelRef{Model: req.Model}
+		}
+		subSession := session.NewSession(req.SubagentID)
+		sub, err := agent.New(agent.NewAgentConfig{
+			Name:         "subagent",
+			Instructions: buildSubagentInstructions(parent, req),
+			Model:        modelRef,
+			Provider:     f.Provider,
+			Session:      subSession,
+			// nil → MemoryStore: the sub-agent must not create a row in
+			// the sessions table (it would pollute the sidebar list).
+			// Messages still persist via MessageStore under the run id.
+			Store:              nil,
+			MessageStore:       f.MessageStore,
+			UsageStore:         f.UsageStore,
+			Logger:             f.Logger,
+			Config:             f.Config,
+			Tools:              scopedReg,
+			Assembler:          f.Assembler,
+			AssemblerEnabled:   false,
+			Memory:             nil,
+			WorkspaceBootstrap: f.WorkspaceBootstrap,
+			DigestStore:        nil,
+		})
+		if err != nil {
+			return subagent.RunnerResult{}, fmt.Errorf("subagent build: %w", err)
+		}
+		// Same generator functions as the parent loop, so events stamped
+		// by the sub-agent share id shape with parent-loop events.
+		sub.AttachMessageIDSrc(parentLoop.CurrentMessageID)
+		sub.AttachRunIDSrc(parentLoop.CurrentRunID)
+		sub.AttachUserMessageIDSrc(parentLoop.CurrentUserMessageID)
+
+		// Subscribe to text_delta events so we can capture the final
+		// assistant text and tool-call count without re-reading the
+		// MessageStore (which may lag).
+		subCh := sub.Subscribe(64)
+		defer subCh.Unsubscribe()
+		var (
+			toolCalls int
+			finalText strings.Builder
+		)
+		go func() {
+			for ev := range subCh.C() {
+				switch e := ev.(type) {
+				case event.TextDeltaEvent:
+					finalText.WriteString(e.Delta)
+				case event.ToolStartEvent:
+					toolCalls++
+				}
+			}
+		}()
+
+		if err := sub.Prompt(ctx, req.Prompt, nil); err != nil {
+			return subagent.RunnerResult{}, fmt.Errorf("subagent prompt: %w", err)
+		}
+		if err := sub.Run(ctx); err != nil {
+			return subagent.RunnerResult{
+				FinalText: finalText.String(),
+				ToolCalls: toolCalls,
+			}, err
+		}
+		return subagent.RunnerResult{
+			FinalText: finalText.String(),
+			ToolCalls: toolCalls,
+		}, nil
+	}
+}
+
+// buildSubagentInstructions wraps the parent's instructions in a
+// sub-agent context block that explains the isolated scope (no parent
+// history visible, tool whitelist enforced, depth=1).
+func buildSubagentInstructions(parent *agent.Agent, req subagent.RunnerRequest) string {
+	base := parent.Instructions()
+	var b strings.Builder
+	b.WriteString(base)
+	b.WriteString("\n\n<subagent-context>\n")
+	b.WriteString("You are a sub-agent of session ")
+	b.WriteString(req.ParentID)
+	b.WriteString(".\n")
+	if req.Description != "" {
+		b.WriteString("Task: ")
+		b.WriteString(req.Description)
+		b.WriteString("\n")
+	}
+	if len(req.Scope) > 0 {
+		b.WriteString("Allowed tools: ")
+		b.WriteString(strings.Join(req.Scope, ", "))
+		b.WriteString("\n")
+	}
+	b.WriteString("You do NOT see the parent's conversation history; only the prompt you received and your own tool results are visible.\n")
+	b.WriteString("You may not spawn further sub-agents (depth=1).\n")
+	b.WriteString("</subagent-context>\n")
+	return b.String()
 }
 
 // resolveHarnessFor picks a harness. The default path goes through

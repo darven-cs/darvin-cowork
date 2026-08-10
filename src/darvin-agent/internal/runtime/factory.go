@@ -26,6 +26,7 @@ type AgentFactoryDeps struct {
 	MessageStore       store.MessageStore
 	UsageStore         store.UsageStore
 	DigestStore        store.DigestStore
+	SubagentStore      store.SubagentStore
 	Logger             *zap.Logger
 	Config             agent.Config
 	Tools              *tool.Registry
@@ -53,6 +54,7 @@ func newAgentFactory(d AgentFactoryDeps) *agentloop.AgentFactory {
 		MessageStore:       d.MessageStore,
 		UsageStore:         d.UsageStore,
 		DigestStore:        d.DigestStore,
+		SubagentStore:      d.SubagentStore,
 		Logger:             d.Logger,
 		Config:             d.Config,
 		Tools:              d.Tools,

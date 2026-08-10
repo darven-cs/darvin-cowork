@@ -16,6 +16,7 @@ import (
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/protocol"
 	"darvin-cowork/backend/internal/agents/session"
+	"darvin-cowork/backend/internal/subagent"
 )
 
 // ErrMaxTurns is returned by RunConversation when the loop reaches the
@@ -94,6 +95,10 @@ type Deps interface {
 	// <available_skills> / <available_mcp> blocks.
 	SkillSummaries() []ctxengine.SkillSummary
 	McpServers() []ctxengine.MCPServerInfo
+
+	// Subagents returns the per-session sub-agent manager wired by
+	// agentloop.AgentFactory; nil means sub-agent tools are unavailable.
+	Subagents() *subagent.Manager
 
 	// PersistCompaction records a compaction digest. Called after
 	// auto-compact persists the compacted slice to the live session.
@@ -456,6 +461,9 @@ func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c protoco
 		}
 	}
 	// per-tool timeout lives in the goroutine; here we just respect tctx.
+	if mgr := d.Subagents(); mgr != nil {
+		tctx = subagent.WithContext(tctx, mgr)
+	}
 	return t.Execute(tctx, c.Arguments)
 }
 

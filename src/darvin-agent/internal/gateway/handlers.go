@@ -44,6 +44,9 @@ type HandlerOptions struct {
 	Mcp *mcp.Registry
 	// Log is the skills-handler logger outlet; nil disables warn logs.
 	Log *zap.Logger
+	// SubagentStore backs agent.subagent.list. nil means the handler
+	// returns an empty list (handler-test stubs).
+	SubagentStore store.SubagentStore
 }
 
 type Handler struct {
@@ -89,6 +92,8 @@ type Handler struct {
 	Mcp *mcp.Registry
 	// Log records skills-handler errors; nil falls back to zap.NewNop().
 	Log *zap.Logger
+	// SubagentStore backs agent.subagent.list / read_result fallback.
+	SubagentStore store.SubagentStore
 }
 
 // NewHandler wires the dependencies. The runtime injects SessionManager,
@@ -121,6 +126,7 @@ func NewHandler(
 		SkillRunner:      o.SkillRunner,
 		Mcp:              o.Mcp,
 		Log:              o.Log,
+		SubagentStore:    o.SubagentStore,
 	}
 }
 
@@ -196,6 +202,14 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleListTools(req.ID, req.Params, h)
 	case "agent.skill.invoke_user":
 		return handleInvokeSkillUser(req.ID, req.Params, h)
+	case "agent.subagent.list":
+		return handleSubagentList(ctx, req.ID, req.Params, h)
+	case "agent.subagent.get_messages":
+		return handleSubagentGetMessages(ctx, req.ID, req.Params, h)
+	case "agent.subagent.abort":
+		return handleSubagentAbort(ctx, req.ID, req.Params, h)
+	case "agent.subagent.read_result":
+		return handleSubagentReadResult(ctx, req.ID, req.Params, h)
 	default:
 		return errorResp(req.ID, CodeMethodNotFound,
 			"Method not found: "+req.Method, nil)

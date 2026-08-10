@@ -55,6 +55,9 @@ import type {
   DarvinSetWorkspaceResult,
   DarvinSession,
   DarvinSkillSummary,
+  DarvinSubagentGetMessagesResponse,
+  DarvinSubagentListResponse,
+  DarvinSubagentReadResultResponse,
   DarvinTestMcpConnectionRequest,
   DarvinTestMcpConnectionResponse,
   DarvinWorkspaceInfoResponse,
@@ -290,6 +293,20 @@ const api: DarvinApi = {
   // 工具面合并视图（内置 + skill + mcp），直连 Go RPC。
   async listTools(): Promise<DarvinListToolsResponse> {
     return ipcRenderer.invoke('tools:list');
+  },
+
+  // Subagents artifact tab 数据源。
+  subagentList(parentSessionId: string): Promise<DarvinSubagentListResponse> {
+    return ipcRenderer.invoke('subagent:list', parentSessionId);
+  },
+  subagentGetMessages(runId: string): Promise<DarvinSubagentGetMessagesResponse> {
+    return ipcRenderer.invoke('subagent:get_messages', runId);
+  },
+  subagentAbort(runId: string): Promise<{ ok: boolean }> {
+    return ipcRenderer.invoke('subagent:abort', runId);
+  },
+  subagentReadResult(runId: string, offsetBytes: number, limitBytes: number): Promise<DarvinSubagentReadResultResponse> {
+    return ipcRenderer.invoke('subagent:read_result', runId, offsetBytes, limitBytes);
   },
 };
 
