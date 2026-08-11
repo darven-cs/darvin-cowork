@@ -33,6 +33,7 @@ import type {
   DarvinListWorkspaceFilesResponse,
   DarvinOpenWorkspaceFileResponse,
   DarvinLLMConfig,
+  DarvinLocalServiceInfo,
   DarvinLocaleResponse,
   DarvinMcpConnectionChangedEvent,
   DarvinMcpServer,
@@ -190,6 +191,12 @@ const api: DarvinApi = {
   },
   async openWorkspaceFile(relativePath: string): Promise<DarvinOpenWorkspaceFileResponse> {
     return ipcRenderer.invoke('darvin:open_workspace_file', relativePath);
+  },
+  async openExternal(url: string): Promise<{ success: boolean }> {
+    return ipcRenderer.invoke('darvin:open_external', url);
+  },
+  async listLocalServices(urls: string[]): Promise<{ services: DarvinLocalServiceInfo[] }> {
+    return ipcRenderer.invoke('local_services:list', urls);
   },
   onWorkspaceChanged(handler: (info: { sessionId: string; files: DarvinImportedFile[] }) => void): () => void {
     const wrap = (_e: unknown, info: { sessionId: string; files: DarvinImportedFile[] }) => handler(info);

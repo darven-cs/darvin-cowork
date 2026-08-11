@@ -255,6 +255,18 @@ func mapEventToTS(ev event.Event, _ string) any {
 			"reason":      e.Reason,
 			"messageId":   ev.Common().MessageID,
 		})
+	case event.ArtifactEvent:
+		return withCommon(map[string]any{
+			"type":       ev.EventName(),
+			"artifactId": e.ArtifactID,
+			"kind":       e.Kind,
+			"name":       e.Name,
+			"content":    e.Content,
+			"filePath":   e.FilePath,
+			"url":        e.URL,
+			"messageId":  ev.Common().MessageID,
+			"createdAt":  e.CreatedAt,
+		})
 	case event.ContextUsageEvent:
 		// status stays "unknown" — the renderer derives the 5-state ring
 		// from percent thresholds via deriveContextStatus.

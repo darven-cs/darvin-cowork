@@ -84,16 +84,16 @@
         </button>
       </div>
 
-      <IconButton icon="refresh" :label="t('artifact.actions.refresh')" data-testid="artifact-action-refresh" @click="reloadKey++" />
-      <IconButton v-if="canCopy" icon="copy" :label="t('artifact.actions.copy')" data-testid="artifact-action-copy" @click="copyContent" />
-      <IconButton v-if="hasFilePath" icon="folder" :label="t('artifact.actions.reveal')" data-testid="artifact-action-reveal" @click="revealFile" />
-      <IconButton v-if="hasFilePath" icon="external-open" :label="t('artifact.actions.openExternal')" data-testid="artifact-action-open" @click="openExternal" />
+      <IconButton name="refresh" :label="t('artifact.actions.refresh')" data-testid="artifact-action-refresh" @click="reloadKey++" />
+      <IconButton v-if="canCopy" name="copy" :label="t('artifact.actions.copy')" data-testid="artifact-action-copy" @click="copyContent" />
+      <IconButton v-if="hasFilePath" name="folder" :label="t('artifact.actions.reveal')" data-testid="artifact-action-reveal" @click="revealFile" />
+      <IconButton v-if="hasFilePath" name="external-open" :label="t('artifact.actions.openExternal')" data-testid="artifact-action-open" @click="openExternal" />
     </div>
 
     <!-- ── 内容区 ── -->
     <div class="min-h-0 flex-1 overflow-hidden">
       <FileListView v-if="activeTabId === ArtifactSpecialTab.FileList" :session-id="props.sessionId" />
-      <BrowserTab v-else-if="activeTabId === ArtifactSpecialTab.Browser" />
+      <BrowserTab v-else-if="activeTabId === ArtifactSpecialTab.Browser" :session-id="props.sessionId" />
       <SubagentPanelContent v-else-if="activeTabId === ArtifactSpecialTab.Subagents" :session-id="props.sessionId" />
       <TodoPanelContent v-else-if="activeTabId === ArtifactSpecialTab.Todo" :session-id="props.sessionId" />
       <template v-else-if="activeArtifactItem">

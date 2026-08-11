@@ -36,6 +36,8 @@ export interface Artifact {
   content: string;
   /** html 引用 workspace 内文件时携带（相对 workspace 根），走本地预览服务。 */
   filePath?: string;
+  /** local-service 等带 URL 的 artifact 的访问地址。 */
+  url?: string;
   /** 产出该 artifact 的 assistant 消息 id；聊天消息内卡片组按它挂载。 */
   messageId?: string;
   createdAt: number;
@@ -62,6 +64,10 @@ const previewTabsBySession = ref<Record<string, ArtifactPreviewTab[]>>({});
 const activeTabIdBySession = ref<Record<string, string | null>>({});
 const isPanelOpenBySession = ref<Record<string, boolean>>({});
 const panelWidth = ref<number>(DEFAULT_PANEL_WIDTH);
+/** Browser tab 每个 session 的加载 URL（webview 实际加载值）。 */
+const browserUrlBySession = ref<Record<string, string>>({});
+/** Browser tab 每个 session 的地址栏显示值（本地 html 预览时为 filePath）。 */
+const browserAddressBySession = ref<Record<string, string>>({});
 /** 拖拽面板宽度期间置 true，AppShell 用它关掉 grid 过渡避免拖拽卡顿。 */
 const dragging = ref(false);
 
@@ -137,6 +143,25 @@ export function useArtifacts() {
     setPanelOpen(sid, true);
   }
 
+  /** 设置 Browser tab 的加载 URL（webview 实际导航值）。幂等：相同值不触发重新加载。 */
+  function setBrowserUrl(sid: string, url: string): void {
+    if (browserUrlBySession.value[sid] === url) return;
+    browserUrlBySession.value = { ...browserUrlBySession.value, [sid]: url };
+  }
+
+  /** 设置 Browser tab 地址栏显示值（本地 html 预览时为 filePath）。幂等。 */
+  function setBrowserAddress(sid: string, address: string): void {
+    if (browserAddressBySession.value[sid] === address) return;
+    browserAddressBySession.value = { ...browserAddressBySession.value, [sid]: address };
+  }
+
+  /** 打开某 URL 到 Browser tab：写 url+address、激活 Browser 特殊 tab、展开面板。 */
+  function openBrowser(sid: string, url: string, address?: string): void {
+    setBrowserUrl(sid, url);
+    setBrowserAddress(sid, address ?? url);
+    activateTab(sid, ArtifactSpecialTab.Browser);
+  }
+
   function closePreviewTab(sid: string, tabId: string): void {
     const tabs = previewTabsBySession.value[sid] ?? [];
     const idx = tabs.findIndex((t) => t.id === tabId);
@@ -179,6 +204,12 @@ export function useArtifacts() {
     const nextOpen = { ...isPanelOpenBySession.value };
     delete nextOpen[sid];
     isPanelOpenBySession.value = nextOpen;
+    const nextUrl = { ...browserUrlBySession.value };
+    delete nextUrl[sid];
+    browserUrlBySession.value = nextUrl;
+    const nextAddress = { ...browserAddressBySession.value };
+    delete nextAddress[sid];
+    browserAddressBySession.value = nextAddress;
   }
 
   function reset(): void {
@@ -186,6 +217,8 @@ export function useArtifacts() {
     previewTabsBySession.value = {};
     activeTabIdBySession.value = {};
     isPanelOpenBySession.value = {};
+    browserUrlBySession.value = {};
+    browserAddressBySession.value = {};
   }
 
   return {
@@ -193,6 +226,8 @@ export function useArtifacts() {
     previewTabsBySession,
     activeTabIdBySession,
     isPanelOpenBySession,
+    browserUrlBySession,
+    browserAddressBySession,
     panelWidth,
     dragging,
     currentArtifacts,
@@ -202,6 +237,9 @@ export function useArtifacts() {
     addArtifact,
     openPreviewTab,
     activateTab,
+    setBrowserUrl,
+    setBrowserAddress,
+    openBrowser,
     closePreviewTab,
     setContentView,
     setPanelOpen,

@@ -299,6 +299,8 @@ export type DarvinEvent =
       content: string;
       /** html 引用 workspace 内文件时携带（相对 workspace 根）；走本地预览服务。 */
       filePath?: string;
+      /** local-service 等带 URL 的 artifact 的访问地址。 */
+      url?: string;
       /** 产出该 artifact 的 assistant 消息 id；聊天消息内卡片组按它挂载（向后兼容，可缺省）。 */
       messageId?: string;
       createdAt: number;
@@ -907,6 +909,15 @@ export interface DarvinOpenWorkspaceFileResponse {
   error?: string;
 }
 
+/** 本地服务探测结果（HTTP GET + <title> 提取，700ms 超时）。 */
+export interface DarvinLocalServiceInfo {
+  url: string;
+  title: string;
+  host: string;
+  port: number;
+  online: boolean;
+}
+
 export const DarvinPushEvent = {
   SessionsChanged: 'darvin:push:sessions-changed',
   ActiveSessionChanged: 'darvin:push:active-session-changed',
@@ -1026,6 +1037,10 @@ export interface DarvinApi {
   revealWorkspaceFile(relativePath: string): Promise<void>;
   /** 用系统默认应用打开 workspace 内文件。 */
   openWorkspaceFile(relativePath: string): Promise<DarvinOpenWorkspaceFileResponse>;
+  /** 用系统默认浏览器打开外部 URL（http(s)/mailto/tel 白名单，其余返回 false）。 */
+  openExternal(url: string): Promise<{ success: boolean }>;
+  /** 批量探测本地服务在线状态 + <title>（main 端 HTTP GET，700ms 超时）。 */
+  listLocalServices(urls: string[]): Promise<{ services: DarvinLocalServiceInfo[] }>;
   /** workspace 内容变更 push（import / remove 后 main 广播）。 */
   onWorkspaceChanged(handler: (info: { sessionId: string; files: DarvinImportedFile[] }) => void): () => void;
 

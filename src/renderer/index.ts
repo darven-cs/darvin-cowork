@@ -12,6 +12,7 @@ async function bootstrap(): Promise<void> {
     console.error('[i18n] failed to load locale, falling back to default zh:', e);
   }
   const app = createApp(App);
+  app.config.compilerOptions.isCustomElement = (tag: string) => tag === 'webview';
   registerIcons(app);
   app.mount('#app');
 }

@@ -26,6 +26,9 @@ type SessionRuntime struct {
 	// streaming persistence. May be nil (tests / factories without a
 	// MessageStore wired).
 	DeltaHook *agent.TextDeltaHook
+	// ArtifactHook subscribes to the Agent bus and emits ArtifactEvents
+	// for the renderer's artifact panel. May be nil.
+	ArtifactHook *agent.ArtifactHook
 	// Subagents is the per-session manager for sub-agent runs spawned
 	// via delegate_subagent / parallel_subagents. nil when the factory
 	// has no SubagentStore wired.
@@ -48,6 +51,9 @@ func (s *SessionRuntime) Close() {
 	}
 	if s.DeltaHook != nil {
 		s.DeltaHook.Close()
+	}
+	if s.ArtifactHook != nil {
+		s.ArtifactHook.Close()
 	}
 	if s.Loop != nil {
 		s.Loop.Close()

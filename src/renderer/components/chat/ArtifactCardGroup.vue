@@ -66,6 +66,10 @@ function iconForKind(kind?: string): string {
 }
 
 function open(a: Artifact): void {
+  if (a.kind === 'local-service' && a.url) {
+    artifactsStore.openBrowser(props.sessionId, a.url);
+    return;
+  }
   artifactsStore.openPreviewTab(props.sessionId, a.id);
 }
 </script>

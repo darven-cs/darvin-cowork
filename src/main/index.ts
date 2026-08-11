@@ -11,7 +11,7 @@
  * main 用进程内 in-memory 缓存兜底（FR-8），保证最近一次视图可见。
  */
 
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -52,6 +52,7 @@ import type {
   DarvinListSkillsResponse,
   DarvinListToolsResponse,
   DarvinListWorkspaceFilesResponse,
+  DarvinLocalServiceInfo,
   DarvinMcpServerCreate,
   DarvinMcpServerPatch,
   DarvinListMcpServersResponse,
@@ -265,13 +266,85 @@ const eventRouter = new EventRouter({
   getTitle: (sessionId) => sessionTitles.get(sessionId),
 });
 
+/** 允许交给系统浏览器 / 外部 handler 的协议白名单。 */
+const SAFE_EXTERNAL_PROTOCOL_RE = /^(https?|mailto|tel):/i;
+
+function isSafeExternalUrl(url: string): boolean {
+  try {
+    return SAFE_EXTERNAL_PROTOCOL_RE.test(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
+/** 允许主窗口内部导航的 URL：应用自身 origin（dev server / file:）。其余一律拦截。 */
+function isAllowedAppNavigation(url: string): boolean {
+  if (url === 'about:blank') return true;
+  if (url.startsWith('file:')) return true;
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    try {
+      if (url.startsWith(new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL).origin)) return true;
+    } catch {
+      // ignore malformed dev server URL
+    }
+  }
+  return false;
+}
+
+const LOCAL_SERVICE_PROBE_TIMEOUT_MS = 700;
+
+/** HTTP GET 探测本地服务：要求 text/html 并尝试提取 <title>，超时/非 HTML 视为 offline。 */
+async function probeLocalService(host: string, port: number): Promise<{ online: boolean; title?: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LOCAL_SERVICE_PROBE_TIMEOUT_MS);
+  try {
+    const res = await net.fetch(`http://${host}:${port}`, { signal: controller.signal });
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.includes('text/html')) return { online: false };
+    const body = await res.text();
+    const title = body.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
+    return { online: true, title: title || undefined };
+  } catch {
+    return { online: false };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const createWindow = (): void => {
   const mainWindow = new BrowserWindow({
     height: 800,
     width: 1200,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
+      webviewTag: true,
     },
+  });
+
+  // 主窗口导航守卫：任何点击 / window.open 都不允许把主窗口导航离开应用。
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAllowedAppNavigation(url)) return;
+    event.preventDefault();
+    if (isSafeExternalUrl(url)) void shell.openExternal(url);
+  });
+  // Browser tab 的 <webview> 加固：禁 node 能力、强制沙箱、独立 partition。
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.nodeIntegrationInSubFrames = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    webPreferences.webSecurity = true;
+    webPreferences.plugins = false;
+    webPreferences.devTools = !app.isPackaged;
+    webPreferences.partition = 'persist:artifact-browser';
+    params.partition = 'persist:artifact-browser';
+    params.allowpopups = 'false';
+    if ((params.src ?? '').startsWith('javascript:')) event.preventDefault();
   });
 
   mainWindow.webContents.on('before-input-event', (_event, input) => {
@@ -600,6 +673,42 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  'darvin:open_external',
+  async (_e, url: string): Promise<{ success: boolean }> => {
+    if (!isSafeExternalUrl(url)) return { success: false };
+    try {
+      await shell.openExternal(url);
+      return { success: true };
+    } catch {
+      return { success: false };
+    }
+  },
+);
+
+ipcMain.handle(
+  'local_services:list',
+  async (_e, urls: string[]): Promise<{ services: DarvinLocalServiceInfo[] }> => {
+    const services = await Promise.all(
+      urls.map(async (raw): Promise<DarvinLocalServiceInfo> => {
+        let host = '';
+        let port = 0;
+        try {
+          const u = new URL(raw);
+          host = u.hostname;
+          port = u.port ? Number(u.port) : 0;
+        } catch {
+          // invalid url → offline
+        }
+        if (!host || !port) return { url: raw, title: '', host, port, online: false };
+        const probe = await probeLocalService(host, port);
+        return { url: raw, title: probe.title ?? '', host, port, online: probe.online };
+      }),
+    );
+    return { services };
+  },
+);
+
+ipcMain.handle(
   'darvin:artifact:create_preview_session',
   async (_e, relativePath: string): Promise<DarvinCreateArtifactPreviewSessionResponse> => {
     if (!workspaceLoc) return { success: false, error: 'workspace not ready' };
@@ -904,13 +1013,20 @@ ipcMain.handle(
   'darvin:read_file_data_url',
   async (_e, filePath: string): Promise<DarvinReadFileDataUrlResponse> => {
     try {
-      const st = await fs.stat(filePath);
+      // 相对路径按 workspace 根解析（write_file 等 agent 产物常用相对路径）。
+      const abs = path.isAbsolute(filePath)
+        ? filePath
+        : workspaceLoc
+          ? await resolveWorkspacePath(workspaceLoc.rootPath, filePath)
+          : null;
+      if (!abs) return { success: false, error: 'invalid_path' };
+      const st = await fs.stat(abs);
       if (!st.isFile()) return { success: false, error: 'not a file' };
       if (st.size > MAX_READ_AS_DATA_URL_BYTES) {
         return { success: false, error: 'too_large' };
       }
-      const buf = await fs.readFile(filePath);
-      return { success: true, dataUrl: `data:${mimeForPath(filePath)};base64,${buf.toString('base64')}` };
+      const buf = await fs.readFile(abs);
+      return { success: true, dataUrl: `data:${mimeForPath(abs)};base64,${buf.toString('base64')}` };
     } catch (e) {
       return { success: false, error: (e as Error).message };
     }

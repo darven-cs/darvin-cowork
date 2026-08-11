@@ -165,6 +165,22 @@ type TurnEndEvent struct {
 func (TurnEndEvent) isAgentEvent()     {}
 func (TurnEndEvent) EventName() string { return "turn_end" }
 
+// ArtifactEvent signals a detected artifact (local service, file reference,
+// remote image, write_file output) for the renderer's artifact panel.
+type ArtifactEvent struct {
+	EventBase
+	ArtifactID string
+	Kind       string
+	Name       string
+	Content    string
+	FilePath   string
+	URL        string
+	CreatedAt  int64
+}
+
+func (ArtifactEvent) isAgentEvent()     {}
+func (ArtifactEvent) EventName() string { return "artifact" }
+
 // RunEndEvent marks the end of a Run (all turns for one dequeued message).
 type RunEndEvent struct {
 	EventBase

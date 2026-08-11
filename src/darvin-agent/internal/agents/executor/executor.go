@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"darvin-cowork/backend/internal/agents/artifactdetect"
 	"darvin-cowork/backend/internal/agents/ctxengine"
 	"darvin-cowork/backend/internal/agents/event"
 	"darvin-cowork/backend/internal/agents/protocol"
@@ -470,7 +471,46 @@ func executeOneTool(ctx context.Context, tctx context.Context, d Deps, c protoco
 	if c.Name == todos.WriteToolName {
 		trackActiveTodos(d, c.Arguments, res)
 	}
+	if c.Name == writeFileToolName {
+		trackWriteFileArtifact(d, c.Arguments)
+	}
 	return res
+}
+
+// writeFileToolName matches internal/tools writeFileTool.Name(). Kept
+// local (rather than importing tools) to avoid an executor -> tools edge.
+const writeFileToolName = "write_file"
+
+// trackWriteFileArtifact emits an ArtifactEvent for a write_file result
+// so the renderer can preview the written file. text/code kinds carry
+// content inline; binary kinds (image/video/document) only carry the path
+// because their content is not text.
+func trackWriteFileArtifact(d Deps, args map[string]any) {
+	path, _ := args["path"].(string)
+	content, _ := args["content"].(string)
+	if path == "" {
+		return
+	}
+	kind, ok := artifactdetect.KindForPath(path)
+	if !ok {
+		return
+	}
+	if kind == "image" || kind == "video" || kind == "document" {
+		content = ""
+	}
+	d.Emit(event.ArtifactEvent{
+		EventBase: event.EventBase{EventCommon: event.EventCommon{
+			SessionID: d.Session().ID,
+			RunID:     d.CurrentRunID(),
+			MessageID: d.CurrentMessageID(),
+		}},
+		ArtifactID: artifactdetect.ArtifactID(path),
+		Kind:       kind,
+		Name:       path,
+		Content:    content,
+		FilePath:   path,
+		CreatedAt:  time.Now().UnixMilli(),
+	})
 }
 
 // injectActiveTodos appends the host-tracked task list to the request as a

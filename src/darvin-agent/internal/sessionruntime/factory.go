@@ -92,12 +92,15 @@ func (f *AgentFactory) NewSessionRuntime(sessionID string) (*SessionRuntime, err
 	a.AttachUserMessageIDSrc(l.CurrentUserMessageID)
 	deltaHook := agent.NewTextDeltaHook(f.MessageStore, f.Logger)
 	deltaHook.Attach(a)
+	artifactHook := agent.NewArtifactHook(f.Config.Workdir, f.Logger)
+	artifactHook.Attach(a)
 	sess := &SessionRuntime{
-		SessionID: sessionID,
-		Agent:     a,
-		Harness:   h,
-		Loop:      l,
-		DeltaHook: deltaHook,
+		SessionID:    sessionID,
+		Agent:        a,
+		Harness:      h,
+		Loop:         l,
+		DeltaHook:    deltaHook,
+		ArtifactHook: artifactHook,
 	}
 	if f.SubagentStore != nil {
 		sess.Subagents = subagent.NewManager(subagent.Deps{
