@@ -64,6 +64,30 @@ func TestRegistry_GetAndGetToolsNotConnected(t *testing.T) {
 	}
 }
 
+func TestRegistry_ListResourcesEmptyForConnectedNoListing(t *testing.T) {
+	// A connected tools-only server (no resources/prompts) must yield an
+	// empty listing, not an error, so the UI shows "empty" instead of a
+	// scary failure.
+	reg := NewRegistry(noopResolverManager(t), NewInMemoryResolutionPersistence())
+	_ = reg.Register(context.Background(), ServerSpec{ID: "fs", Enabled: true, Transport: TransportStdio, Command: "node"})
+	reg.servers["fs"].status.Connected = true
+
+	res, err := reg.ListResources("fs")
+	if err != nil {
+		t.Fatalf("ListResources err = %v, want nil", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("resources = %v, want empty", res)
+	}
+	pr, err := reg.ListPrompts("fs")
+	if err != nil {
+		t.Fatalf("ListPrompts err = %v, want nil", err)
+	}
+	if len(pr) != 0 {
+		t.Fatalf("prompts = %v, want empty", pr)
+	}
+}
+
 func TestRegistry_SetEnabledDisableClosesClient(t *testing.T) {
 	// No-op resolver, no real client — disable should still clear the
 	// in-memory tools list (which is nil here, but the API contract is

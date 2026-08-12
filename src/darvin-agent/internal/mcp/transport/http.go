@@ -95,7 +95,10 @@ func (h *HTTPTransport) Send(ctx context.Context, body []byte) error {
 		h.alive.Store(false)
 		return ErrSessionExpired
 	}
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode/100 != 2 {
+		// Any 2xx is a success. 202 Accepted in particular is the
+		// streamable-HTTP ack for notifications (a POST with no id); a
+		// strict 200 check would kill the transport mid-handshake.
 		h.alive.Store(false)
 		// Drain a small slice so the connection can be reused, then return.
 		_, _ = io.CopyN(io.Discard, resp.Body, 4<<10)

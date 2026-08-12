@@ -2,7 +2,7 @@
 /**
  * MCP server 新增 / 编辑 modal。
  *
- * 按 transportType 切字段：stdio(command + args + env) / http(url + headers)。
+ * 按 transportType 切字段：stdio(command + args + env) / http(url + headers) / sse(url + headers)。
  * args / env / headers 用文本框输入（CLI 风格）：
  *   args      空格分隔 → 数组（不带引号 split，按空格 split，简化处理）
  *   env       一行一个 KEY=val
@@ -89,7 +89,9 @@ watch(
 const canSave = computed(() => {
   if (!form.value.name.trim()) return false;
   if (form.value.transportType === 'stdio') return form.value.command.trim().length > 0;
-  if (form.value.transportType === 'http') return form.value.url.trim().length > 0;
+  if (form.value.transportType === 'http' || form.value.transportType === 'sse') {
+    return form.value.url.trim().length > 0;
+  }
   return false;
 });
 
@@ -123,7 +125,12 @@ function onSave(): void {
       };
       emit('save', req);
     }
-  } else if (form.value.transportType === 'http') {
+  } else if (form.value.transportType === 'http' || form.value.transportType === 'sse') {
+    const remote = {
+      transportType: form.value.transportType,
+      url: form.value.url.trim(),
+      headers: parseKv(form.value.headersStr),
+    };
     if (props.editing) {
       emit('save', {
         id: props.editing.id,
@@ -131,10 +138,8 @@ function onSave(): void {
           name: form.value.name.trim(),
           description: form.value.description.trim(),
           enabled: form.value.enabled,
-          transportType: 'http',
-          url: form.value.url.trim(),
-          headers: parseKv(form.value.headersStr),
           trustLevel: form.value.trustLevel,
+          ...remote,
         },
       });
     } else {
@@ -142,10 +147,8 @@ function onSave(): void {
         name: form.value.name.trim(),
         description: form.value.description.trim() || undefined,
         enabled: form.value.enabled,
-        transportType: 'http',
-        url: form.value.url.trim(),
-        headers: parseKv(form.value.headersStr),
         trustLevel: form.value.trustLevel,
+        ...remote,
       };
       emit('save', req);
     }
@@ -197,7 +200,7 @@ function onSave(): void {
             >
               <option value="stdio">stdio</option>
               <option value="http">http</option>
-              <option value="sse" disabled>sse (v1)</option>
+              <option value="sse">sse</option>
             </select>
           </div>
 
@@ -247,7 +250,7 @@ function onSave(): void {
             </div>
           </template>
 
-          <template v-else-if="form.transportType === 'http'">
+          <template v-else-if="form.transportType === 'http' || form.transportType === 'sse'">
             <div class="space-y-1">
               <label class="font-sans text-xs text-text-muted">{{ t('mcp.field.url') }}</label>
               <input

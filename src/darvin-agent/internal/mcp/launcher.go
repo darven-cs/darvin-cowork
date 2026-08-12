@@ -21,8 +21,9 @@ import (
 // concurrent Resolve calls for the same serverID (a second caller gets
 // the same in-flight task) and bounds the lifetime of every spawned
 // npm subprocess. The resolution work itself is delegated to a Resolver
-// picked by ResolverKind; only the npx Resolver is fully implemented,
-// the rest are stubbed to return StatusUnsupported.
+// picked by ResolverKind; only the npx / uvx Resolvers are fully
+// implemented, the rest are stubbed to return StatusUnsupported and
+// non-stdio transports resolve to ready as a no-op.
 type ResolverManager struct {
 	rootDir string
 	timeout time.Duration
@@ -179,9 +180,10 @@ func (r *ResolverManager) Cancel(serverID string) bool {
 	return true
 }
 
-// pickResolver maps the spec to a Resolver. Today only npx is real;
-// uvx / go / raw return StatusUnsupported so the registry falls back
-// to the spec's original command line.
+// pickResolver maps the spec to a Resolver. Today only npx / uvx are
+// real; go / raw return StatusUnsupported so the registry falls back
+// to the spec's original command line. HTTP / SSE transports have no
+// launch line to optimise, so they resolve to ready as a no-op.
 func (r *ResolverManager) pickResolver(spec ServerSpec) Resolver {
 	switch spec.Transport {
 	case TransportStdio:
@@ -203,7 +205,10 @@ func (r *ResolverManager) pickResolver(spec ServerSpec) Resolver {
 		}
 		return &stubResolver{kind: ResolverRaw, msg: "raw stdio: no optimisation"}
 	default:
-		return &stubResolver{kind: ResolverRaw, msg: "non-stdio transport: no optimisation"}
+		// No command to pre-install — a ready status lets connectServer
+		// proceed straight to the transport without a spurious
+		// "unsupported" resolution surfacing in the UI.
+		return &noopResolver{kind: ResolverRaw}
 	}
 }
 
@@ -238,6 +243,22 @@ func (s *stubResolver) Resolve(_ context.Context, _ ServerSpec) (LaunchResolutio
 		ResolverKind: s.kind,
 		Status:       StatusUnsupported,
 		Error:        s.msg,
+	}, nil
+}
+
+// noopResolver backs transports with nothing to optimise (HTTP / SSE):
+// there is no command to pre-install, so the resolve is a pass-through
+// that reports StatusReady and leaves the launch line untouched.
+type noopResolver struct {
+	kind ResolverKind
+}
+
+func (n *noopResolver) Kind() ResolverKind { return n.kind }
+
+func (n *noopResolver) Resolve(_ context.Context, _ ServerSpec) (LaunchResolution, error) {
+	return LaunchResolution{
+		ResolverKind: n.kind,
+		Status:       StatusReady,
 	}, nil
 }
 

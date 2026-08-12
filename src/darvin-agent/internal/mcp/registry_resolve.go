@@ -170,6 +170,7 @@ func (r *Registry) connectServer(serverID string) {
 			t = &transport.SSETransport{
 				URL:     spec.URL,
 				Headers: spec.Headers,
+				Logger:  r.logger,
 			}
 		default:
 			r.recordConnectionError(serverID, fmt.Sprintf("unsupported transport %q", spec.Transport))
@@ -300,6 +301,8 @@ func (r *Registry) consumeNotifications(serverID string) {
 }
 
 // ListResources returns the cached resource listing for a connected server.
+// A connected server with no listing (tools-only, or the async pull has not
+// landed yet) yields an empty list rather than an error.
 func (r *Registry) ListResources(serverID string) ([]ResourceDescriptor, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -307,13 +310,14 @@ func (r *Registry) ListResources(serverID string) ([]ResourceDescriptor, error) 
 	if !ok {
 		return nil, fmt.Errorf("mcp: server %s not registered", serverID)
 	}
-	if !entry.status.Connected || entry.status.Resources == nil {
-		return nil, fmt.Errorf("mcp: server %s has no resource listing", serverID)
+	if !entry.status.Connected {
+		return nil, fmt.Errorf("mcp: server %s not connected", serverID)
 	}
 	return append([]ResourceDescriptor(nil), entry.status.Resources...), nil
 }
 
-// ListPrompts returns the cached prompt listing for a connected server.
+// ListPrompts returns the cached prompt listing for a connected server. A
+// connected server with no listing yields an empty list rather than an error.
 func (r *Registry) ListPrompts(serverID string) ([]PromptDescriptor, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -321,8 +325,8 @@ func (r *Registry) ListPrompts(serverID string) ([]PromptDescriptor, error) {
 	if !ok {
 		return nil, fmt.Errorf("mcp: server %s not registered", serverID)
 	}
-	if !entry.status.Connected || entry.status.Prompts == nil {
-		return nil, fmt.Errorf("mcp: server %s has no prompt listing", serverID)
+	if !entry.status.Connected {
+		return nil, fmt.Errorf("mcp: server %s not connected", serverID)
 	}
 	return append([]PromptDescriptor(nil), entry.status.Prompts...), nil
 }

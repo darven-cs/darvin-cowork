@@ -91,6 +91,49 @@ func TestHTTP_Send_500Errors(t *testing.T) {
 	}
 }
 
+func TestHTTP_Send_202AcceptedNotificationKeepsAlive(t *testing.T) {
+	// Streamable-HTTP acknowledges a notification (a POST with no id) with
+	// 202 Accepted and an empty body. It must not be treated as a hard
+	// failure: the transport stays alive so the next request works.
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			// The notification POST: 202 + empty body.
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		// The following request: a normal JSON response.
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{"ok":true}}`))
+	}))
+	defer srv.Close()
+
+	tp := &HTTPTransport{URL: srv.URL}
+	if err := tp.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tp.Close() }()
+
+	// Notification (no id): must succeed and keep the transport alive.
+	if err := tp.Send(context.Background(), []byte(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)); err != nil {
+		t.Fatalf("notification send failed: %v", err)
+	}
+	if !tp.Alive() {
+		t.Fatal("transport should stay alive after a 202 notification ack")
+	}
+
+	// The next request still works end to end.
+	if err := tp.Send(context.Background(), []byte(`{"jsonrpc":"2.0","id":2}`)); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := tp.Recv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(frame.Body) != `{"jsonrpc":"2.0","id":2,"result":{"ok":true}}` {
+		t.Fatalf("body = %q", frame.Body)
+	}
+}
+
 func TestHTTP_Send_Timeout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(300 * time.Millisecond)

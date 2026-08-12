@@ -93,6 +93,26 @@ func TestStubResolver_Unsupported(t *testing.T) {
 	}
 }
 
+func TestPickResolver_NonStdio_ResolvesReady(t *testing.T) {
+	// HTTP / SSE have no launch line to optimise; the resolve must report
+	// ready so connectServer skips the unsupported-status path.
+	for _, spec := range []ServerSpec{
+		{Transport: TransportHTTP, URL: "http://localhost:1/mcp"},
+		{Transport: TransportSSE, URL: "http://localhost:1/sse"},
+	} {
+		res, err := NewResolverManager(t.TempDir()).pickResolver(spec).Resolve(context.Background(), spec)
+		if err != nil {
+			t.Fatalf("%s: err = %v", spec.Transport, err)
+		}
+		if res.Status != StatusReady {
+			t.Fatalf("%s: status = %s, want ready (err=%s)", spec.Transport, res.Status, res.Error)
+		}
+		if res.Error != "" {
+			t.Fatalf("%s: unexpected error %q", spec.Transport, res.Error)
+		}
+	}
+}
+
 // --- npxResolver end-to-end via a fake npm shim ---
 
 // fakeNpmScript returns the directory of a fake `npm` binary that
