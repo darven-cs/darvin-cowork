@@ -1,19 +1,14 @@
 <script setup lang="ts">
 /**
  * 单 MCP server 卡片：name / description / transport / enabled
- * 开关 / connection / launch 状态 / tools 列表 / 4 按钮（test / retry /
- * edit / delete）。
+ * 开关 / connection / launch 状态 / 日志抽屉 / 5 按钮（test / details /
+ * retry / edit / delete）。工具 / 资源 / 提示详情在「详情」弹窗里展示。
  *
  * builtin server（bundled filesystem）禁用 delete 按钮；launchStatus=failed
  * 才显示 retry 按钮。
  */
-import { computed, onMounted, ref } from 'vue';
-import type {
-  DarvinMcpResource,
-  DarvinMcpPrompt,
-  DarvinMcpServer,
-  DarvinMcpServerExposedTool,
-} from '../../../shared/darvin-api';
+import { ref } from 'vue';
+import type { DarvinMcpServer } from '../../../shared/darvin-api';
 import McpConnectionStatus from './McpConnectionStatus.vue';
 import McpLaunchStatus from './McpLaunchStatus.vue';
 import Icon from '../common/Icon.vue';
@@ -27,31 +22,13 @@ const props = defineProps<{
 const emit = defineEmits<{
   toggle: [id: string, enabled: boolean];
   test: [server: DarvinMcpServer];
+  details: [server: DarvinMcpServer];
   retry: [server: DarvinMcpServer];
   edit: [server: DarvinMcpServer];
   delete: [server: DarvinMcpServer];
 }>();
 
-const { listResources, listPrompts, getLogs, fetchTools } = useMcpServers();
-
-/**
- * main 端 SQLite 视图不携带 exposedTools（工具面在 Go 注册表），连接态下
- * 兜底拉一次无 toast 的工具列表，让 schema / 安全徽章能展示。
- */
-const fallbackTools = ref<DarvinMcpServerExposedTool[] | null>(null);
-const displayTools = computed<DarvinMcpServerExposedTool[] | undefined>(() =>
-  props.server.exposedTools ?? fallbackTools.value ?? undefined,
-);
-onMounted(() => {
-  const tools = props.server.exposedTools;
-  if (!tools || tools.length === 0) {
-    if (props.server.connectionStatus === 'connected' || props.server.connectionStatus === 'error') {
-      void fetchTools(props.server.id).then((list) => {
-        if (list.length > 0) fallbackTools.value = list;
-      });
-    }
-  }
-});
+const { getLogs } = useMcpServers();
 
 /** 运行时日志抽屉（stdio stderr tail）。 */
 const logsOpen = ref(false);
@@ -63,39 +40,6 @@ async function toggleLogs(): Promise<void> {
   if (logsOpen.value && !logsLoaded.value) {
     logs.value = await getLogs(props.server.id);
     logsLoaded.value = true;
-  }
-}
-
-/** 点工具名展开 schema。同一时间只展开一个。 */
-const expandedTool = ref<string | null>(null);
-function toggleTool(name: string): void {
-  expandedTool.value = expandedTool.value === name ? null : name;
-}
-function schemaText(tool: DarvinMcpServerExposedTool): string {
-  return JSON.stringify(tool.inputSchema, null, 2);
-}
-
-/** resources / prompts 懒加载区块。 */
-const resourcesOpen = ref(false);
-const promptsOpen = ref(false);
-const resources = ref<DarvinMcpResource[]>([]);
-const prompts = ref<DarvinMcpPrompt[]>([]);
-const resourcesLoaded = ref(false);
-const promptsLoaded = ref(false);
-
-async function toggleResources(): Promise<void> {
-  resourcesOpen.value = !resourcesOpen.value;
-  if (resourcesOpen.value && !resourcesLoaded.value) {
-    resources.value = await listResources(props.server.id);
-    resourcesLoaded.value = true;
-  }
-}
-
-async function togglePrompts(): Promise<void> {
-  promptsOpen.value = !promptsOpen.value;
-  if (promptsOpen.value && !promptsLoaded.value) {
-    prompts.value = await listPrompts(props.server.id);
-    promptsLoaded.value = true;
   }
 }
 
@@ -176,80 +120,6 @@ const failureElapsed = (): string => {
       <span class="truncate" :title="transportLine()">{{ transportLine() }}</span>
     </div>
 
-    <div v-if="displayTools && displayTools.length > 0" class="space-y-1 border-t border-border pt-2">
-      <div class="font-sans text-[10px] text-text-subtle">
-        {{ t('mcp.tools.count', { count: displayTools.length }) }}
-      </div>
-      <div class="flex flex-wrap gap-1">
-        <button
-          v-for="tool in displayTools"
-          :key="tool.name"
-          type="button"
-          class="inline-flex items-center gap-1 rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] text-text-muted transition-colors hover:text-text"
-          :data-testid="`mcp-tool-${server.id}-${tool.name}`"
-          @click="toggleTool(tool.name)"
-        >
-          {{ tool.name }}
-          <span
-            v-if="tool.destructiveHint"
-            class="rounded bg-danger/10 px-1 font-sans text-[9px] font-medium text-danger"
-          >D</span>
-          <span
-            v-else-if="tool.readOnlyHint"
-            class="rounded bg-success/10 px-1 font-sans text-[9px] font-medium text-success"
-          >R</span>
-        </button>
-      </div>
-      <pre
-        v-if="expandedTool"
-        class="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded bg-surface-2 px-2 py-1.5 font-mono text-[10px] leading-snug text-text-muted"
-        :data-testid="`mcp-tool-schema-${expandedTool}`"
-      >{{ schemaText(displayTools.find((x) => x.name === expandedTool)!) }}</pre>
-    </div>
-
-    <!-- resources / prompts 懒加载区块 -->
-    <div class="space-y-1 border-t border-border pt-2">
-      <div class="flex flex-wrap gap-3">
-        <button
-          type="button"
-          class="font-sans text-[10px] text-text-muted transition-colors hover:text-text"
-          :data-testid="`mcp-resources-toggle-${server.id}`"
-          @click="toggleResources"
-        >
-          {{ t('mcp.cap.resources', { count: resourcesOpen ? resources.length : '?' }) }}
-        </button>
-        <button
-          type="button"
-          class="font-sans text-[10px] text-text-muted transition-colors hover:text-text"
-          :data-testid="`mcp-prompts-toggle-${server.id}`"
-          @click="togglePrompts"
-        >
-          {{ t('mcp.cap.prompts', { count: promptsOpen ? prompts.length : '?' }) }}
-        </button>
-      </div>
-      <div v-if="resourcesOpen" class="space-y-0.5" data-testid="mcp-resources-list">
-        <div v-if="resources.length === 0" class="font-sans text-[10px] text-text-subtle">
-          {{ t('mcp.cap.empty') }}
-        </div>
-        <div
-          v-for="r in resources"
-          :key="r.uri"
-          class="truncate font-mono text-[10px] text-text-muted"
-          :title="r.uri"
-        >
-          {{ r.name || r.uri }}
-        </div>
-      </div>
-      <div v-if="promptsOpen" class="space-y-0.5" data-testid="mcp-prompts-list">
-        <div v-if="prompts.length === 0" class="font-sans text-[10px] text-text-subtle">
-          {{ t('mcp.cap.empty') }}
-        </div>
-        <div v-for="p in prompts" :key="p.name" class="font-mono text-[10px] text-text-muted">
-          {{ p.name }}
-        </div>
-      </div>
-    </div>
-
     <!-- 运行时日志抽屉 -->
     <div class="border-t border-border pt-2">
       <button
@@ -296,6 +166,14 @@ const failureElapsed = (): string => {
         @click="emit('test', server)"
       >
         {{ t('mcp.action.test') }}
+      </button>
+      <button
+        type="button"
+        class="font-sans text-xs text-text-muted transition-colors hover:text-text"
+        :data-testid="`mcp-details-${server.id}`"
+        @click="emit('details', server)"
+      >
+        {{ t('mcp.action.details') }}
       </button>
       <button
         v-if="showRetry()"

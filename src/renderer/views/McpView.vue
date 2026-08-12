@@ -17,6 +17,7 @@ import type {
 } from '../../shared/darvin-api';
 import ChatHeader from '../components/chat/ChatHeader.vue';
 import McpServerCard from '../components/mcp/McpServerCard.vue';
+import McpServerDetailModal from '../components/mcp/McpServerDetailModal.vue';
 import McpServerFormModal from '../components/mcp/McpServerFormModal.vue';
 import { useMcpServers } from '../composables/useMcpServers';
 import { t } from '../services/i18n';
@@ -32,6 +33,8 @@ const { servers, loading, setEnabled, create, update, remove, testConnection, re
 
 const modalOpen = ref(false);
 const editingServer = ref<DarvinMcpServer | null>(null);
+const detailsModalOpen = ref(false);
+const detailsServer = ref<DarvinMcpServer | null>(null);
 
 function openCreate(): void {
   editingServer.value = null;
@@ -46,6 +49,15 @@ function openEdit(server: DarvinMcpServer): void {
 function closeModal(): void {
   modalOpen.value = false;
   editingServer.value = null;
+}
+
+function openDetails(server: DarvinMcpServer): void {
+  detailsServer.value = server;
+  detailsModalOpen.value = true;
+}
+
+function closeDetails(): void {
+  detailsModalOpen.value = false;
 }
 
 async function onSave(payload: DarvinMcpServerCreate | { id: string; patch: DarvinMcpServerPatch }): Promise<void> {
@@ -118,6 +130,7 @@ async function onRetry(server: DarvinMcpServer): Promise<void> {
           :server="server"
           @toggle="onToggle"
           @test="onTest"
+          @details="openDetails"
           @retry="onRetry"
           @edit="openEdit"
           @delete="onDelete"
@@ -130,6 +143,12 @@ async function onRetry(server: DarvinMcpServer): Promise<void> {
       :editing="editingServer"
       @save="onSave"
       @cancel="closeModal"
+    />
+
+    <McpServerDetailModal
+      :open="detailsModalOpen"
+      :server="detailsServer"
+      @close="closeDetails"
     />
   </div>
 </template>
