@@ -66,7 +66,7 @@ func TestInit_RegistersAnthropicModels(t *testing.T) {
 			t.Errorf("model %s APIVersion=%q, want %q", m.ID, m.APIVersion, llm.APIAnthropicMessages)
 		}
 	}
-	for _, want := range []string{"claude-sonnet-4-5", "claude-opus-4-1", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"} {
+	for _, want := range []string{"claude-sonnet-4-5", "claude-opus-4-1", "claude-sonnet-4-6", "claude-opus-4-7"} {
 		if !seen[want] {
 			t.Errorf("expected model %q in registry", want)
 		}
@@ -88,9 +88,9 @@ func TestInit_RegistersAnthropicModels(t *testing.T) {
 }
 
 func TestInit_RegistersCompatFlags(t *testing.T) {
-	m, ok := llm.DefaultModelRegistry.Get("claude-3-5-haiku-latest")
+	m, ok := llm.DefaultModelRegistry.Get("claude-opus-4-6")
 	if !ok {
-		t.Fatal("Get(claude-3-5-haiku-latest) not found")
+		t.Fatal("Get(claude-opus-4-6) not found")
 	}
 	if !m.Compat.SupportsToolCalls {
 		t.Errorf("SupportsToolCalls should be true")

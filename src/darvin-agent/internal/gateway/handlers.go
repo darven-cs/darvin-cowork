@@ -166,6 +166,8 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleSearchSessions(ctx, req.ID, req.Params, h)
 	case "agent.save_message":
 		return handleSaveMessage(ctx, req.ID, req.Params, h)
+	case "agent.llm.list_models":
+		return handleLLMListModels(ctx, req.ID, c, h)
 	case "agent.import_files":
 		return handleImportFiles(ctx, req.ID, req.Params, h)
 	case "agent.list_imported_files":

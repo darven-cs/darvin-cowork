@@ -39,6 +39,7 @@ import type {
   DarvinMcpServer,
   DarvinMcpServerCreate,
   DarvinMcpServerPatch,
+  DarvinModelInfo,
   DarvinPermissionResponse,
   DarvinPickAttachmentsResponse,
   DarvinPickSkillFolderResponse,
@@ -139,6 +140,9 @@ const api: DarvinApi = {
 
   async getLLMConfig(): Promise<DarvinLLMConfig> {
     return ipcRenderer.invoke('darvin:get_llm_config');
+  },
+  async getLLMModels(): Promise<DarvinModelInfo[]> {
+    return ipcRenderer.invoke('darvin:get_llm_models');
   },
   async setLLMConfig(req): Promise<DarvinSetLLMConfigResponse> {
     return ipcRenderer.invoke('darvin:set_llm_config', req);

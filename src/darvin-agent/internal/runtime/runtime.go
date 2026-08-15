@@ -18,7 +18,6 @@ import (
 
 	"go.uber.org/zap"
 
-	agent "darvin-cowork/backend/internal/agents"
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/config"
 	"darvin-cowork/backend/internal/database"
@@ -138,7 +137,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		return nil, err
 	}
 
-	provider, err := loadProvider(ctx, cfg, log)
+	provider, providers, err := loadProvider(ctx, cfg, log)
 	if err != nil {
 		return nil, err
 	}
@@ -167,8 +166,9 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	factory := newAgentFactory(AgentFactoryDeps{
 		Name:               cfg.App.Name + "-agent",
 		Instructions:       cfg.Agent.Instructions,
-		Model:              agent.ModelRef{Provider: cfg.Agent.ProviderName, Model: cfg.Agent.Model},
+		Model:              resolveModelRef(cfg),
 		Provider:           provider,
+		Providers:          providers,
 		Store:              stores.Sessions,
 		MessageStore:       stores.Messages,
 		UsageStore:         stores.Usages,

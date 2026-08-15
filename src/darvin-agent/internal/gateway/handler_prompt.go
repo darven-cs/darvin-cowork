@@ -21,6 +21,10 @@ type PromptParams struct {
 	RunID       string           `json:"runId,omitempty"`
 	Attachments []string         `json:"attachments,omitempty"`
 	Images      []agent.ImageRef `json:"images,omitempty"`
+	// Provider / Model are an optional per-turn override applied for this
+	// run only; empty values keep the session default.
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 // PromptResult is the JSON-RPC result for agent.prompt. sessionId and
@@ -116,7 +120,14 @@ func handlePrompt(_ context.Context, id json.RawMessage, params json.RawMessage,
 		// Reached when the handler-test stub did not wire a factory.
 		return errorResp(id, CodeNoSessionRuntime, "no SessionRuntime bound", nil)
 	}
-	ticket, err := entry.SessionRuntime.Loop.Submit(sessionruntime.PromptRequest{RunID: p.RunID, Content: p.Content, Attachments: p.Attachments, Images: p.Images})
+	ticket, err := entry.SessionRuntime.Loop.Submit(sessionruntime.PromptRequest{
+		RunID:       p.RunID,
+		Content:     p.Content,
+		Attachments: p.Attachments,
+		Images:      p.Images,
+		Provider:    p.Provider,
+		Model:       p.Model,
+	})
 	if err != nil {
 		return errorResp(id, CodeInternalError, "loop submit", err)
 	}

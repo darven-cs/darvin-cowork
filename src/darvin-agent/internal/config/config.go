@@ -17,6 +17,9 @@ type Config struct {
 	Log      LogConfig      `mapstructure:"log"`
 	LLM      LLMConfig      `mapstructure:"llm"`
 	Agent    AgentConfig    `mapstructure:"agent"`
+	// Providers is the TOP-LEVEL credential map the settings UI writes
+	// (providers.<key> sibling of llm), keyed by preset key.
+	Providers map[string]LLMProviderConfig `mapstructure:"providers"`
 }
 
 type AppConfig struct {
@@ -39,10 +42,25 @@ type LogConfig struct {
 }
 
 // LLMConfig is the model-provider block consumed by internal/llm.ProviderConfig.
+// Provider names the active preset key (anthropic / openai / deepseek / ...);
+// per-preset credentials live in the top-level Providers map (written by the
+// settings UI as providers.<key>). The top-level APIKey / BaseURL / Model are
+// legacy fallbacks used when the active key has no Providers entry.
 type LLMConfig struct {
 	Provider string `mapstructure:"provider"`
 	APIKey   string `mapstructure:"api_key"`
 	BaseURL  string `mapstructure:"base_url"`
+	Model    string `mapstructure:"default_model"`
+}
+
+// LLMProviderConfig is one preset's isolated credential block. APIFmt names
+// the wire protocol ("anthropic" | "openai"); empty falls back to "anthropic"
+// for the anthropic key and "openai" for every other key.
+type LLMProviderConfig struct {
+	APIFmt       string `mapstructure:"api_format"`
+	APIKey       string `mapstructure:"api_key"`
+	BaseURL      string `mapstructure:"base_url"`
+	DefaultModel string `mapstructure:"default_model"`
 }
 
 // AgentConfig is the runtime configuration for agent.Agent. The

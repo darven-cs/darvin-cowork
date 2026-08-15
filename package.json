@@ -6,7 +6,7 @@
   "main": ".vite/build/main/index.js",
   "private": true,
   "scripts": {
-    "prestart": "npm run build:agent",
+    "prestart": "npm run build:agent && npx electron-rebuild -w better-sqlite3",
     "start": "electron-forge start",
     "build:agent": "node scripts/build-go.js",
     "premake": "npm run build:agent",
@@ -14,7 +14,7 @@
     "package": "electron-forge package",
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx,.vue .",
-    "pretest": "npm rebuild better-sqlite3 && rm -f node_modules/better-sqlite3/build/Release/.forge-meta",
+    "pretest": "npx node-gyp rebuild --directory=node_modules/better-sqlite3 && rm -f node_modules/better-sqlite3/build/Release/.forge-meta",
     "test": "vitest run",
     "smoke": "bash scripts/smoke.sh"
   },

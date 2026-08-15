@@ -67,7 +67,7 @@ import type {
   DarvinOpenWorkspaceFileResponse,
   DarvinLLMConfig,
   DarvinLocale,
-  DarvinModelProvider,
+  DarvinModelInfo,
   DarvinLocaleResponse,
   DarvinMessage,
   DarvinPermissionResponse,
@@ -97,6 +97,7 @@ import type {
   DarvinWorkspaceRootResult,
 } from '../shared/darvin-api';
 import { DarvinPushEvent } from '../shared/darvin-api';
+import { DARVIN_PROVIDERS, darvinProviderPreset } from '../shared/providers';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -1091,6 +1092,7 @@ ipcMain.handle(
         content: req.content,
         sessionId,
         runId,
+        provider: req.provider,
         model: req.model,
         attachments: req.attachments,
         images: req.images,
@@ -1176,6 +1178,7 @@ ipcMain.handle('darvin:get_llm_config', async (): Promise<DarvinLLMConfig> => {
   const providers: DarvinLLMConfig['providers'] = {};
   for (const [name, entry] of Object.entries(cfg?.providers ?? {})) {
     providers[name] = {
+      apiFormat: entry?.api_format ?? '',
       apiKey: entry?.api_key ?? '',
       baseUrl: entry?.base_url ?? '',
       defaultModel: entry?.default_model ?? '',
@@ -1183,52 +1186,71 @@ ipcMain.handle('darvin:get_llm_config', async (): Promise<DarvinLLMConfig> => {
   }
   const activeProvider = cfg?.llm?.provider ?? 'anthropic';
   const active = providers[activeProvider];
-  // yaml 里可能是任意字符串；只认 UI 支持的三个 provider，未知值回落 anthropic。
-  const provider: DarvinModelProvider =
-    activeProvider === 'anthropic' || activeProvider === 'openai' || activeProvider === 'custom'
-      ? activeProvider
-      : 'anthropic';
   return {
-    provider,
+    provider: activeProvider,
     activeProvider,
     apiKey: active?.apiKey ?? cfg?.llm?.api_key ?? '',
     baseUrl: active?.baseUrl ?? cfg?.llm?.base_url ?? '',
     defaultModel: active?.defaultModel ?? cfg?.llm?.default_model ?? '',
     providers,
+    registeredProviders: [...new Set(DARVIN_PROVIDERS.map((p) => p.apiFormat))],
   };
+});
+
+ipcMain.handle('darvin:get_llm_models', async (): Promise<DarvinModelInfo[]> => {
+  if (!client.isConnected()) return [];
+  try {
+    const r = await client.request<{ models: DarvinModelInfo[] }>('agent.llm.list_models', {});
+    return r.models ?? [];
+  } catch {
+    return [];
+  }
 });
 
 ipcMain.handle(
   'darvin:set_llm_config',
   async (
     _e,
-    req: { provider: string; apiKey: string; baseUrl?: string; defaultModel?: string },
+    req: { provider: string; apiKey: string; baseUrl?: string; defaultModel?: string; apiFormat?: string },
   ): Promise<DarvinSetLLMConfigResponse> => {
-    if (req.provider === 'anthropic') {
-      // anthropic 是 Go 唯一注册的 provider：写进 llm 块并重启使新 key 生效。
-      await writeUserSettingsYAML({
-        llm: {
-          provider: 'anthropic',
-          api_key: req.apiKey,
-          base_url: req.baseUrl ?? '',
-          default_model: req.defaultModel ?? '',
-        },
-      });
-      const restarted = await restartGoSubprocess();
-      return { saved: true, restarted };
+    const preset = darvinProviderPreset(req.provider);
+    if (!preset) {
+      return { saved: false, restarted: false };
     }
-    // openai / custom：Go 尚未接入，只把凭据存进 providers 块（不重启、不激活），
-    // 避免下一轮启动时 Go 因未知 provider 直接 os.Exit(1)。
+    if (preset.apiKeyRequired && !req.apiKey) {
+      return { saved: false, restarted: false };
+    }
+    const apiFormat = req.apiFormat || preset.apiFormat;
+    // 显式 apiFormat 且该 provider 有对应端点时，base URL 自动跟随。
+    let baseUrl = req.baseUrl;
+    if (!baseUrl && req.apiFormat && preset.switchableBaseUrls?.[req.apiFormat as 'openai' | 'anthropic']) {
+      baseUrl = preset.switchableBaseUrls[req.apiFormat as 'openai' | 'anthropic'];
+    }
+    baseUrl = baseUrl || preset.defaultBaseUrl;
+    if (preset.requiresBaseUrl && !baseUrl) {
+      return { saved: false, restarted: false };
+    }
+    const defaultModel = req.defaultModel || preset.defaultModels[0]?.id || '';
+    // 统一激活：写 llm.provider + providers.<key>（含 api_format），并保留
+    // 顶层 api_key/base_url/default_model 作为 Go 的向后兼容兜底。
     await writeUserSettingsYAML({
+      llm: {
+        provider: req.provider,
+        api_key: req.apiKey,
+        base_url: baseUrl,
+        default_model: defaultModel,
+      },
       providers: {
         [req.provider]: {
+          api_format: apiFormat,
           api_key: req.apiKey,
-          base_url: req.baseUrl ?? '',
-          default_model: req.defaultModel ?? '',
+          base_url: baseUrl,
+          default_model: defaultModel,
         },
       },
     });
-    return { saved: true, restarted: false };
+    const restarted = await restartGoSubprocess();
+    return { saved: true, restarted };
   },
 );
 

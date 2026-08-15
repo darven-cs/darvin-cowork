@@ -9,6 +9,8 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -83,8 +85,11 @@ type NewAgentConfig struct {
 	Instructions string
 	Model        ModelRef
 	Provider     protocol.ModelProvider
-	Session      *session.Session
-	Store        store.SessionStore
+	// Providers optionally maps preset keys to provider instances for
+	// per-run provider/model override; nil disables cross-provider switch.
+	Providers map[string]protocol.ModelProvider
+	Session   *session.Session
+	Store     store.SessionStore
 	// MessageStore is optional; nil skips persistence at every dispatcher hook.
 	MessageStore store.MessageStore
 	// UsageStore is optional; when non-nil, Agent writes a snapshot per Run.
@@ -150,16 +155,27 @@ type Agent struct {
 	instructions string
 	model        ModelRef
 	provider     protocol.ModelProvider
-	session      *session.Session
-	store        store.SessionStore
-	msgStore     store.MessageStore
-	usageStore   store.UsageStore
-	logger       *zap.Logger
-	cfg          Config
-	tools        protocol.ToolRegistry
-	exec         executor.Executor
-	bus          *event.Bus
-	queue        *Queue
+	// providers maps preset keys (anthropic / openai / deepseek / ...) to
+	// resolved provider instances so a per-run override can switch model
+	// AND provider. nil keeps the agent pinned to the single active provider.
+	providers map[string]protocol.ModelProvider
+	// runProviderName / runModel are the per-run override applied by the
+	// harness runner for the duration of one attempt; zero values mean "use
+	// the default model / provider". Guarded by runMu because ModelName /
+	// Provider can be read from the usage tracker goroutine.
+	runMu           sync.RWMutex
+	runProviderName string
+	runModel        string
+	session         *session.Session
+	store           store.SessionStore
+	msgStore        store.MessageStore
+	usageStore      store.UsageStore
+	logger          *zap.Logger
+	cfg             Config
+	tools           protocol.ToolRegistry
+	exec            executor.Executor
+	bus             *event.Bus
+	queue           *Queue
 
 	controller  *Controller
 	perm        *perm.Gate
@@ -240,6 +256,7 @@ func New(cfg NewAgentConfig) (*Agent, error) {
 		instructions:   cfg.Instructions,
 		model:          cfg.Model,
 		provider:       cfg.Provider,
+		providers:      cfg.Providers,
 		session:        cfg.Session,
 		skills:         cfg.Skills,
 		mcp:            cfg.Mcp,
@@ -302,9 +319,66 @@ func (p permEventContext) SessionID() string { return p.a.session.ID }
 func (p permEventContext) RunID() string     { return p.a.msgidBridge.CurrentRunID() }
 func (p permEventContext) MessageID() string { return p.a.msgidBridge.CurrentMessageID() }
 
-func (a *Agent) Session() *session.Session        { return a.session }
-func (a *Agent) Provider() protocol.ModelProvider { return a.provider }
-func (a *Agent) ModelName() string                { return a.model.Model }
+func (a *Agent) Session() *session.Session { return a.session }
+
+// Provider returns the active provider, honoring a per-run override when the
+// override names a resolved provider.
+func (a *Agent) Provider() protocol.ModelProvider {
+	a.runMu.RLock()
+	name := a.runProviderName
+	a.runMu.RUnlock()
+	if name != "" {
+		if p, ok := a.providers[name]; ok {
+			return p
+		}
+	}
+	return a.provider
+}
+
+// ModelName returns the active model id, honoring a per-run override.
+func (a *Agent) ModelName() string {
+	a.runMu.RLock()
+	m := a.runModel
+	a.runMu.RUnlock()
+	if m != "" {
+		return m
+	}
+	return a.model.Model
+}
+
+// ModelProviderKey returns the active preset key (e.g. "minimax"), used to
+// resolve the override provider against the per-preset providers map. This
+// is distinct from the provider's Name() (the wire format, e.g. "anthropic")
+// so a per-run override never conflates the two.
+func (a *Agent) ModelProviderKey() string {
+	return a.model.Provider
+}
+
+// SetRunModel pins provider + model for the duration of one attempt. An
+// empty provider keeps the current provider; an empty model keeps the
+// default model. The harness runner calls this before a run and must pair
+// it with ClearRunModel. A non-empty provider that is not wired in the
+// providers map returns an error so the caller can surface it instead of
+// sending a foreign model id to the wrong wire format (e.g. gpt-4o to the
+// anthropic adapter → 404).
+func (a *Agent) SetRunModel(provider, model string) error {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	if provider != "" && a.providers[provider] == nil {
+		return fmt.Errorf("agent: provider %q is not configured", provider)
+	}
+	a.runProviderName = provider
+	a.runModel = model
+	return nil
+}
+
+// ClearRunModel drops any per-run provider / model override.
+func (a *Agent) ClearRunModel() {
+	a.runMu.Lock()
+	a.runProviderName = ""
+	a.runModel = ""
+	a.runMu.Unlock()
+}
 
 // Tools returns the active registry — the skill's scoped set during a
 // mini loop, the agent's full set otherwise.

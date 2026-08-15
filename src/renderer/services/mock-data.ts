@@ -14,20 +14,20 @@ export interface MockModel {
 
 export const mockModels: MockModel[] = [
   {
-    id: 'claude-sonnet-4-5',
-    label: 'Claude Sonnet 4.5',
+    id: 'claude-sonnet-4-6',
+    label: 'Claude Sonnet 4.6',
     vendor: 'anthropic',
     description: '速度与质量的平衡，适合日常任务',
   },
   {
-    id: 'claude-opus-4-5',
-    label: 'Claude Opus 4.5',
+    id: 'claude-opus-4-7',
+    label: 'Claude Opus 4.7',
     vendor: 'anthropic',
     description: '最强推理能力，适合复杂任务',
   },
   {
-    id: 'gpt-4o',
-    label: 'GPT-4o',
+    id: 'gpt-5.4',
+    label: 'GPT-5.4',
     vendor: 'openai',
     description: 'OpenAI 多模态旗舰',
   },

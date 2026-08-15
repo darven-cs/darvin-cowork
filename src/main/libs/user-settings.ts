@@ -25,6 +25,7 @@ export interface UserSettingsLLM {
 }
 
 export interface UserSettingsProviderEntry {
+  api_format?: string;
   api_key?: string;
   base_url?: string;
   default_model?: string;
@@ -106,6 +107,7 @@ export async function writeUserSettingsYAML(patch: UserSettings): Promise<void> 
           .map(
             ([name, entry]) =>
               `  ${name}:\n` +
+              `    api_format: ${yamlQuote(entry?.api_format ?? '')}\n` +
               `    api_key: ${yamlQuote(entry?.api_key ?? '')}\n` +
               `    base_url: ${yamlQuote(entry?.base_url ?? '')}\n` +
               `    default_model: ${yamlQuote(entry?.default_model ?? '')}`,
@@ -140,6 +142,7 @@ function mergeProviders(
   for (const [name, entry] of Object.entries(patch)) {
     const prev = out[name] ?? {};
     out[name] = {
+      api_format: entry.api_format !== undefined ? entry.api_format : prev.api_format,
       api_key: entry.api_key !== undefined ? entry.api_key : prev.api_key,
       base_url: entry.base_url !== undefined ? entry.base_url : prev.base_url,
       default_model: entry.default_model !== undefined ? entry.default_model : prev.default_model,

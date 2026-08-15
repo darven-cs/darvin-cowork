@@ -66,7 +66,39 @@ func init() {
 		llm.ThinkingMax:    "16384",
 	}
 
-	models := []llm.ModelDescriptor{
+	// Current Claude family (matches LobsterAI's Anthropic defaultModels).
+	current := []llm.ModelDescriptor{
+		{
+			ID: "claude-opus-4-7", Name: "Claude Opus 4.7",
+			Provider: "anthropic", APIVersion: llm.APIAnthropicMessages,
+			ContextWindow: 1000000, MaxTokens: 32768, Reasoning: true,
+			ThinkingMap: claudeThinkingHigh,
+			Input:       []llm.InputModality{llm.InputText, llm.InputImage},
+			Cost:        llm.ModelCost{Input: 15.0, Output: 75.0, CacheRead: 1.5, CacheWrite: 18.75},
+			Compat:      llm.DefaultAnthropicCompat,
+		},
+		{
+			ID: "claude-opus-4-6", Name: "Claude Opus 4.6",
+			Provider: "anthropic", APIVersion: llm.APIAnthropicMessages,
+			ContextWindow: 1000000, MaxTokens: 32768, Reasoning: true,
+			ThinkingMap: claudeThinkingHigh,
+			Input:       []llm.InputModality{llm.InputText, llm.InputImage},
+			Cost:        llm.ModelCost{Input: 15.0, Output: 75.0, CacheRead: 1.5, CacheWrite: 18.75},
+			Compat:      llm.DefaultAnthropicCompat,
+		},
+		{
+			ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6",
+			Provider: "anthropic", APIVersion: llm.APIAnthropicMessages,
+			ContextWindow: 1000000, MaxTokens: 32768, Reasoning: true,
+			ThinkingMap: claudeThinkingHigh,
+			Input:       []llm.InputModality{llm.InputText, llm.InputImage},
+			Cost:        llm.ModelCost{Input: 3.0, Output: 15.0, CacheRead: 0.3, CacheWrite: 3.75},
+			Compat:      llm.DefaultAnthropicCompat,
+		},
+	}
+
+	// Legacy models kept so old sessions still resolve metadata.
+	legacy := []llm.ModelDescriptor{
 		{
 			ID: "claude-sonnet-4-5", Name: "Claude Sonnet 4.5",
 			Provider: "anthropic", APIVersion: llm.APIAnthropicMessages,
@@ -85,23 +117,9 @@ func init() {
 			Cost:        llm.ModelCost{Input: 15.0, Output: 75.0, CacheRead: 1.5, CacheWrite: 18.75},
 			Compat:      llm.DefaultAnthropicCompat,
 		},
-		{
-			ID: "claude-3-5-sonnet-latest", Name: "Claude 3.5 Sonnet",
-			Provider: "anthropic", APIVersion: llm.APIAnthropicMessages,
-			ContextWindow: 200000, MaxTokens: 8192, Reasoning: false,
-			Input:  []llm.InputModality{llm.InputText, llm.InputImage},
-			Cost:   llm.ModelCost{Input: 3.0, Output: 15.0, CacheRead: 0.3, CacheWrite: 3.75},
-			Compat: llm.DefaultAnthropicCompat,
-		},
-		{
-			ID: "claude-3-5-haiku-latest", Name: "Claude 3.5 Haiku",
-			Provider: "anthropic", APIVersion: llm.APIAnthropicMessages,
-			ContextWindow: 200000, MaxTokens: 8192, Reasoning: false,
-			Input:  []llm.InputModality{llm.InputText, llm.InputImage},
-			Cost:   llm.ModelCost{Input: 0.8, Output: 4.0, CacheRead: 0.08, CacheWrite: 1.0},
-			Compat: llm.DefaultAnthropicCompat,
-		},
 	}
+
+	models := append(current, legacy...)
 	for _, m := range models {
 		llm.DefaultModelRegistry.MustRegisterModel(m)
 	}

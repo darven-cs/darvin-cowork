@@ -11,6 +11,7 @@
 import { useMessages } from './useMessages';
 import { useSession } from './useSession';
 import { useImportedFiles } from './useImportedFiles';
+import { useModel } from './useModel';
 import { parseSlashCommand, translateSkillError } from './slash';
 import { t } from '../services/i18n';
 import { showToast } from '../services/toast';
@@ -37,6 +38,7 @@ export function useChatActions() {
   const messages = useMessages();
   const session = useSession();
   const imported = useImportedFiles();
+  const model = useModel();
 
   async function send(content: string, busyRef: { value: boolean }): Promise<void> {
     if (!content.trim()) return;
@@ -80,10 +82,15 @@ export function useChatActions() {
     }
 
     try {
+      // 仅当当前模型仍在可选列表里才发按次覆盖；否则用 session 默认，
+      // 避免把过期/未配置 provider 的模型 id 发到错误 wire（如 gpt-4o → anthropic 404）。
+      const overrideProvider = model.providerOf(model.currentModel.value);
       const r = await window.darvin.prompt({
         content: finalContent,
         attachments: files.map((f) => f.path),
         images,
+        provider: overrideProvider || undefined,
+        model: overrideProvider ? model.currentModel.value : undefined,
       });
       // 附件是路径引用（无复制），发送即消费：清空暂存，不删用户原文件。
       if (files.length > 0 || images.length > 0) imported.clear();

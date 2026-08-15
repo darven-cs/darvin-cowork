@@ -24,8 +24,13 @@ export function assertNever(x: never): never {
 export type DarvinRuntimeStatus = 'ready' | 'offline' | 'no-binary' | 'online';
 
 export type DarvinModelId =
+  | 'claude-sonnet-4-6'
   | 'claude-sonnet-4-5'
+  | 'claude-opus-4-7'
+  | 'claude-opus-4-6'
   | 'claude-opus-4-5'
+  | 'gpt-5.5'
+  | 'gpt-5.4'
   | 'gpt-4o';
 
 export type DarvinSessionStatus = 'active' | 'archived';
@@ -308,7 +313,9 @@ export type DarvinEvent =
 
 export interface DarvinPromptRequest {
   content: string;
-  model?: DarvinModelId;
+  /** 本条消息的 provider key + model 覆盖（仅当次生效；缺省用 session 默认）。 */
+  provider?: string;
+  model?: string;
   /** 本条消息暂存的附件（绝对路径）：「附加即授权」，agent 可免审批读取。 */
   attachments?: string[];
   /** 本条消息的图片附件（base64 dataUrl），Go 转 image content block。 */
@@ -433,19 +440,43 @@ export interface DarvinSearchSessionsResponse {
   messages: DarvinSearchHit[];
 }
 
-/** 设置面板可编辑的 LLM provider。runtime 是否可用取决于 Go 侧注册情况。 */
-export type DarvinModelProvider = 'anthropic' | 'openai' | 'custom';
+/** 设置面板可编辑的 LLM provider key（完整预设见 src/shared/providers.ts）。 */
+export type DarvinModelProvider = string;
+
+/** Go ModelRegistry 暴露给 renderer 的模型元数据（无凭据 / 成本）。 */
+export interface DarvinModelInfo {
+  id: string;
+  name: string;
+  /** provider preset key（anthropic / openai / gemini / ...）。 */
+  provider: string;
+  /** wire 格式：anthropic-messages | openai-completions | ... */
+  apiKind: string;
+  contextWindow: number;
+  maxTokens: number;
+  reasoning: boolean;
+  input: string[];
+}
+
+/** providers.<key> 的独立凭据块（api_format 由共享目录推导，写入 yaml）。 */
+export interface DarvinProviderConfig {
+  apiFormat?: string;
+  apiKey: string;
+  baseUrl: string;
+  defaultModel: string;
+}
 
 export interface DarvinLLMConfig {
   /** UI 当前编辑的 provider（不一定 runtime active）。 */
   provider: DarvinModelProvider;
-  /** 当前运行时实际生效的 provider（Go 只注册了 anthropic）。 */
+  /** 当前运行时实际生效的 provider key（来自 yaml llm.provider）。 */
   activeProvider: string;
   apiKey: string;
   baseUrl: string;
   defaultModel: string;
-  /** 各 provider 的独立凭据（openai / custom 预先存好，待 Go 接入后激活）。 */
-  providers: Record<string, { apiKey: string; baseUrl: string; defaultModel: string }>;
+  /** 各 provider 的独立凭据（key 见 src/shared/providers.ts 目录）。 */
+  providers: Record<string, DarvinProviderConfig>;
+  /** Go 侧实际注册的 provider wire 格式名（anthropic / openai）。 */
+  registeredProviders: string[];
 }
 
 // 重启 Go 子进程的反馈：UI 端用它判定是否要切到 "Restarting…"
@@ -1000,8 +1031,10 @@ export interface DarvinApi {
 
   /** 返回当前生效的 LLM 配置（来自用户级 yaml，未配置时 apiKey 为空串）。 */
   getLLMConfig(): Promise<DarvinLLMConfig>;
-  /** 写入用户级 yaml；anthropic 会重启 Go 子进程，openai/custom 仅存 providers 块（Go 未接入）。 */
-  setLLMConfig(req: { provider: string; apiKey: string; baseUrl?: string; defaultModel?: string }): Promise<DarvinSetLLMConfigResponse>;
+  /** 返回 Go 侧模型目录（agent.llm.list_models；Go 离线返回 []）。 */
+  getLLMModels(): Promise<DarvinModelInfo[]>;
+  /** 写入用户级 yaml 并重启 Go 子进程使新 provider / key 生效。 */
+  setLLMConfig(req: { provider: string; apiKey: string; baseUrl?: string; defaultModel?: string; apiFormat?: string }): Promise<DarvinSetLLMConfigResponse>;
 
   /** 读取通用偏好（自动启动来自 OS，通知 / 代理 / 记忆来自用户级 yaml）。 */
   getAppPreferences(): Promise<DarvinAppPreferences>;

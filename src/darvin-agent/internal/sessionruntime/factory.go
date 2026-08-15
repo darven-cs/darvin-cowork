@@ -26,10 +26,13 @@ import (
 // *agent.Agent. main.go constructs one and injects it into
 // SessionManager, which calls NewSessionRuntime on the lazy build path.
 type AgentFactory struct {
-	Name          string
-	Instructions  string
-	Model         agent.ModelRef
-	Provider      llm.ModelProvider
+	Name         string
+	Instructions string
+	Model        agent.ModelRef
+	Provider     llm.ModelProvider
+	// Providers maps preset keys to provider instances for per-run
+	// provider/model override; nil disables cross-provider switch.
+	Providers     map[string]llm.ModelProvider
 	Store         store.SessionStore
 	MessageStore  store.MessageStore
 	UsageStore    store.UsageStore
@@ -133,6 +136,7 @@ func (f *AgentFactory) buildSubagentRunner(parent *agent.Agent, parentLoop *Loop
 			Instructions: buildSubagentInstructions(parent, req),
 			Model:        modelRef,
 			Provider:     f.Provider,
+			Providers:    f.Providers,
 			Session:      subSession,
 			// nil → MemoryStore: the sub-agent must not create a row in
 			// the sessions table (it would pollute the sidebar list).
@@ -256,6 +260,7 @@ func (f *AgentFactory) Build(sessionID string) (*agent.Agent, error) {
 		Instructions:       f.Instructions,
 		Model:              f.Model,
 		Provider:           f.Provider,
+		Providers:          f.Providers,
 		Session:            session.NewSession(sessionID),
 		Store:              f.Store,
 		MessageStore:       f.MessageStore,
@@ -295,14 +300,8 @@ func extractProviderName(a *agent.Agent) string {
 	if a == nil {
 		return ""
 	}
-	p := a.Provider()
-	if p == nil {
-		return ""
-	}
-	if n, ok := p.(interface{ Name() string }); ok {
-		return n.Name()
-	}
-	// Fallback: empty name means "no constraint" in selection.
-	_ = p
-	return ""
+	// Return the preset key (minimax / openai / ...) rather than the wire
+	// format name so the per-run override resolves against the per-preset
+	// providers map instead of sending the wrong preset's credentials.
+	return a.ModelProviderKey()
 }

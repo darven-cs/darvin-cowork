@@ -22,6 +22,7 @@ type AgentFactoryDeps struct {
 	Instructions       string
 	Model              agent.ModelRef
 	Provider           llm.ModelProvider
+	Providers          map[string]llm.ModelProvider
 	Store              store.SessionStore
 	MessageStore       store.MessageStore
 	UsageStore         store.UsageStore
@@ -50,6 +51,7 @@ func newAgentFactory(d AgentFactoryDeps) *sessionruntime.AgentFactory {
 		Instructions:       d.Instructions,
 		Model:              d.Model,
 		Provider:           d.Provider,
+		Providers:          d.Providers,
 		Store:              d.Store,
 		MessageStore:       d.MessageStore,
 		UsageStore:         d.UsageStore,

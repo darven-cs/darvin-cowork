@@ -1555,3 +1555,40 @@ func TestSetWorkspace_SetterErrorPropagates(t *testing.T) {
 		t.Fatalf("expected internal error, got %+v", resp)
 	}
 }
+
+// TestDispatchListModels verifies agent.llm.list_models surfaces the
+// registered model catalog without errors.
+func TestDispatchListModels(t *testing.T) {
+	// The gateway test binary does not blank-import provider packages, so
+	// seed the catalog directly to exercise the RPC handler.
+	protocol.DefaultModelRegistry.MustRegisterModel(protocol.ModelDescriptor{
+		ID: "gpt-4o", Name: "GPT-4o", Provider: "openai", APIVersion: protocol.APIOpenAICompletions,
+		ContextWindow: 128000, MaxTokens: 16384,
+		Input:  []protocol.InputModality{protocol.InputText},
+		Compat: protocol.Compat{SupportsToolCalls: true},
+	})
+	_, c, _, _, _ := newTestHandlerWithStores(t)
+	resp := dispatchRequest(context.Background(), &Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.llm.list_models",
+	}, c, c.handler)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	res, ok := resp.Result.(ListModelsResult)
+	if !ok {
+		t.Fatalf("result type %T, want ListModelsResult", resp.Result)
+	}
+	if len(res.Models) == 0 {
+		t.Fatal("Models empty; expected registered catalog")
+	}
+	found := map[string]bool{}
+	for _, m := range res.Models {
+		found[m.ID] = true
+		if m.ID == "" || m.Name == "" {
+			t.Errorf("model has empty id/name: %+v", m)
+		}
+	}
+	if !found["gpt-4o"] {
+		t.Error("expected seeded model gpt-4o in catalog")
+	}
+}

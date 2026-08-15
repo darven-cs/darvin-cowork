@@ -36,6 +36,10 @@ type PromptRequest struct {
 	Content     string
 	Attachments []string
 	Images      []agent.ImageRef
+	// Provider / Model are an optional per-turn override applied for this
+	// run only; empty values keep the session default.
+	Provider string
+	Model    string
 }
 
 // RunTicket correlates a submitted turn with its events; Queued reports
@@ -63,6 +67,8 @@ type promptReq struct {
 	content     string
 	attachments []string
 	images      []agent.ImageRef
+	provider    string
+	model       string
 	skill       *SkillInvocation
 	msgID       string
 	userMsgID   string
@@ -150,6 +156,8 @@ func (l *Loop) admit(req PromptRequest, skill *SkillInvocation, jumpQueue bool) 
 		content:     req.Content,
 		attachments: req.Attachments,
 		images:      req.Images,
+		provider:    req.Provider,
+		model:       req.Model,
 		skill:       skill,
 		msgID:       l.idGen(),
 		userMsgID:   l.idGen(),
@@ -357,8 +365,8 @@ func (l *Loop) executeTurn(req promptReq) {
 		Prompt:        req.content,
 		Images:        attachmentsToImages(req.images),
 		Attachments:   req.attachments,
-		Provider:      extractProviderName(l.agent),
-		Model:         l.agent.ModelName(),
+		Provider:      firstNonEmpty(req.provider, extractProviderName(l.agent)),
+		Model:         firstNonEmpty(req.model, l.agent.ModelName()),
 		RunID:         req.runID,
 		MessageID:     req.msgID,
 		UserMessageID: req.userMsgID,
@@ -376,6 +384,14 @@ func (l *Loop) executeTurn(req promptReq) {
 // A nil here means the wiring is wrong; the renderer's bubble needs an
 // explicit AgentErrorEvent or it stays in streaming state.
 var errNoHarness = errors.New("acp: session has no harness bound")
+
+// firstNonEmpty returns a when non-empty, else b.
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
 
 // attachmentsToImages converts the agent.ImageRef slice the renderer sent
 // into the harness.ImageAttachment shape. Field-for-field conversion; the

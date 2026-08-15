@@ -30,8 +30,8 @@ describe('user-settings yaml round-trip', () => {
       app: { auto_launch: true, notifications: false, proxy: 'http://127.0.0.1:7890' },
       memory: { enabled: true, embedding_provider: 'openai', api_key: 'sk-openai' },
       providers: {
-        openai: { api_key: 'sk-openai', base_url: 'https://api.openai.com', default_model: 'gpt-4o' },
-        custom: { api_key: '', base_url: 'http://localhost:11434', default_model: '' },
+        openai: { api_format: 'openai', api_key: 'sk-openai', base_url: 'https://api.openai.com', default_model: 'gpt-4o' },
+        custom: { api_format: 'openai', api_key: '', base_url: 'http://localhost:11434', default_model: '' },
       },
       locale: 'en',
     };
@@ -45,8 +45,8 @@ describe('user-settings yaml round-trip', () => {
     });
     expect(cfg?.app).toEqual({ auto_launch: true, notifications: false, proxy: 'http://127.0.0.1:7890' });
     expect(cfg?.memory).toEqual({ enabled: true, embedding_provider: 'openai', api_key: 'sk-openai' });
-    expect(cfg?.providers?.openai).toEqual({ api_key: 'sk-openai', base_url: 'https://api.openai.com', default_model: 'gpt-4o' });
-    expect(cfg?.providers?.custom).toEqual({ api_key: '', base_url: 'http://localhost:11434', default_model: '' });
+    expect(cfg?.providers?.openai).toEqual({ api_format: 'openai', api_key: 'sk-openai', base_url: 'https://api.openai.com', default_model: 'gpt-4o' });
+    expect(cfg?.providers?.custom).toEqual({ api_format: 'openai', api_key: '', base_url: 'http://localhost:11434', default_model: '' });
     expect(cfg?.locale).toBe('en');
   });
 

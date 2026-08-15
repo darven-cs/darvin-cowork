@@ -37,6 +37,24 @@ func newAgentConfig(cfg *config.Config, workspace string) agent.Config {
 	}
 }
 
+// resolveModelRef picks the effective agent model reference. The active
+// preset's default_model wins; otherwise the global llm.model, then the
+// legacy agent.model / agent.provider_name fall back.
+func resolveModelRef(cfg *config.Config) agent.ModelRef {
+	provider := cfg.LLM.Provider
+	model := cfg.LLM.Model
+	if entry, ok := cfg.Providers[provider]; ok && entry.DefaultModel != "" {
+		model = entry.DefaultModel
+	}
+	if model == "" {
+		model = cfg.Agent.Model
+	}
+	if provider == "" {
+		provider = cfg.Agent.ProviderName
+	}
+	return agent.ModelRef{Provider: provider, Model: model}
+}
+
 // resolveWorkspace picks the effective agent workspace. The desktop
 // bridge passes $DARVIN_AGENT_WORKSPACE via Options.WorkspaceRoot so
 // fsSandbox.root matches the Electron main process; an empty value

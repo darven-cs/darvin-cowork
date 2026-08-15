@@ -7,13 +7,13 @@
       @click="fp.toggle('model')"
     >
       <Icon name="bolt" :size="13" />
-      <span class="font-medium">{{ currentLabel }}</span>
+      <span class="max-w-36 truncate font-medium">{{ currentLabel }}</span>
       <Icon name="chevron-down" :size="12" />
     </button>
 
     <div
       v-if="isOpen"
-      class="absolute bottom-full left-0 mb-2 w-72 rounded-xl border border-border bg-surface p-2 shadow-lg"
+      class="absolute bottom-full left-0 mb-2 w-80 rounded-xl border border-border bg-surface p-2 shadow-lg"
       @click.stop
     >
       <div class="px-2 py-1.5 font-mono text-[10px] uppercase tracking-wider text-text-subtle">
@@ -25,7 +25,6 @@
         type="text"
         :placeholder="t('model.search.placeholder')"
         class="mb-1 w-full rounded-md border border-border bg-surface-2 px-2.5 py-1.5 font-sans text-[13px] text-text outline-none placeholder:text-text-subtle focus:border-border-strong"
-        @input="onSearchInput"
         @keydown.escape.stop="fp.close()"
       />
       <div class="max-h-56 overflow-y-auto">
@@ -35,13 +34,13 @@
           type="button"
           class="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2"
           :class="m.id === model.currentModel.value ? 'bg-primary-soft' : ''"
-          @click="onPick(m.id)"
+          @click="onPick(m)"
         >
           <span
             class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
-            :class="m.vendor === 'anthropic' ? 'bg-vendor-anthropic' : 'bg-vendor-openai'"
+            :class="badgeClass(m.provider)"
           >
-            {{ m.vendor === 'anthropic' ? 'A' : 'O' }}
+            {{ badgeLetter(m.provider) }}
           </span>
           <span class="flex min-w-0 flex-col">
             <span class="truncate font-sans text-[13px] font-medium text-text">{{ m.label }}</span>
@@ -62,7 +61,6 @@ import { t } from '../../services/i18n';
 import Icon from '../common/Icon.vue';
 import { useModel } from '../../composables/useModel';
 import { useFloatingPanel } from '../../composables/useFloatingPanel';
-import { mockModels } from '../../services/mock-data';
 
 const model = useModel();
 const fp = useFloatingPanel();
@@ -72,31 +70,60 @@ const query = ref<string>('');
 const searchRef = ref<HTMLInputElement | null>(null);
 
 const currentLabel = computed(
-  () => mockModels.find((m) => m.id === model.currentModel.value)?.label ?? '',
+  () => model.options.value.find((m) => m.id === model.currentModel.value)?.label ?? '',
 );
 
 const filteredModels = computed(() => {
   const q = query.value.trim().toLowerCase();
-  if (!q) return mockModels;
-  return mockModels.filter((m) =>
-    m.label.toLowerCase().includes(q) ||
-    m.description.toLowerCase().includes(q) ||
-    m.vendor.toLowerCase().includes(q),
+  if (!q) return model.options.value;
+  return model.options.value.filter(
+    (m) =>
+      m.label.toLowerCase().includes(q) ||
+      m.description.toLowerCase().includes(q) ||
+      m.provider.toLowerCase().includes(q),
   );
 });
 
 watch(isOpen, async (open) => {
   if (open) {
     query.value = '';
+    // 每次打开刷新目录（Go 离线回落已配置 provider 的 defaultModels）。
+    void model.loadModels();
     await nextTick();
     searchRef.value?.focus();
   }
 });
 
-function onSearchInput() {}
+function badgeLetter(provider: string): string {
+  return (provider.charAt(0) || '?').toUpperCase();
+}
 
-function onPick(id: typeof mockModels[number]['id']) {
-  model.selectModel(id);
+/** provider 徽标底色：知名 provider 固定色，其余按 id 哈希轮转。 */
+const KNOWN_BADGE: Record<string, string> = {
+  anthropic: 'bg-vendor-anthropic',
+  openai: 'bg-vendor-openai',
+  deepseek: 'bg-agent-blue',
+  qwen: 'bg-agent-violet',
+  zhipu: 'bg-agent-blue',
+  moonshot: 'bg-agent-cyan',
+  minimax: 'bg-agent-green',
+  volcengine: 'bg-agent-red',
+  openrouter: 'bg-agent-purple',
+  ollama: 'bg-agent-amber',
+  gemini: 'bg-agent-green',
+  custom: 'bg-agent-orange',
+};
+const FALLBACK = ['bg-agent-amber', 'bg-agent-blue', 'bg-agent-green', 'bg-agent-violet', 'bg-agent-red', 'bg-agent-cyan'];
+
+function badgeClass(provider: string): string {
+  if (KNOWN_BADGE[provider]) return KNOWN_BADGE[provider];
+  let h = 0;
+  for (let i = 0; i < provider.length; i++) h = (h * 31 + provider.charCodeAt(i)) >>> 0;
+  return FALLBACK[h % FALLBACK.length];
+}
+
+function onPick(m: { id: string }): void {
+  model.selectModel(m.id);
   fp.close();
 }
 </script>

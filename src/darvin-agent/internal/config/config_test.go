@@ -396,3 +396,56 @@ func TestResolveSessionsDSN_RelativeExpandsFromCwd(t *testing.T) {
 		t.Errorf("ResolveSessionsDSN(./sessions.db) = %q, want %q", got, want)
 	}
 }
+
+// TestLoad_ProvidersMap parses the multi-provider top-level `providers`
+// block (sibling of llm, as written by the settings UI) and checks
+// api_format / credentials / default_model map correctly.
+func TestLoad_ProvidersMap(t *testing.T) {
+	// Isolate the user-level overlay so the machine's real config.yaml
+	// cannot override the fixture's llm.provider.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	yamlPath := filepath.Join(dir, "config.yaml")
+
+	yaml := `
+llm:
+  provider: deepseek
+providers:
+  anthropic:
+    api_format: anthropic
+    api_key: sk-ant-test
+    base_url: https://api.anthropic.com
+    default_model: claude-sonnet-4-5
+  deepseek:
+    api_format: openai
+    api_key: sk-ds-test
+    base_url: https://api.deepseek.com/v1
+    default_model: deepseek-chat
+  ollama:
+    api_format: openai
+    base_url: http://localhost:11434/v1
+    default_model: qwen2.5:7b
+`
+	if err := writeFile(yamlPath, yaml); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	cfg, err := Load(yamlPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.Provider != "deepseek" {
+		t.Errorf("provider = %q, want deepseek", cfg.LLM.Provider)
+	}
+	ds, ok := cfg.Providers["deepseek"]
+	if !ok {
+		t.Fatal("providers.deepseek missing")
+	}
+	if ds.APIFmt != "openai" || ds.APIKey != "sk-ds-test" || ds.DefaultModel != "deepseek-chat" {
+		t.Errorf("deepseek entry = %+v", ds)
+	}
+	oll, ok := cfg.Providers["ollama"]
+	if !ok || oll.APIKey != "" {
+		t.Errorf("ollama entry = %+v, want empty api_key", oll)
+	}
+}

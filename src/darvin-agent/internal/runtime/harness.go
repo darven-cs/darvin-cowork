@@ -18,6 +18,16 @@ import (
 func newEmbeddedHarness(a *agent.Agent) harness.Harness {
 	return harness.NewEmbedded(harness.EmbeddedConfig{
 		Run: func(ctx context.Context, p harness.RunAttemptParams) (*harness.AttemptResult, error) {
+			// Apply a per-run provider / model override so the executor
+			// resolves Deps.Provider() / ModelName() to the requested preset.
+			// An unknown provider surfaces as a clear error rather than
+			// sending a foreign model id to the wrong wire (404).
+			if p.Provider != "" || p.Model != "" {
+				if err := a.SetRunModel(p.Provider, p.Model); err != nil {
+					return nil, err
+				}
+				defer a.ClearRunModel()
+			}
 			if err := a.Prompt(ctx, p.Prompt, nil, p.Attachments); err != nil {
 				return nil, err
 			}
