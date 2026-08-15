@@ -108,6 +108,7 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 		startEmitted   bool
 		partialContent strings.Builder
 		collectedCalls []llm.ToolCall
+		splitter       = llm.NewThinkingSplitter()
 	)
 
 	scanner := bufio.NewScanner(r)
@@ -140,6 +141,7 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 			startEmitted: &startEmitted,
 			partial:      &partialContent,
 			collected:    &collectedCalls,
+			splitter:     splitter,
 			out:          out,
 		})
 		return err
@@ -218,6 +220,19 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 		}
 	}
 
+	// Flush residual thinking/text before the terminal event so a trailing
+	// unclosed <think> still reaches the client as thinking.
+	for _, ev := range splitter.Flush() {
+		if te, ok := ev.(llm.TextDeltaEvent); ok {
+			partialContent.WriteString(te.Delta)
+		}
+		select {
+		case out <- ev:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	select {
 	case out <- llm.DoneEvent{Response: llm.CompletionResponse{
 		Model:        respModel,
@@ -243,6 +258,7 @@ type dispatchState struct {
 	startEmitted *bool
 	partial      *strings.Builder
 	collected    *[]llm.ToolCall
+	splitter     *llm.ThinkingSplitter
 	out          chan<- llm.StreamEvent
 }
 
@@ -314,8 +330,12 @@ func dispatch(name streamEventName, raw string, st *dispatchState) error {
 		}
 		switch d.Delta.Type {
 		case "text_delta":
-			st.partial.WriteString(d.Delta.Text)
-			st.out <- llm.TextDeltaEvent{Delta: d.Delta.Text}
+			for _, ev := range st.splitter.Feed(d.Delta.Text) {
+				if te, ok := ev.(llm.TextDeltaEvent); ok {
+					st.partial.WriteString(te.Delta)
+				}
+				st.out <- ev
+			}
 		case "thinking_delta":
 			// Anthropic extended-thinking emits incremental chunks via the
 			// "thinking" field; surface each as a ThinkingDeltaEvent so the

@@ -151,6 +151,41 @@ data: [DONE]
 	}
 }
 
+func TestStream_ContentEmbeddedThinking(t *testing.T) {
+	events := collectStream(t, `data: {"choices":[{"index":0,"delta":{"content":"<thi"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"nk>inner reason"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"</think>final answer"},"finish_reason":"stop"}]}
+
+data: [DONE]
+`)
+	var reasoning, text string
+	var done bool
+	for _, ev := range events {
+		switch e := ev.(type) {
+		case llm.ThinkingDeltaEvent:
+			reasoning += e.Delta
+		case llm.TextDeltaEvent:
+			text += e.Delta
+		case llm.DoneEvent:
+			done = true
+			if e.Response.Content != "final answer" {
+				t.Errorf("content = %q, want %q", e.Response.Content, "final answer")
+			}
+		}
+	}
+	if !done {
+		t.Fatal("missing DoneEvent")
+	}
+	if reasoning != "inner reason" {
+		t.Errorf("reasoning = %q, want %q", reasoning, "inner reason")
+	}
+	if text != "final answer" {
+		t.Errorf("text = %q, want %q", text, "final answer")
+	}
+}
+
 func TestParseToolArgs(t *testing.T) {
 	if got := parseToolArgs(""); len(got) != 0 {
 		t.Errorf("empty => %+v, want empty", got)

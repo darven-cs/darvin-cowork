@@ -45,6 +45,7 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 		respModel      = model
 		startEmitted   bool
 		partialContent strings.Builder
+		splitter       = llm.NewThinkingSplitter()
 	)
 
 	scanner := bufio.NewScanner(r)
@@ -64,6 +65,7 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 			finishReason: &finishReason,
 			startEmitted: &startEmitted,
 			partial:      &partialContent,
+			splitter:     splitter,
 			out:          out,
 		})
 	}
@@ -110,6 +112,19 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 			return ctx.Err()
 		}
 	}
+	// Flush residual thinking/text before the terminal event so a trailing
+	// unclosed <think> still reaches the client as thinking.
+	for _, ev := range splitter.Flush() {
+		if te, ok := ev.(llm.TextDeltaEvent); ok {
+			partialContent.WriteString(te.Delta)
+		}
+		select {
+		case out <- ev:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	select {
 	case out <- llm.DoneEvent{Response: llm.CompletionResponse{
 		Model:        respModel,
@@ -130,6 +145,7 @@ type dispatchState struct {
 	finishReason *string
 	startEmitted *bool
 	partial      *strings.Builder
+	splitter     *llm.ThinkingSplitter
 	out          chan<- llm.StreamEvent
 }
 
@@ -167,8 +183,12 @@ func dispatch(raw string, st *dispatchState) error {
 			continue
 		}
 		if p.Text != "" {
-			st.partial.WriteString(p.Text)
-			st.out <- llm.TextDeltaEvent{Delta: p.Text}
+			for _, ev := range st.splitter.Feed(p.Text) {
+				if te, ok := ev.(llm.TextDeltaEvent); ok {
+					st.partial.WriteString(te.Delta)
+				}
+				st.out <- ev
+			}
 		}
 	}
 	if ch.FinishReason != "" {

@@ -75,6 +75,7 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 		respModel      = model
 		startEmitted   bool
 		partialContent strings.Builder
+		splitter       = llm.NewThinkingSplitter()
 	)
 
 	scanner := bufio.NewScanner(r)
@@ -96,6 +97,7 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 			toolBuf:      toolBuf,
 			startEmitted: &startEmitted,
 			partial:      &partialContent,
+			splitter:     splitter,
 			out:          out,
 		})
 	}
@@ -120,7 +122,7 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 				if err := flush(); err != nil {
 					return err
 				}
-				return finishStream(out, &respModel, finishReason, usage, &partialContent, toolBuf, &startEmitted, ctx)
+				return finishStream(out, &respModel, finishReason, usage, &partialContent, toolBuf, &startEmitted, splitter, ctx)
 			}
 			if dataBuf.Len() > 0 {
 				dataBuf.WriteByte('\n')
@@ -143,11 +145,12 @@ func runStream(ctx context.Context, r io.Reader, out chan<- llm.StreamEvent, mod
 		return llm.NewProviderError("openai", llm.ErrCodeInternal,
 			fmt.Sprintf("sse scan: %s", err.Error()), 0, err)
 	}
-	return finishStream(out, &respModel, finishReason, usage, &partialContent, toolBuf, &startEmitted, ctx)
+	return finishStream(out, &respModel, finishReason, usage, &partialContent, toolBuf, &startEmitted, splitter, ctx)
 }
 
-// finishStream flushes any in-flight tool accumulators as ToolCallEndEvent,
-// guarantees StartEvent was emitted, and sends the terminal DoneEvent.
+// finishStream flushes the thinking splitter and any in-flight tool
+// accumulators as events, guarantees StartEvent was emitted, and sends the
+// terminal DoneEvent.
 func finishStream(
 	out chan<- llm.StreamEvent,
 	respModel *string,
@@ -156,8 +159,19 @@ func finishStream(
 	partial *strings.Builder,
 	toolBuf map[int]*toolAccum,
 	startEmitted *bool,
+	splitter *llm.ThinkingSplitter,
 	ctx context.Context,
 ) error {
+	for _, ev := range splitter.Flush() {
+		if te, ok := ev.(llm.TextDeltaEvent); ok {
+			partial.WriteString(te.Delta)
+		}
+		select {
+		case out <- ev:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	for idx, ta := range toolBuf {
 		if ta.id == "" && ta.name == "" && ta.arguments.Len() == 0 {
 			continue
@@ -195,6 +209,7 @@ type dispatchState struct {
 	toolBuf      map[int]*toolAccum
 	startEmitted *bool
 	partial      *strings.Builder
+	splitter     *llm.ThinkingSplitter
 	out          chan<- llm.StreamEvent
 }
 
@@ -262,8 +277,12 @@ func dispatch(raw string, st *dispatchState) error {
 		st.out <- llm.ThinkingDeltaEvent{Delta: ch.Delta.ReasoningContent}
 	}
 	if ch.Delta.Content != "" {
-		st.partial.WriteString(ch.Delta.Content)
-		st.out <- llm.TextDeltaEvent{Delta: ch.Delta.Content}
+		for _, ev := range st.splitter.Feed(ch.Delta.Content) {
+			if te, ok := ev.(llm.TextDeltaEvent); ok {
+				st.partial.WriteString(te.Delta)
+			}
+			st.out <- ev
+		}
 	}
 	for _, tc := range ch.Delta.ToolCalls {
 		ta, ok := st.toolBuf[tc.Index]
