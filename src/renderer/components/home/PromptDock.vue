@@ -2,6 +2,7 @@
   <div class="px-6 pb-6 pt-2">
     <div
       class="mx-auto w-full max-w-[720px] rounded-xl border border-border bg-surface-2 transition-colors focus-within:border-border-strong"
+      :class="{ 'composer-running': props.running }"
     >
       <textarea
         ref="textareaRef"
@@ -28,7 +29,7 @@ import { t } from '../../services/i18n';
 import ComposerToolbar from '../chat/ComposerToolbar.vue';
 import ComposerContextRow from '../chat/ComposerContextRow.vue';
 
-const props = defineProps<{ busy: boolean }>();
+const props = defineProps<{ busy: boolean; running?: boolean }>();
 const emit = defineEmits<{ send: [content: string] }>();
 
 const text = ref<string>('');

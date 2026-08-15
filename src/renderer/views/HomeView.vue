@@ -16,18 +16,20 @@
       </div>
     </div>
 
-    <PromptDock :busy="busy" ref="dockRef" @send="onSend" />
+    <PromptDock :busy="busy" :running="running" ref="dockRef" @send="onSend" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import ChatHeader from '../components/chat/ChatHeader.vue';
 import Mascot from '../components/home/Mascot.vue';
 import HeroGreeting from '../components/home/HeroGreeting.vue';
 import QuickActions from '../components/home/QuickActions.vue';
 import PromptDock from '../components/home/PromptDock.vue';
 import { useChatActions } from '../composables/useChatActions';
+import { useMessages } from '../composables/useMessages';
+import { useSession } from '../composables/useSession';
 import { useViewMode } from '../composables/useViewMode';
 import { t } from '../services/i18n';
 
@@ -42,9 +44,16 @@ const busy = ref<boolean>(false);
 const dockRef = ref<InstanceType<typeof PromptDock> | null>(null);
 const viewMode = useViewMode();
 const chatActions = useChatActions();
+const messages = useMessages();
+const session = useSession();
+// 当前 active session 处于流式运行时点亮输入框光晕（与侧栏 running 点同源）。
+const running = computed(() =>
+  messages.streamingSessionIds.value.has(session.activeSessionId.value ?? ''),
+);
 
 async function onSend(content: string) {
-  await chatActions.send(content, busy);
+  // 首页聊天一律新建会话，绝不续接 active session。
+  await chatActions.send(content, busy, { newSession: true });
   viewMode.goChat();
 }
 

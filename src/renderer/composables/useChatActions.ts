@@ -40,17 +40,21 @@ export function useChatActions() {
   const imported = useImportedFiles();
   const model = useModel();
 
-  async function send(content: string, busyRef: { value: boolean }): Promise<void> {
+  async function send(
+    content: string,
+    busyRef: { value: boolean },
+    opts?: { newSession?: boolean },
+  ): Promise<void> {
     if (!content.trim()) return;
     // `/` 前缀路由。`//` 转义：去掉首字符 `/` 走普通 prompt（不触发 skill）。
     const escaped = content.startsWith('//');
     const routeContent = escaped ? content.slice(1) : content;
     const slash = escaped ? null : parseSlashCommand(content);
 
-    // compose 态（点过「新建任务」）或没有 active session：先建会话再发。
-    // 用首条消息当标题，避免出现一堆「新建会话」空壳。
+    // compose 态（点过「新建任务」）、没有 active session、或调用方强制
+    // 新建（首页聊天入口）时：先建会话再发。用首条消息当标题。
     let sessId = session.activeSessionId.value;
-    if (session.draftMode.value || sessId === null) {
+    if (opts?.newSession || session.draftMode.value || sessId === null) {
       const created = await session.createSession(routeContent.trim().slice(0, 30));
       sessId = created.id;
       session.draftMode.value = false;

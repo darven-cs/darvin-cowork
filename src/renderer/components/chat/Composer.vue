@@ -31,6 +31,7 @@
       </div>
       <div
         class="rounded-xl border border-border bg-surface-2 transition-colors focus-within:border-border-strong"
+        :class="{ 'composer-running': props.running }"
       >
         <textarea
           ref="textareaRef"
@@ -65,7 +66,7 @@ import ComposerToolbar from './ComposerToolbar.vue';
 import ComposerContextRow from './ComposerContextRow.vue';
 import ImportedFilesBar from './ImportedFilesBar.vue';
 
-const props = defineProps<{ busy: boolean }>();
+const props = defineProps<{ busy: boolean; running?: boolean }>();
 const emit = defineEmits<{ send: [content: string] }>();
 
 const { skills } = useSkills();

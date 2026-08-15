@@ -296,3 +296,20 @@
 .markdown-content hr { border: none; border-top: 1px solid var(--color-border-strong); margin: 1.2em 0; }
 .markdown-content mark { background: color-mix(in srgb, var(--color-warning) 30%, transparent); }
 .markdown-content .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.4em 0; }
+
+/* ── 聊天框运行态环形光晕（agent 回答期间）────────────────────────── */
+/* 非 component-level CSS；与 .qa-tile / .markdown-content 同列，放 theme.css 末尾 */
+.composer-running {
+  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+  animation: composer-glow 1.6s ease-in-out infinite;
+}
+@keyframes composer-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 30%, transparent),
+                0 0 14px  color-mix(in srgb, var(--color-primary) 40%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 55%, transparent),
+                0 0 28px  color-mix(in srgb, var(--color-primary) 60%, transparent);
+  }
+}
