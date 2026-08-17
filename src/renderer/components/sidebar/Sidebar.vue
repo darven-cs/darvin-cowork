@@ -15,14 +15,16 @@
 
     <div v-if="!collapsed" class="flex min-h-0 flex-1 flex-col">
       <div class="px-4 pt-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-subtle">
-        {{ t('sidebar.recent_label') }}
+        {{ t('workspace.title') }}
       </div>
       <SessionList
         :sessions="sessions"
+        :workspaces="workspaceList"
         :current-id="currentId"
         @select="onSelect"
         @rename="onRename"
         @delete="onDelete"
+        @create="onCreateSession"
       />
     </div>
 
@@ -49,6 +51,7 @@ import { useSession } from '../../composables/useSession';
 import { useMessages } from '../../composables/useMessages';
 import { useSidebar, COMPACT_SIDEBAR_WIDTH } from '../../composables/useSidebar';
 import { useViewMode, type ViewMode } from '../../composables/useViewMode';
+import { useWorkspaces } from '../../composables/useWorkspaces';
 import { t } from '../../services/i18n';
 
 type NavId = 'new_task' | 'search' | 'scheduled' | 'suite' | 'skill' | 'mcp';
@@ -70,7 +73,10 @@ const session = useSession();
 const messages = useMessages();
 const sidebar = useSidebar();
 const viewMode = useViewMode();
+const workspaces = useWorkspaces();
+// 侧栏展示全部会话，按所属 workspace 分组（dsh 同款树形浏览区）。
 const sessions = computed(() => session.sessions.value);
+const workspaceList = computed(() => workspaces.workspaces.value);
 const currentId = computed(() =>
   session.draftMode.value ? '' : session.activeSessionId.value ?? '',
 );
@@ -113,6 +119,14 @@ async function onDelete(id: string) {
   if (r.nextActiveSessionId === null) {
     emit('navigate', 'home');
   }
+}
+
+/** 在指定工作区新建会话：切到该工作区并进入 compose 态（发首条消息才真正建会话）。 */
+async function onCreateSession(workspaceId: string) {
+  if (!workspaceId) return;
+  await workspaces.switchWorkspace(workspaceId);
+  session.startNewTask();
+  emit('navigate', 'home');
 }
 
 function onLogin() {

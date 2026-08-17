@@ -86,7 +86,7 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 	if err != nil {
 		t.Fatalf("gorm.Open: %v", err)
 	}
-	if err := db.AutoMigrate(&store.Session{}, &store.Message{}, &store.SessionDigest{}, &store.SkillSnapshot{}, &store.AppState{}, &store.ImportedFile{}, &store.SessionUsage{}); err != nil {
+	if err := db.AutoMigrate(&store.Session{}, &store.Workspace{}, &store.Message{}, &store.SessionDigest{}, &store.SkillSnapshot{}, &store.AppState{}, &store.ImportedFile{}, &store.SessionUsage{}); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
 	sessStore := store.NewSQLiteStore(db)
@@ -94,12 +94,14 @@ func newTestHandlerWithStores(t *testing.T) (*Handler, *client, store.SessionSto
 	appState := store.NewAppStateStore(db)
 	ifs := store.NewImportedFileStore(db)
 	usageStore := store.NewSQLiteUsageStore(db)
+	wsStore := store.NewSQLiteWorkspaceStore(db)
 
 	handler := NewHandler(sessions, ledger, sessStore, msgStore, appState,
 		HandlerOptions{
-			ImportedFiles: ifs,
-			UsageStore:    usageStore,
-			WorkspaceRoot: t.TempDir(),
+			ImportedFiles:  ifs,
+			UsageStore:     usageStore,
+			WorkspaceRoot:  t.TempDir(),
+			WorkspaceStore: wsStore,
 		})
 	client := &client{
 		sessions: sessions,
@@ -690,6 +692,15 @@ func TestHandler_CreateSession(t *testing.T) {
 	ctx := context.Background()
 	_, c, _, _, appState := newTestHandlerWithStores(t)
 
+	// 先建一个 active workspace，验证 create_session 走 active workspace 回退。
+	wsStore := c.handler.WorkspaceStore
+	if err := wsStore.Create(ctx, store.Workspace{ID: "ws-1", Name: "test", RootPath: t.TempDir()}); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	if err := appState.SetActiveWorkspace(ctx, "ws-1"); err != nil {
+		t.Fatalf("set active workspace: %v", err)
+	}
+
 	resp := dispatchRequest(ctx, &Request{
 		JSONRPC: "2.0", ID: json.RawMessage(`"1"`), Method: "agent.create_session",
 		Params: json.RawMessage(`{"title":"我的会话"}`),
@@ -703,6 +714,9 @@ func TestHandler_CreateSession(t *testing.T) {
 	}
 	if res.Session.Title != "我的会话" {
 		t.Errorf("Title = %q, want 我的会话", res.Session.Title)
+	}
+	if res.Session.WorkspaceID != "ws-1" {
+		t.Errorf("WorkspaceID = %q, want ws-1 (active-workspace fallback)", res.Session.WorkspaceID)
 	}
 	if !c.sessions.Has(res.Session.ID) {
 		t.Errorf("session %q not registered in SessionManager", res.Session.ID)

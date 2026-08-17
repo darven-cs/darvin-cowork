@@ -21,7 +21,7 @@ import { RuntimeMgr, resolveAgentBinaryPath } from './runtime/manager';
 import { AgentClient } from './runtime/client';
 import { EventRouter } from './store/EventRouter';
 import { runImport } from './libs/importFiles';
-import { ensureWorkspaceRoot, resolveWorkspaceRoot, getSkillsRoot, userDataDir, type WorkspaceLocation } from './libs/user-paths';
+import { ensureWorkspaceRoot, getSkillsRoot, userDataDir, type WorkspaceLocation } from './libs/user-paths';
 import { readWorkspaceMap, writeWorkspaceMap } from './libs/workspace-map';
 import { readWorkspaceTextFile, resolveWorkspacePath, walkWorkspace } from './libs/workspaceFiles';
 import { artifactPreviewServer } from './services/artifact-preview-server';
@@ -93,6 +93,13 @@ import type {
   DarvinSwitchSessionResponse,
   DarvinUninstallSkillResponse,
   DarvinUpgradeSkillResponse,
+  DarvinWorkspace,
+  DarvinListWorkspacesResponse,
+  DarvinCreateWorkspaceResponse,
+  DarvinActiveWorkspaceResponse,
+  DarvinSetActiveWorkspaceResponse,
+  DarvinDeleteWorkspaceResponse,
+  DarvinBindSessionWorkspaceResponse,
   DarvinWorkspaceInfoResponse,
   DarvinWorkspaceRootResult,
 } from '../shared/darvin-api';
@@ -155,13 +162,48 @@ const cache: CacheState = {
 const sessionTitles = new Map<string, string>();
 
 /**
- * 受控 workspace 根。v0 在启动期由 active session 解析一次并保持固定，
- * Go agent 的 fsSandbox.root 通过 DARVIN_AGENT_WORKSPACE 与之对齐；所有
- * import/remove/list 都走它，避免跨 session 指向不一致导致 agent 读不到。
+ * 受控 workspace 根。workspace 是一等实体：workspaceLoc.workspaceId 是
+ * workspaces 表的真实 id（不再是 session id）。Go agent 的 fsSandbox.root
+ * 通过 DARVIN_AGENT_WORKSPACE 与之对齐；所有 import/remove/list 都走它。
  */
 let workspaceLoc: WorkspaceLocation | null = null;
 
-/** workspace 内容变更后 main 端广播（import / remove 完成后调用）。 */
+/** workspaces 表缓存：Go 端是 source of truth，main 端维护 id→记录快照。 */
+const workspaceCache = new Map<string, DarvinWorkspace>();
+let activeWorkspaceId: string | null = null;
+
+/** 拉取全量 workspace 列表刷新缓存；可用于启动期与任何变更后的同步。 */
+async function refreshWorkspaceCache(): Promise<void> {
+  if (!client.isConnected()) return;
+  try {
+    const r = await client.request<DarvinListWorkspacesResponse>('agent.list_workspaces', {});
+    workspaceCache.clear();
+    for (const w of r.workspaces) workspaceCache.set(w.id, w);
+  } catch (e) {
+    console.warn(`[main] workspace list refresh failed: ${(e as Error).message}`);
+  }
+}
+
+/** 从缓存解析 workspace 根；未命中时刷新一次缓存再查。缺失返回 null。 */
+async function resolveWorkspaceRoot(workspaceId: string): Promise<WorkspaceLocation | null> {
+  const hit = workspaceCache.get(workspaceId);
+  if (hit) return { rootPath: hit.rootPath, workspaceId };
+  await refreshWorkspaceCache();
+  const w = workspaceCache.get(workspaceId);
+  return w ? { rootPath: w.rootPath, workspaceId } : null;
+}
+
+/** workspace 列表变更后广播给所有窗口（创建 / 删除 / 切换 active）。 */
+function broadcastWorkspacesChanged(): void {
+  const workspaces = [...workspaceCache.values()];
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(DarvinPushEvent.WorkspacesChanged, workspaces);
+    }
+  }
+}
+
+/** 单个 session 的 workspace 导入文件列表变更后广播（import / remove 后）。 */
 function broadcastWorkspaceChanged(sessionId: string): void {
   void (async () => {
     try {
@@ -181,20 +223,97 @@ function broadcastWorkspaceChanged(sessionId: string): void {
 }
 
 /**
- * 把受控 workspace 重锚到指定 session：更新 workspaceLoc + 建目录 + 调 Go 端
- * agent.set_workspace 运行时重锚沙箱。相同 session 直接跳过（bootstrap 已锚定）。
+ * 把受控 workspace 重锚到指定 workspace：更新 workspaceLoc + 建目录 +
+ * 调 Go 端 agent.set_workspace 运行时重锚沙箱。相同 workspace 直接跳过。
  * 相比旧的 restartGoSubprocess，切换不再重启 Go 子进程，保留其它 session 的
  * in-memory 上下文与在途流式。
  */
-async function followActiveWorkspace(sessionId: string): Promise<void> {
-  if (workspaceLoc && workspaceLoc.workspaceId === sessionId) return;
-  workspaceLoc = resolveWorkspaceRoot(sessionId);
-  await ensureWorkspaceRoot(workspaceLoc);
-  if (client.isConnected()) {
-    await client.setWorkspace(workspaceLoc.rootPath);
-  } else {
-    await restartGoSubprocess(workspaceLoc.rootPath);
+async function followActiveWorkspace(workspaceId: string | null): Promise<void> {
+  if (!workspaceId) {
+    workspaceLoc = null;
+    return;
   }
+  if (workspaceLoc && workspaceLoc.workspaceId === workspaceId) return;
+  const loc = await resolveWorkspaceRoot(workspaceId);
+  if (!loc) {
+    workspaceLoc = null;
+    return;
+  }
+  await ensureWorkspaceRoot(loc);
+  workspaceLoc = loc;
+  activeWorkspaceId = workspaceId;
+  if (client.isConnected()) {
+    await client.setWorkspace(loc.rootPath);
+  } else {
+    await restartGoSubprocess(loc.rootPath);
+  }
+}
+
+/**
+ * 把受控 workspace 重锚到指定 session 所属的 workspace。session 可能是
+ * 迁移前遗留（无 workspaceId），此时触发迁移为该 session 补建 workspace。
+ */
+async function followActiveWorkspaceOfSession(sessionId: string): Promise<string | null> {
+  const sess = cache.sessions?.find((s) => s.id === sessionId);
+  let workspaceId = sess?.workspaceId ?? null;
+  if (!workspaceId && client.isConnected()) {
+    await migrateLegacySessions();
+    const refreshed = cache.sessions?.find((s) => s.id === sessionId);
+    workspaceId = refreshed?.workspaceId ?? null;
+  }
+  if (workspaceId) await followActiveWorkspace(workspaceId);
+  return workspaceId;
+}
+
+/** 会话删除后清空的工作区：无剩余 session 时删行 + 回收默认目录。 */
+async function cleanupEmptyWorkspace(workspaceId: string): Promise<void> {
+  if (!client.isConnected()) return;
+  const remaining = await client.listSessions(workspaceId);
+  if (remaining.sessions.length > 0) return;
+  const w = workspaceCache.get(workspaceId);
+  if (!w) return;
+  const defaultRoot = path.join(userDataDir(), 'workspaces');
+  const isDefault = path.resolve(w.rootPath).startsWith(path.resolve(defaultRoot) + path.sep);
+  try {
+    await client.request<DarvinDeleteWorkspaceResponse>('agent.delete_workspace', { workspaceId });
+    if (isDefault) await fs.rm(w.rootPath, { recursive: true, force: true });
+  } catch (e) {
+    console.warn(`[main] workspace cleanup failed for ${workspaceId}: ${(e as Error).message}`);
+  }
+  workspaceCache.delete(workspaceId);
+  if (activeWorkspaceId === workspaceId) activeWorkspaceId = null;
+  broadcastWorkspacesChanged();
+}
+
+/**
+ * 存量数据迁移：为没有 workspace 归属的 session 反建 workspace（目录沿用旧
+ * 路径：workspace-mapping.json 自定义目录，否则 userData/workspaces/<sid>），
+ * 并绑定。幂等：已迁移的 session 跳过。
+ */
+async function migrateLegacySessions(): Promise<void> {
+  if (!client.isConnected()) return;
+  const sessions = await client.listSessions();
+  const legacy = sessions.sessions.filter((s) => !s.workspaceId);
+  if (legacy.length === 0) return;
+  const map = readWorkspaceMap();
+  for (const s of legacy) {
+    const mapped = map[s.id];
+    const root = mapped ? path.resolve(mapped) : path.join(userDataDir(), 'workspaces', s.id);
+    try {
+      const created = await client.request<DarvinCreateWorkspaceResponse>('agent.create_workspace', {
+        name: s.title,
+        rootPath: root,
+      });
+      await client.request<DarvinBindSessionWorkspaceResponse>('agent.bind_session_workspace', {
+        sessionId: s.id,
+        workspaceId: created.workspace.id,
+      });
+    } catch (e) {
+      console.warn(`[main] legacy session migration failed for ${s.id}: ${(e as Error).message}`);
+    }
+  }
+  await refreshWorkspaceCache();
+  await refreshSessionsAndBroadcast();
 }
 
 function updateCacheFromListSessions(sessions: DarvinSession[]): void {
@@ -368,15 +487,17 @@ const createWindow = (): void => {
 
 ipcMain.handle(
   'darvin:create_session',
-  async (_e, req?: { title?: string }): Promise<DarvinCreateSessionResponse> => {
+  async (_e, req?: { title?: string; workspaceId?: string }): Promise<DarvinCreateSessionResponse> => {
     if (!client.isConnected()) throw new Error('agent offline');
+    // 新建会话必须落在 active workspace；调用方不传时用 activeWorkspaceId。
+    const workspaceId = req?.workspaceId ?? activeWorkspaceId;
     const r = await client.request<DarvinCreateSessionResponse>(
       'agent.create_session',
-      { title: req?.title },
+      { title: req?.title, workspaceId },
     );
     cache.activeSessionId = r.session.id;
-    // 重锚 workspace 到新 session（restart 内部已 subscribeAllSessions，幂等）
-    await followActiveWorkspace(r.session.id);
+    // 重锚 workspace 到 active workspace（新会话落在那）
+    await followActiveWorkspace(workspaceId);
     // 给新 session 在 backend 留一条事件通道
     if (client.isConnected()) {
       try {
@@ -394,9 +515,9 @@ ipcMain.handle(
 
 ipcMain.handle(
   'darvin:list_sessions',
-  async (): Promise<DarvinListSessionsResponse> => {
+  async (_e, workspaceId?: string): Promise<DarvinListSessionsResponse> => {
     if (!client.isConnected()) return { sessions: cache.sessions ?? [] };
-    const r = await client.listSessions();
+    const r = await client.listSessions(workspaceId);
     updateCacheFromListSessions(r.sessions);
     return r;
   },
@@ -411,10 +532,15 @@ ipcMain.handle(
       { sessionId },
     );
     cache.activeSessionId = r.sessionId;
-    // 重锚 workspace 到新 active session；先改 workspace 再广播，避免
-    // renderer 读到中间态。
-    await followActiveWorkspace(r.sessionId);
-    // active 切换后顺手 touch list 的 updatedAt，让 sidebar 排序更新
+    // 重锚 workspace 到新 active session 所属的工作区；若无归属先迁移。
+    const workspaceId = await followActiveWorkspaceOfSession(r.sessionId);
+    if (workspaceId && client.isConnected()) {
+      try {
+        await client.request<DarvinSetActiveWorkspaceResponse>('agent.set_active_workspace', { workspaceId });
+      } catch (e) {
+        console.warn(`[main] sync active workspace failed: ${(e as Error).message}`);
+      }
+    }
     await refreshSessionsAndBroadcast();
     broadcastActiveSession();
     broadcastWorkspaceChanged(r.sessionId);
@@ -438,36 +564,30 @@ ipcMain.handle(
     currentRunIdBySessionId.delete(sessionId);
     cache.messagesBySession.delete(sessionId);
     cache.usageBySession.delete(sessionId);
+    const prevWorkspaceId = cache.sessions?.find((s) => s.id === sessionId)?.workspaceId ?? null;
     const r = await client.request<DarvinDeleteSessionResponse>(
       'agent.delete_session',
       { sessionId },
     );
-    // 清掉该 session 的自定义工作目录映射；默认工作区目录（workspaces/<sid>）
-    // 才删除磁盘目录，用户自选的真实目录绝不 rm。
+    // 清理该 session 的旧自定义目录映射（workspace-mapping.json 兼容迁移）
     const map = readWorkspaceMap();
     if (map[sessionId]) {
       delete map[sessionId];
       writeWorkspaceMap(map);
     }
-    const loc = resolveWorkspaceRoot(sessionId);
-    const defaultRoot = path.join(userDataDir(), 'workspaces');
-    if (path.resolve(loc.rootPath).startsWith(path.resolve(defaultRoot) + path.sep)) {
-      try {
-        await fs.rm(loc.rootPath, { recursive: true, force: true });
-      } catch (e) {
-        console.warn(`[main] workspace cleanup failed for ${sessionId}: ${(e as Error).message}`);
-      }
-    }
     cache.activeSessionId = r.nextActiveSessionId;
     if (r.nextActiveSessionId) {
-      await followActiveWorkspace(r.nextActiveSessionId);
+      const wid = await followActiveWorkspaceOfSession(r.nextActiveSessionId);
+      if (prevWorkspaceId && prevWorkspaceId !== wid) await cleanupEmptyWorkspace(prevWorkspaceId);
       broadcastWorkspaceChanged(r.nextActiveSessionId);
     } else {
-      // 无会话空态：没有可跟随的 workspace
+      if (prevWorkspaceId) await cleanupEmptyWorkspace(prevWorkspaceId);
       workspaceLoc = null;
+      activeWorkspaceId = null;
     }
     await refreshSessionsAndBroadcast();
     broadcastActiveSession();
+    broadcastWorkspacesChanged();
     return r;
   },
 );
@@ -571,7 +691,9 @@ ipcMain.handle(
     if (result.canceled || result.filePaths.length === 0) {
       return { imported: [], skipped: [] };
     }
-    const sessionId = workspaceLoc.workspaceId;
+    if (!workspaceLoc) return { imported: [], skipped: [] };
+    const sessionId = cache.activeSessionId;
+    if (!sessionId) return { imported: [], skipped: [] };
     const res = await runImport(workspaceLoc, result.filePaths, sessionId, client);
     if (res.imported.length > 0) {
       broadcastWorkspaceChanged(sessionId);
@@ -583,9 +705,9 @@ ipcMain.handle(
 ipcMain.handle(
   'darvin:list_imported_files',
   async (): Promise<DarvinListImportedFilesResponse> => {
-    if (!workspaceLoc || !client.isConnected()) return { files: [], workspaceBytes: 0 };
+    if (!workspaceLoc || !client.isConnected() || !cache.activeSessionId) return { files: [], workspaceBytes: 0 };
     return client.request<DarvinListImportedFilesResponse>('agent.list_imported_files', {
-      sessionId: workspaceLoc.workspaceId,
+      sessionId: cache.activeSessionId,
     });
   },
 );
@@ -602,20 +724,22 @@ ipcMain.handle(
       throw new Error('path escapes workspace');
     }
     await fs.unlink(realAbs);
+    const sessionId = cache.activeSessionId;
+    if (!sessionId) return { removed: false };
     const r = await client.request<DarvinRemoveImportedFileResponse>('agent.remove_imported_file', {
-      sessionId: workspaceLoc.workspaceId,
+      sessionId,
       relPath,
     });
     try {
       await client.request('agent.save_message', {
-        sessionId: workspaceLoc.workspaceId,
+        sessionId,
         content: `[系统] 文件已从工作区移除：${relPath}`,
         meta: { tag: 'workspace_event' },
       });
     } catch {
       /* system note 是 best-effort */
     }
-    broadcastWorkspaceChanged(workspaceLoc.workspaceId);
+    broadcastWorkspaceChanged(sessionId);
     return r;
   },
 );
@@ -623,11 +747,11 @@ ipcMain.handle(
 ipcMain.handle(
   'darvin:get_workspace_info',
   async (): Promise<DarvinWorkspaceInfoResponse> => {
-    if (!workspaceLoc || !client.isConnected()) {
+    if (!workspaceLoc || !client.isConnected() || !cache.activeSessionId) {
       return { workspaceBytes: 0, label: workspaceLoc ? path.basename(workspaceLoc.rootPath) : undefined };
     }
     const r = await client.request<DarvinWorkspaceInfoResponse>('agent.get_workspace_info', {
-      sessionId: workspaceLoc.workspaceId,
+      sessionId: cache.activeSessionId,
     });
     return { ...r, label: path.basename(workspaceLoc.rootPath) };
   },
@@ -735,15 +859,14 @@ ipcMain.handle(
   'darvin:set_workspace_root',
   async (): Promise<DarvinSetWorkspaceResult> => {
     if (!client.isConnected()) throw new Error('agent offline');
-    if (!workspaceLoc) throw new Error('workspace not ready');
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
     if (!win) return { canceled: true, error: 'no window' };
     const result = await dialog.showOpenDialog(win, {
-      title: '选择会话工作目录',
+      title: '选择工作目录',
       properties: ['openDirectory', 'createDirectory'],
     });
     if (result.canceled || result.filePaths.length === 0) return { canceled: true };
-    return setWorkspaceRootTo(workspaceLoc.workspaceId, result.filePaths[0]);
+    return setWorkspaceRootTo(result.filePaths[0]);
   },
 );
 
@@ -751,37 +874,181 @@ ipcMain.handle(
   'darvin:set_workspace_root_to',
   async (_e, rootPath: string): Promise<DarvinSetWorkspaceResult> => {
     if (!client.isConnected()) throw new Error('agent offline');
-    if (!workspaceLoc) throw new Error('workspace not ready');
-    return setWorkspaceRootTo(workspaceLoc.workspaceId, rootPath);
+    return setWorkspaceRootTo(rootPath);
   },
 );
 
-/** 把当前会话工作目录重锚到指定路径：校验 → 写映射 → Go 端运行时重锚沙箱。 */
-async function setWorkspaceRootTo(sessionId: string, rootPath: string): Promise<DarvinSetWorkspaceResult> {
+/**
+ * 用户指定一个目录作为工作区：已是指向某个现有 workspace 的根 → 切换过去；
+ * 否则在该目录新建 workspace 并设为 active。目录所有权只有一份：workspace 是
+ * 目录的容器，不再存在 per-session 的"自定义工作目录映射"。
+ */
+async function setWorkspaceRootTo(rootPath: string): Promise<DarvinSetWorkspaceResult> {
   const abs = path.resolve(rootPath);
-  try {
-    const st = await fs.stat(abs);
-    if (!st.isDirectory()) return { canceled: true, error: 'not a directory' };
-  } catch {
-    return { canceled: true, error: 'directory not found' };
-  }
-  const map = readWorkspaceMap();
-  map[sessionId] = abs;
-  writeWorkspaceMap(map);
-  workspaceLoc = { rootPath: abs, workspaceId: sessionId };
-  if (client.isConnected()) {
-    await client.setWorkspace(abs);
+  await refreshWorkspaceCache();
+  const existing = [...workspaceCache.values()].find(
+    (w) => path.resolve(w.rootPath) === abs,
+  );
+  let workspaceId: string;
+  if (existing) {
+    workspaceId = existing.id;
   } else {
-    await restartGoSubprocess(abs);
+    try {
+      const st = await fs.stat(abs);
+      if (!st.isDirectory()) return { canceled: true, error: 'not a directory' };
+    } catch {
+      return { canceled: true, error: 'directory not found' };
+    }
+    const created = await client.request<DarvinCreateWorkspaceResponse>('agent.create_workspace', {
+      rootPath: abs,
+    });
+    workspaceId = created.workspace.id;
+    await refreshWorkspaceCache();
   }
-  broadcastWorkspaceChanged(sessionId);
+  try {
+    await client.request<DarvinSetActiveWorkspaceResponse>('agent.set_active_workspace', { workspaceId });
+  } catch (e) {
+    return { canceled: true, error: (e as Error).message };
+  }
+  await followActiveWorkspace(workspaceId);
+  await refreshWorkspaceCache();
+  activeWorkspaceId = workspaceId;
+  broadcastWorkspacesChanged();
   return { canceled: false, rootPath: abs, label: path.basename(abs) };
 }
 
 ipcMain.handle('darvin:get_workspace_root', async (): Promise<DarvinWorkspaceRootResult> => {
   if (!workspaceLoc) return { rootPath: null, label: null };
-  return { rootPath: workspaceLoc.rootPath, label: path.basename(workspaceLoc.rootPath) };
+  const w = activeWorkspaceId ? workspaceCache.get(activeWorkspaceId) : undefined;
+  return { rootPath: workspaceLoc.rootPath, label: w ? w.label : path.basename(workspaceLoc.rootPath) };
 });
+
+// workspace 命名空间。Go 端是 source of truth，main 端缓存一份用于随 active
+// session 跟随重锚。list 直接透传 Go；create/set-active/delete 写 Go 后刷新缓存。
+ipcMain.handle('darvin:list_workspaces', async (): Promise<DarvinListWorkspacesResponse> => {
+  if (!client.isConnected()) return { workspaces: [...workspaceCache.values()] };
+  await refreshWorkspaceCache();
+  return { workspaces: [...workspaceCache.values()] };
+});
+
+ipcMain.handle(
+  'darvin:create_workspace',
+  async (_e, req?: { name?: string; rootPath?: string }): Promise<DarvinCreateWorkspaceResponse> => {
+    if (!client.isConnected()) throw new Error('agent offline');
+    // 未指定目录时用默认工作区目录（userData/workspaces/<uuid>）兜底，保证
+    // 「仅起名」也能创建；目录由 Go 端 create_workspace 幂等 mkdir。
+    const rootPath = req?.rootPath ?? path.join(userDataDir(), 'workspaces', randomUUID());
+    const r = await client.request<DarvinCreateWorkspaceResponse>('agent.create_workspace', {
+      name: req?.name,
+      rootPath,
+    });
+    await refreshWorkspaceCache();
+    broadcastWorkspacesChanged();
+    return r;
+  },
+);
+
+ipcMain.handle(
+  'darvin:get_active_workspace',
+  async (): Promise<DarvinActiveWorkspaceResponse> => {
+    if (!client.isConnected()) return { workspaceId: activeWorkspaceId };
+    const r = await client.request<DarvinActiveWorkspaceResponse>('agent.get_active_workspace', {});
+    activeWorkspaceId = r.workspaceId;
+    return r;
+  },
+);
+
+ipcMain.handle(
+  'darvin:set_active_workspace',
+  async (_e, workspaceId: string): Promise<DarvinSetActiveWorkspaceResponse> => {
+    if (!workspaceId) {
+      // 空 id（启动竞态 / 非法调用）直接回读当前 active，不触发 RPC。
+      const cur = await client.request<DarvinActiveWorkspaceResponse>('agent.get_active_workspace', {});
+      activeWorkspaceId = cur.workspaceId;
+      return { workspaceId: cur.workspaceId ?? '', activeSessionId: null };
+    }
+    if (!client.isConnected()) throw new Error('agent offline');
+    const r = await client.request<DarvinSetActiveWorkspaceResponse>('agent.set_active_workspace', { workspaceId });
+    activeWorkspaceId = r.workspaceId;
+    cache.activeSessionId = r.activeSessionId;
+    await followActiveWorkspace(r.workspaceId);
+    await refreshSessionsAndBroadcast();
+    broadcastActiveSession();
+    broadcastWorkspacesChanged();
+    return r;
+  },
+);
+
+ipcMain.handle(
+  'darvin:delete_workspace',
+  async (_e, req: { workspaceId: string; force?: boolean }): Promise<DarvinDeleteWorkspaceResponse> => {
+    if (!client.isConnected()) throw new Error('agent offline');
+    const w = workspaceCache.get(req.workspaceId);
+    const r = await client.request<DarvinDeleteWorkspaceResponse>('agent.delete_workspace', {
+      workspaceId: req.workspaceId,
+      force: req.force === true,
+    });
+    const defaultRoot = path.join(userDataDir(), 'workspaces');
+    if (w && path.resolve(w.rootPath).startsWith(path.resolve(defaultRoot) + path.sep)) {
+      try {
+        await fs.rm(w.rootPath, { recursive: true, force: true });
+      } catch (e) {
+        console.warn(`[main] workspace dir cleanup failed for ${req.workspaceId}: ${(e as Error).message}`);
+      }
+    }
+    workspaceCache.delete(req.workspaceId);
+    if (activeWorkspaceId === req.workspaceId) {
+      activeWorkspaceId = r.nextActiveWorkspaceId;
+      workspaceLoc = null;
+      if (r.nextActiveWorkspaceId) await followActiveWorkspace(r.nextActiveWorkspaceId);
+    }
+    broadcastWorkspacesChanged();
+    return r;
+  },
+);
+
+ipcMain.handle(
+  'darvin:rename_workspace',
+  async (_e, req: { workspaceId: string; name: string }): Promise<DarvinCreateWorkspaceResponse> => {
+    if (!client.isConnected()) throw new Error('agent offline');
+    if (!req?.workspaceId || !req?.name?.trim()) {
+      throw new Error('workspaceId and name are required');
+    }
+    const r = await client.request<DarvinCreateWorkspaceResponse>('agent.rename_workspace', {
+      workspaceId: req.workspaceId,
+      name: req.name.trim(),
+    });
+    await refreshWorkspaceCache();
+    broadcastWorkspacesChanged();
+    return r;
+  },
+);
+
+ipcMain.handle(
+  'darvin:update_workspace_root',
+  async (_e, req: { workspaceId: string; rootPath: string }): Promise<DarvinCreateWorkspaceResponse> => {
+    if (!client.isConnected()) throw new Error('agent offline');
+    if (!req?.workspaceId || !req?.rootPath) {
+      throw new Error('workspaceId and rootPath are required');
+    }
+    const r = await client.request<DarvinCreateWorkspaceResponse>('agent.update_workspace_root', req);
+    await refreshWorkspaceCache();
+    // 改目录后若是 active workspace，本地 workspaceLoc 跟 Go 端 sandbox 一起重新锚定。
+    if (activeWorkspaceId === req.workspaceId) {
+      const loc = await resolveWorkspaceRoot(req.workspaceId);
+      if (loc) {
+        workspaceLoc = loc;
+        try {
+          await client.setWorkspace(loc.rootPath);
+        } catch (e) {
+          console.warn(`[main] re-anchor after root update failed: ${(e as Error).message}`);
+        }
+      }
+    }
+    broadcastWorkspacesChanged();
+    return r;
+  },
+);
 
 // skills 命名空间。list 走本地缓存（SkillManager 已经是
 // source of truth 的视图），set_enabled 写 SQLite + 调 Go 端
@@ -1357,13 +1624,16 @@ app.whenReady().then(async () => {
   installAppMenu();
 
   try {
-    // 1) 先起子进程（无 workspace env，Go 端 dev 兜底），用于 bootstrap。
+    // 1) 起子进程（无 workspace env，Go 端 dev 兜底），用于 bootstrap。
     const resolved = await mgr.start();
     await client.connect(resolved.port);
     await subscribeAllSessions();
 
-    // 2) bootstrap active session：优先取 app_state，冷启动无 session 时建一个，
-    //    保证有稳定的 workspace 根。
+    // 2) workspace 清单 + 存量迁移（旧 session 无归属时反建 workspace，目录不丢）。
+    await refreshWorkspaceCache();
+    await migrateLegacySessions();
+
+    // 3) 解析 active session id（作为确定 active workspace 的依据）。
     let sessionId: string | null = null;
     try {
       const active = await client.request<DarvinActiveSessionResponse>('agent.get_active_session', {});
@@ -1371,28 +1641,41 @@ app.whenReady().then(async () => {
     } catch {
       /* agent 未就绪 */
     }
-    if (!sessionId) {
-      try {
-        const list = await client.request<DarvinListSessionsResponse>('agent.list_sessions', {});
-        sessionId = list.sessions[0]?.id ?? null;
-      } catch {
-        /* 同上 */
-      }
+
+    // 4) 解析 active workspace：优先 app_state，其次 active session 所属，再次第一个
+    //    workspace。无 workspace → 空态，UI 落在工作区首屏引导创建。
+    let workspaceId: string | null = null;
+    try {
+      const a = await client.request<DarvinActiveWorkspaceResponse>('agent.get_active_workspace', {});
+      workspaceId = a.workspaceId;
+    } catch {
+      /* agent 未就绪 */
     }
-    if (!sessionId) {
-      const created = await client.request<DarvinCreateSessionResponse>('agent.create_session', {});
-      sessionId = created.session.id;
+    if (!workspaceId && sessionId) {
+      const sess = cache.sessions?.find((s) => s.id === sessionId);
+      workspaceId = sess?.workspaceId ?? null;
+    }
+    if (!workspaceId) {
+      const list = await client.request<DarvinListWorkspacesResponse>('agent.list_workspaces', {});
+      workspaceId = list.workspaces[0]?.id ?? null;
     }
 
-    if (sessionId) {
-      cache.activeSessionId = sessionId;
-      // 3) workspace 根 + 建目录。
-      workspaceLoc = resolveWorkspaceRoot(sessionId);
-      await ensureWorkspaceRoot(workspaceLoc);
-      // 4) 带 DARVIN_AGENT_WORKSPACE 重启子进程，让 Go agent 沙箱根与
-      //    workspace 对齐（先建好目录再注入，FR-5.1 不变量 1）。
-      await restartGoSubprocess(workspaceLoc.rootPath);
+    if (workspaceId) {
+      const loc = await resolveWorkspaceRoot(workspaceId);
+      if (loc) {
+        activeWorkspaceId = workspaceId;
+        cache.activeSessionId = sessionId;
+        workspaceLoc = loc;
+        await ensureWorkspaceRoot(workspaceLoc);
+        // 带 DARVIN_AGENT_WORKSPACE 重启子进程，让 Go agent 沙箱根与
+        // workspace 对齐（先建好目录再注入）。
+        await restartGoSubprocess(workspaceLoc.rootPath);
+      } else {
+        eventRouter.start();
+      }
     } else {
+      activeWorkspaceId = null;
+      workspaceLoc = null;
       eventRouter.start();
     }
     // 启动期推 skills bootstrap。restartGoSubprocess 已幂等,
@@ -1402,6 +1685,7 @@ app.whenReady().then(async () => {
     // 启动期推 mcp bootstrap：bundled filesystem 幂等 upsert
     // + 全部 server 推 Go。restart 路径在 restartGoSubprocess 内也调一次。
     void mcpManager.bootstrap();
+    broadcastWorkspacesChanged();
   } catch (e) {
     console.error(`[runtime] ${(e as Error).message}`);
   }

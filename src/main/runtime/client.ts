@@ -287,8 +287,8 @@ export class AgentClient extends EventEmitter {
     await this.request<{ subscribed: boolean }>('agent.subscribe_events', { sessionId });
   }
 
-  listSessions(): Promise<DarvinListSessionsResponse> {
-    return this.request<DarvinListSessionsResponse>('agent.list_sessions', {});
+  listSessions(workspaceId?: string): Promise<DarvinListSessionsResponse> {
+    return this.request<DarvinListSessionsResponse>('agent.list_sessions', { workspaceId });
   }
 
   getMessages(sessionId: string, limit = 1000, offset = 0): Promise<DarvinGetMessagesResponse> {

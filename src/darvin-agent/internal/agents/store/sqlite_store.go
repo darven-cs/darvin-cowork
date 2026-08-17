@@ -49,6 +49,7 @@ func (s *SQLiteStore) Save(ctx context.Context, sess *session.Session) error {
 	if existing, err := s.GetByID(ctx, sess.ID); err == nil {
 		row.Title = existing.Title
 		row.ClaudeSessionID = existing.ClaudeSessionID
+		row.WorkspaceID = existing.WorkspaceID
 	}
 	return s.db.WithContext(ctx).Save(&row).Error
 }
@@ -113,6 +114,19 @@ func (s *SQLiteStore) ListAll(ctx context.Context) ([]Session, error) {
 	return rows, nil
 }
 
+// ListByWorkspace returns every session row bound to workspaceID sorted by
+// updated_at desc.
+func (s *SQLiteStore) ListByWorkspace(ctx context.Context, workspaceID string) ([]Session, error) {
+	var rows []Session
+	if err := s.db.WithContext(ctx).
+		Where("workspace_id = ?", workspaceID).
+		Order("updated_at desc").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // GetByID returns one session row by id, or ErrNotFound.
 func (s *SQLiteStore) GetByID(ctx context.Context, id string) (Session, error) {
 	var row Session
@@ -149,6 +163,14 @@ func (s *SQLiteStore) SetClaudeSessionID(ctx context.Context, id string, claudeI
 		Model(&Session{}).
 		Where("id = ?", id).
 		Update("claude_session_id", claudeID).Error
+}
+
+// BindWorkspace sets the session's workspace_id binding.
+func (s *SQLiteStore) BindWorkspace(ctx context.Context, id, workspaceID string) error {
+	return s.db.WithContext(ctx).
+		Model(&Session{}).
+		Where("id = ?", id).
+		Update("workspace_id", workspaceID).Error
 }
 
 // Touch refreshes updated_at to ts so list ordering advances.

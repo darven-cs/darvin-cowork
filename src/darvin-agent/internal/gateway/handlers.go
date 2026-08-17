@@ -47,6 +47,11 @@ type HandlerOptions struct {
 	// SubagentStore backs agent.subagent.list. nil means the handler
 	// returns an empty list (handler-test stubs).
 	SubagentStore store.SubagentStore
+	// WorkspaceStore backs agent.list_workspaces / create_workspace /
+	// set_active_workspace / delete_workspace and session→workspace
+	// binding. nil means those handlers return empty results, suiting
+	// handler-test stubs.
+	WorkspaceStore *store.SQLiteWorkspaceStore
 }
 
 type Handler struct {
@@ -94,6 +99,8 @@ type Handler struct {
 	Log *zap.Logger
 	// SubagentStore backs agent.subagent.list / read_result fallback.
 	SubagentStore store.SubagentStore
+	// WorkspaceStore backs workspace CRUD + session→workspace binding.
+	WorkspaceStore *store.SQLiteWorkspaceStore
 }
 
 // NewHandler wires the dependencies. The runtime injects SessionManager,
@@ -127,6 +134,7 @@ func NewHandler(
 		Mcp:              o.Mcp,
 		Log:              o.Log,
 		SubagentStore:    o.SubagentStore,
+		WorkspaceStore:   o.WorkspaceStore,
 	}
 }
 
@@ -145,7 +153,7 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 	case "agent.steer":
 		return handleSteer(ctx, req.ID, req.Params, c, h)
 	case "agent.list_sessions":
-		return handleListSessions(ctx, req.ID, h)
+		return handleListSessions(ctx, req.ID, req.Params, h)
 	case "agent.get_messages":
 		return handleGetMessages(ctx, req.ID, req.Params, h)
 	case "agent.get_session_usage":
@@ -176,6 +184,22 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleRemoveImportedFile(ctx, req.ID, req.Params, h)
 	case "agent.get_workspace_info":
 		return handleGetWorkspaceInfo(ctx, req.ID, req.Params, h)
+	case "agent.list_workspaces":
+		return handleListWorkspaces(ctx, req.ID, h)
+	case "agent.create_workspace":
+		return handleCreateWorkspace(ctx, req.ID, req.Params, h)
+	case "agent.get_active_workspace":
+		return handleGetActiveWorkspace(ctx, req.ID, h)
+	case "agent.set_active_workspace":
+		return handleSetActiveWorkspace(ctx, req.ID, req.Params, h)
+	case "agent.delete_workspace":
+		return handleDeleteWorkspace(ctx, req.ID, req.Params, c, h)
+	case "agent.rename_workspace":
+		return handleRenameWorkspace(ctx, req.ID, req.Params, h)
+	case "agent.update_workspace_root":
+		return handleUpdateWorkspaceRoot(ctx, req.ID, req.Params, h)
+	case "agent.bind_session_workspace":
+		return handleBindSessionWorkspace(ctx, req.ID, req.Params, h)
 	case "agent.permission_response":
 		return handlePermissionResponse(ctx, req.ID, req.Params, c, h)
 	case "agent.skills.list":

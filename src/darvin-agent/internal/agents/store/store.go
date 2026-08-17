@@ -22,9 +22,11 @@ type SessionStore interface {
 	List(ctx context.Context) ([]session.SessionMeta, error)
 	Delete(ctx context.Context, id string) error
 	ListAll(ctx context.Context) ([]Session, error)
+	ListByWorkspace(ctx context.Context, workspaceID string) ([]Session, error)
 	GetByID(ctx context.Context, id string) (Session, error)
 	UpdateTitle(ctx context.Context, id, title string) error
 	UpdateStatus(ctx context.Context, id, status string) error
+	BindWorkspace(ctx context.Context, id, workspaceID string) error
 	SetClaudeSessionID(ctx context.Context, id string, claudeID *string) error
 	Touch(ctx context.Context, id string, ts int64) error
 	SearchByTitle(ctx context.Context, query string) ([]Session, error)

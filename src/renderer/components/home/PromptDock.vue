@@ -15,7 +15,7 @@
         @keydown="onKeydown"
       />
       <ComposerToolbar :can-send="canSend" @send="emitSend" @suite="onSuite" @mic="onMic" />
-      <ComposerContextRow />
+      <ComposerContextRow ref="ctxRowRef" />
     </div>
     <p class="mx-auto mt-1.5 w-full max-w-[720px] text-center font-sans text-[11px] text-text-subtle">
       {{ t('home.disclaimer') }}
@@ -26,6 +26,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
 import { t } from '../../services/i18n';
+import { useWorkspaces } from '../../composables/useWorkspaces';
 import ComposerToolbar from '../chat/ComposerToolbar.vue';
 import ComposerContextRow from '../chat/ComposerContextRow.vue';
 
@@ -34,11 +35,18 @@ const emit = defineEmits<{ send: [content: string] }>();
 
 const text = ref<string>('');
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
+const ctxRowRef = ref<InstanceType<typeof ComposerContextRow> | null>(null);
+const workspaces = useWorkspaces();
 
 const canSend = computed(() => !props.busy && text.value.trim().length > 0);
 
 function emitSend() {
   if (!canSend.value) return;
+  // 没有 active workspace：先选/建工作区（dsh 式「聊天框即操作台」）。
+  if (!workspaces.activeWorkspaceId.value) {
+    ctxRowRef.value?.openPicker();
+    return;
+  }
   const content = text.value;
   text.value = '';
   resetHeight();
@@ -46,12 +54,10 @@ function emitSend() {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    emitSend();
-    return;
-  }
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+  // IME 组合期 Enter 是候选选择，不发送。
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key === 'Enter' && e.shiftKey) return; // Shift+Enter 无条件换行
+  if (e.key === 'Enter') {
     e.preventDefault();
     emitSend();
   }

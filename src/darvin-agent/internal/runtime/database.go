@@ -32,6 +32,7 @@ func loadDatabase(_ context.Context, cfg *config.Config, log *zap.Logger) (Store
 
 	if err := database.AutoMigrate(
 		&store.Session{},
+		&store.Workspace{},
 		&store.Message{},
 		&store.SessionDigest{},
 		&store.SkillSnapshot{},
@@ -47,6 +48,7 @@ func loadDatabase(_ context.Context, cfg *config.Config, log *zap.Logger) (Store
 	db := database.Get()
 	return Stores{
 		Sessions:      store.NewSQLiteStore(db),
+		Workspaces:    store.NewSQLiteWorkspaceStore(db),
 		Messages:      store.NewSQLiteMessageStore(db),
 		AppState:      store.NewAppStateStore(db),
 		ImportedFiles: store.NewImportedFileStore(db),

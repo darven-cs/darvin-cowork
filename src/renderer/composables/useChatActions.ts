@@ -12,6 +12,7 @@ import { useMessages } from './useMessages';
 import { useSession } from './useSession';
 import { useImportedFiles } from './useImportedFiles';
 import { useModel } from './useModel';
+import { useWorkspaces } from './useWorkspaces';
 import { parseSlashCommand, translateSkillError } from './slash';
 import { t } from '../services/i18n';
 import { showToast } from '../services/toast';
@@ -39,6 +40,7 @@ export function useChatActions() {
   const session = useSession();
   const imported = useImportedFiles();
   const model = useModel();
+  const workspaces = useWorkspaces();
 
   async function send(
     content: string,
@@ -52,10 +54,16 @@ export function useChatActions() {
     const slash = escaped ? null : parseSlashCommand(content);
 
     // compose 态（点过「新建任务」）、没有 active session、或调用方强制
-    // 新建（首页聊天入口）时：先建会话再发。用首条消息当标题。
+    // 新建（首页聊天入口）时：先建会话再发。用首条消息当标题。新会话
+    // 必须落在 active workspace；无工作区时引导去工作区首屏。
     let sessId = session.activeSessionId.value;
     if (opts?.newSession || session.draftMode.value || sessId === null) {
-      const created = await session.createSession(routeContent.trim().slice(0, 30));
+      const wid = workspaces.activeWorkspaceId.value;
+      if (!wid) {
+        showToast(t('workspace.error.none'), 'error');
+        return;
+      }
+      const created = await session.createSession(routeContent.trim().slice(0, 30), wid);
       sessId = created.id;
       session.draftMode.value = false;
     }

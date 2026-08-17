@@ -29,6 +29,13 @@ const (
 	CodeSkillNotFound         = -32010
 	CodeSkillDisabled         = -32011
 	CodeSkillNotUserInvocable = -32012
+
+	// CodeWorkspaceRequired: create_session without a workspace binding.
+	CodeWorkspaceRequired = -32013
+
+	// CodeConflict: unique-constraint violation surface (e.g. duplicate
+	// workspace name / rootPath).
+	CodeConflict = -32014
 )
 
 // Request is an inbound JSON-RPC call. ID is raw JSON so the response

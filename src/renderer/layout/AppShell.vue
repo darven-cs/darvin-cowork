@@ -38,6 +38,7 @@ import { computed, onMounted } from 'vue';
 import Sidebar from '../components/sidebar/Sidebar.vue';
 import SidePanel from '../components/side-panel/SidePanel.vue';
 import HomeView from '../views/HomeView.vue';
+import WorkspacesView from '../views/WorkspacesView.vue';
 import ChatView from '../views/ChatView.vue';
 import ExpertSuiteView from '../views/ExpertSuiteView.vue';
 import SettingsView from '../views/SettingsView.vue';
@@ -76,14 +77,15 @@ const gridTemplateColumns = computed(() => {
 
 const currentView = computed(() => {
   switch (viewMode.mode.value) {
-    case 'chat':     return ChatView;
-    case 'suite':    return ExpertSuiteView;
-    case 'settings': return SettingsView;
-    case 'search':   return SearchView;
-    case 'skills':   return SkillsView;
-    case 'mcp':      return McpView;
+    case 'chat':       return ChatView;
+    case 'workspaces': return WorkspacesView;
+    case 'suite':      return ExpertSuiteView;
+    case 'settings':   return SettingsView;
+    case 'search':     return SearchView;
+    case 'skills':     return SkillsView;
+    case 'mcp':        return McpView;
     case 'home':
-    default:         return HomeView;
+    default:           return HomeView;
   }
 });
 
@@ -95,7 +97,7 @@ const isPlaceholderView = computed(() => viewMode.mode.value in PLACEHOLDERS);
 const placeholder = computed(() => PLACEHOLDERS[viewMode.mode.value]);
 
 function navigateTo(target: string) {
-  if (target === 'home' || target === 'chat' || target === 'suite' || target === 'settings' || target === 'search' || target === 'skills' || target === 'mcp') {
+  if (target === 'home' || target === 'workspaces' || target === 'chat' || target === 'suite' || target === 'settings' || target === 'search' || target === 'skills' || target === 'mcp') {
     viewMode.navigate(target as ViewMode);
   } else if (target in PLACEHOLDERS) {
     viewMode.navigate(target as ViewMode);

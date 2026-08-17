@@ -20,14 +20,17 @@ type MemoryStore struct {
 	// model carries no Title / ClaudeSessionID (same split as SQLiteStore).
 	titles map[string]string
 	claude map[string]*string
+	// workspaces tracks sessionID → workspace_id, same split as above.
+	workspaces map[string]string
 }
 
 // NewMemoryStore constructs an empty MemoryStore implementing SessionStore.
 func NewMemoryStore() SessionStore {
 	return &MemoryStore{
-		sessions: map[string]*session.Session{},
-		titles:   map[string]string{},
-		claude:   map[string]*string{},
+		sessions:   map[string]*session.Session{},
+		titles:     map[string]string{},
+		claude:     map[string]*string{},
+		workspaces: map[string]string{},
 	}
 }
 
@@ -38,6 +41,7 @@ func (m *MemoryStore) toRow(s *session.Session) Session {
 		ID:              s.ID,
 		Key:             s.Key,
 		AgentID:         s.AgentID,
+		WorkspaceID:     m.workspaces[s.ID],
 		Title:           m.titles[s.ID],
 		ClaudeSessionID: m.claude[s.ID],
 		Status:          string(s.Status),
@@ -59,6 +63,9 @@ func (m *MemoryStore) Save(_ context.Context, s *session.Session) error {
 
 	m.mu.Lock()
 	m.sessions[s.ID] = clone
+	if _, ok := m.workspaces[s.ID]; !ok {
+		m.workspaces[s.ID] = ""
+	}
 	m.mu.Unlock()
 	return nil
 }
@@ -97,6 +104,7 @@ func (m *MemoryStore) Delete(_ context.Context, id string) error {
 	delete(m.sessions, id)
 	delete(m.titles, id)
 	delete(m.claude, id)
+	delete(m.workspaces, id)
 	m.mu.Unlock()
 	return nil
 }
@@ -114,6 +122,34 @@ func (m *MemoryStore) ListAll(_ context.Context) ([]Session, error) {
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
 	return out, nil
+}
+
+// ListByWorkspace returns every session row bound to workspaceID sorted by
+// updated_at desc.
+func (m *MemoryStore) ListByWorkspace(_ context.Context, workspaceID string) ([]Session, error) {
+	m.mu.RLock()
+	out := make([]Session, 0)
+	for _, s := range m.sessions {
+		if m.workspaces[s.ID] == workspaceID {
+			out = append(out, m.toRow(s))
+		}
+	}
+	m.mu.RUnlock()
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	return out, nil
+}
+
+// BindWorkspace sets the session's workspace_id.
+func (m *MemoryStore) BindWorkspace(_ context.Context, sessionID, workspaceID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.sessions[sessionID]; !ok {
+		return ErrNotFound
+	}
+	m.workspaces[sessionID] = workspaceID
+	return nil
 }
 
 // GetByID returns one session row, or ErrNotFound.

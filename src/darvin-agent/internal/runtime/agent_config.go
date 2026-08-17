@@ -3,6 +3,7 @@
 package runtime
 
 import (
+	"context"
 	"time"
 
 	agent "darvin-cowork/backend/internal/agents"
@@ -57,11 +58,19 @@ func resolveModelRef(cfg *config.Config) agent.ModelRef {
 
 // resolveWorkspace picks the effective agent workspace. The desktop
 // bridge passes $DARVIN_AGENT_WORKSPACE via Options.WorkspaceRoot so
-// fsSandbox.root matches the Electron main process; an empty value
-// falls back to cfg.Agent.Workdir for `go run` development.
-func resolveWorkspace(cfg *config.Config, override string) string {
+// fsSandbox.root matches the Electron main process; an empty value falls
+// back to the active workspace's root when one is persisted, then to
+// cfg.Agent.Workdir for `go run` development.
+func resolveWorkspace(ctx context.Context, cfg *config.Config, override string, stores Stores) string {
 	if override != "" {
 		return override
+	}
+	if stores.AppState != nil && stores.Workspaces != nil {
+		if wid, err := stores.AppState.GetActiveWorkspace(ctx); err == nil && wid != "" {
+			if w, err := stores.Workspaces.GetByID(ctx, wid); err == nil {
+				return w.RootPath
+			}
+		}
 	}
 	return cfg.Agent.Workdir
 }

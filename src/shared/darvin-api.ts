@@ -41,6 +41,8 @@ export type DarvinSessionStatus = 'active' | 'archived';
 export interface DarvinSession {
   id: string;
   title: string;
+  /** 所属 workspace id；历史/迁移前会话可能缺失。 */
+  workspaceId?: string;
   createdAt: number;
   updatedAt: number;
   status?: DarvinSessionStatus;
@@ -587,6 +589,46 @@ export interface DarvinSetWorkspaceResponse {
   rootPath: string;
 }
 
+/** workspace 的 renderer 视图。label 为展示名（name 或 rootPath basename）；rootPath 本地透传供 FolderPicker 使用。 */
+export interface DarvinWorkspace {
+  id: string;
+  name: string;
+  label: string;
+  rootPath: string;
+  sessionCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DarvinListWorkspacesResponse {
+  workspaces: DarvinWorkspace[];
+}
+
+export interface DarvinCreateWorkspaceResponse {
+  workspace: DarvinWorkspace;
+}
+
+export interface DarvinActiveWorkspaceResponse {
+  workspaceId: string | null;
+}
+
+export interface DarvinSetActiveWorkspaceResponse {
+  workspaceId: string;
+  /** 该 workspace 最近更新的会话（可能为 null：空工作区）。 */
+  activeSessionId: string | null;
+}
+
+export interface DarvinDeleteWorkspaceResponse {
+  deleted: boolean;
+  nextActiveWorkspaceId: string | null;
+  /** force 级联删除时移除的会话数；非 force 删除为 0。 */
+  deletedSessionCount: number;
+}
+
+export interface DarvinBindSessionWorkspaceResponse {
+  bound: boolean;
+}
+
 /** 单 skill 的 renderer 视图。`path` 仅 main 用，renderer 不展示。 */
 export interface DarvinSkillSummary {
   id: string;
@@ -954,6 +996,7 @@ export const DarvinPushEvent = {
   ActiveSessionChanged: 'darvin:push:active-session-changed',
   SessionEvent: 'darvin:push:session-event',
   WorkspaceChanged: 'darvin:push:workspace-changed',
+  WorkspacesChanged: 'darvin:push:workspaces-changed',
   SkillsChanged: 'darvin:push:skills-changed',
   McpServersChanged: 'darvin:push:mcp-servers-changed',
   McpConnectionChanged: 'darvin:push:mcp-connection-changed',
@@ -1005,8 +1048,8 @@ export interface DarvinSubagentReadResultResponse {
 }
 
 export interface DarvinApi {
-  createSession(req?: { title?: string }): Promise<DarvinCreateSessionResponse>;
-  listSessions(): Promise<DarvinListSessionsResponse>;
+  createSession(req?: { title?: string; workspaceId?: string }): Promise<DarvinCreateSessionResponse>;
+  listSessions(workspaceId?: string): Promise<DarvinListSessionsResponse>;
   switchSession(sessionId: string): Promise<DarvinSwitchSessionResponse>;
   deleteSession(sessionId: string): Promise<DarvinDeleteSessionResponse>;
   renameSession(sessionId: string, title: string): Promise<DarvinRenameSessionResponse>;
@@ -1096,6 +1139,25 @@ export interface DarvinApi {
   setWorkspaceRootTo(path: string): Promise<DarvinSetWorkspaceResult>;
   /** 读取当前会话工作目录（绝对路径 + basename）。 */
   getWorkspaceRoot(): Promise<DarvinWorkspaceRootResult>;
+
+  /** 列出全部 workspace（含会话数，label 供展示）。 */
+  listWorkspaces(): Promise<DarvinListWorkspacesResponse>;
+  /** 新建 workspace（rootPath 为工作目录绝对路径；缺省由 main 计算默认目录）。 */
+  createWorkspace(req?: { name?: string; rootPath?: string }): Promise<DarvinCreateWorkspaceResponse>;
+  /** 读取 active workspace id（无则为 null）。 */
+  getActiveWorkspace(): Promise<DarvinActiveWorkspaceResponse>;
+  /** 把 workspace 设为 active，并同步 active session 到该工作区最近会话。 */
+  setActiveWorkspace(workspaceId: string): Promise<DarvinSetActiveWorkspaceResponse>;
+  /** 删除 workspace。opts.force=true 时连同其下所有会话级联删除。 */
+  deleteWorkspace(workspaceId: string, opts?: { force?: boolean }): Promise<DarvinDeleteWorkspaceResponse>;
+  /** 重命名 workspace。name 不能为空也不能与其它 workspace 重名。 */
+  renameWorkspace(req: { workspaceId: string; name: string }): Promise<DarvinCreateWorkspaceResponse>;
+  /** 改 workspace 目录。rootPath 必须绝对且未被其它 workspace 占用。 */
+  updateWorkspaceRoot(req: { workspaceId: string; rootPath: string }): Promise<DarvinCreateWorkspaceResponse>;
+  /** 把已有 session 绑定到 workspace（存量数据迁移用）。 */
+  bindSessionWorkspace(sessionId: string, workspaceId: string): Promise<DarvinBindSessionWorkspaceResponse>;
+  /** 订阅 workspace 列表变更（创建 / 删除 / 改名后 main 广播）。 */
+  onWorkspacesChanged(handler: (workspaces: DarvinWorkspace[]) => void): () => void;
 
   /** 列出当前已知 skill（bundled + user，enabled 状态来自 main 端 SQLite）。 */
   listSkills(): Promise<DarvinListSkillsResponse>;

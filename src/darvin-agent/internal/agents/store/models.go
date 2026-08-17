@@ -13,6 +13,7 @@ type Session struct {
 	ID              string `gorm:"primaryKey"`
 	Key             string `gorm:"index"`
 	AgentID         string `gorm:"index"`
+	WorkspaceID     string `gorm:"index"`
 	Title           string `gorm:"default:'新建会话'"`
 	ClaudeSessionID *string
 	Status          string    `gorm:"default:active"`
@@ -21,6 +22,19 @@ type Session struct {
 }
 
 func (Session) TableName() string { return "sessions" }
+
+// Workspace is the first-class workspace row. Sessions reference one via
+// Session.WorkspaceID; a workspace owns a physical directory (RootPath)
+// shared by every session bound to it.
+type Workspace struct {
+	ID        string    `gorm:"primaryKey"`
+	Name      string    `gorm:"index"`
+	RootPath  string    `gorm:"uniqueIndex"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+}
+
+func (Workspace) TableName() string { return "workspaces" }
 
 // Message is one persisted LLM turn.
 type Message struct {

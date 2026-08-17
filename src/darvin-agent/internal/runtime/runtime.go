@@ -80,6 +80,7 @@ type Runtime struct {
 // because handlers / factories accept them by pointer.
 type Stores struct {
 	Sessions      *store.SQLiteStore
+	Workspaces    *store.SQLiteWorkspaceStore
 	Messages      store.MessageStore
 	AppState      *store.AppStateStore
 	ImportedFiles *store.ImportedFileStore
@@ -142,7 +143,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		return nil, err
 	}
 
-	workspace := resolveWorkspace(cfg, opts.WorkspaceRoot)
+	workspace := resolveWorkspace(ctx, cfg, opts.WorkspaceRoot, stores)
 	log.Info("workspace resolved",
 		zap.String("env", opts.WorkspaceRoot),
 		zap.String("effective", workspace))
@@ -241,6 +242,7 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 			SkillRunner:      skillsResult.Runner,
 			Mcp:              mcpReg,
 			SubagentStore:    stores.Subagents,
+			WorkspaceStore:   stores.Workspaces,
 			Log:              log,
 		})
 

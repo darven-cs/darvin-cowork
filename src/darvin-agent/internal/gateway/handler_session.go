@@ -24,6 +24,7 @@ type ListSessionsResult struct {
 type SessionWire struct {
 	ID              string  `json:"id"`
 	Title           string  `json:"title"`
+	WorkspaceID     string  `json:"workspaceId"`
 	CreatedAt       int64   `json:"createdAt"`
 	UpdatedAt       int64   `json:"updatedAt"`
 	Status          string  `json:"status"`
@@ -35,6 +36,7 @@ func toSessionWire(r store.Session) SessionWire {
 	return SessionWire{
 		ID:              r.ID,
 		Title:           r.Title,
+		WorkspaceID:     r.WorkspaceID,
 		CreatedAt:       r.CreatedAt.UnixMilli(),
 		UpdatedAt:       r.UpdatedAt.UnixMilli(),
 		Status:          r.Status,
@@ -96,8 +98,11 @@ type GetSessionUsageResult struct {
 
 // CreateSessionParams is the JSON-RPC params for agent.create_session.
 // title is optional; an empty title falls back to the store default.
+// workspaceId is optional; an empty value falls back to the active
+// workspace, and a session cannot be created without a workspace.
 type CreateSessionParams struct {
-	Title string `json:"title,omitempty"`
+	Title       string `json:"title,omitempty"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
 }
 
 // CreateSessionResult is the JSON-RPC result for agent.create_session.
@@ -173,11 +178,30 @@ type SearchSessionsResult struct {
 // Steer goes through h.Sessions to reach the per-session Loop; the
 // global Agent-level steer path is gone.
 
-func handleListSessions(ctx context.Context, id json.RawMessage, h *Handler) *Response {
+// ListSessionsParams is the JSON-RPC params for agent.list_sessions.
+// workspaceId filters the list to one workspace; empty returns every
+// session (renderer cold-start / legacy callers).
+type ListSessionsParams struct {
+	WorkspaceID string `json:"workspaceId,omitempty"`
+}
+
+func handleListSessions(ctx context.Context, id json.RawMessage, params json.RawMessage, h *Handler) *Response {
+	var p ListSessionsParams
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return errorResp(id, CodeInvalidParams, "params must be an object", nil)
+		}
+	}
 	if h.SessionStore == nil {
 		return successResp(id, ListSessionsResult{Sessions: []SessionWire{}})
 	}
-	rows, err := h.SessionStore.ListAll(ctx)
+	var rows []store.Session
+	var err error
+	if p.WorkspaceID != "" {
+		rows, err = h.SessionStore.ListByWorkspace(ctx, p.WorkspaceID)
+	} else {
+		rows, err = h.SessionStore.ListAll(ctx)
+	}
 	if err != nil {
 		return errorResp(id, CodeInternalError, "session list", err)
 	}
@@ -311,12 +335,34 @@ func usageTotalCompletion(rec *store.UsageRecord) int {
 //
 // Returns the full SessionWire (including title / status) for the
 // newly created session.
+// handleCreateSession creates a new session inside a workspace and makes it
+// active:
+//  1. Mint a 21-char nanoid via SessionManager.idGen.
+//  2. Resolve the owning workspace: params.workspaceId, else the active
+//     workspace; both missing → CodeWorkspaceRequired.
+//  3. GetOrCreateEntry to build the SessionEntry, lazily building
+//     SessionRuntime through the factory.
+//  4. Persist via SessionStore (default title); bind workspace_id; set the
+//     title when a non-empty title is provided.
+//  5. AppState.SetActiveSession to persist the active slot.
+//
+// Returns the full SessionWire (including title / status) for the
+// newly created session.
 func handleCreateSession(ctx context.Context, id json.RawMessage, params json.RawMessage, c *client, h *Handler) *Response {
 	var p CreateSessionParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return errorResp(id, CodeInvalidParams, "params must be an object", nil)
 		}
+	}
+	workspaceID := strings.TrimSpace(p.WorkspaceID)
+	if workspaceID == "" && h.AppState != nil {
+		workspaceID, _ = h.AppState.GetActiveWorkspace(ctx)
+	}
+	// 仅当 WorkspaceStore 已装配（真实运行时）时强制要求 workspace；
+	// handler-test stub / 无 store 快路径允许跳过绑定。
+	if workspaceID == "" && h.WorkspaceStore != nil {
+		return errorResp(id, CodeWorkspaceRequired, "workspace is required", nil)
 	}
 	sessionID := c.sessions.MintSessionID()
 	entry, err := c.sessions.GetOrCreateEntry(sessionID)
@@ -326,6 +372,9 @@ func handleCreateSession(ctx context.Context, id json.RawMessage, params json.Ra
 	if h.SessionStore != nil {
 		if err := h.SessionStore.Save(ctx, entry.Session); err != nil {
 			return errorResp(id, CodeInternalError, "session save", err)
+		}
+		if err := h.SessionStore.BindWorkspace(ctx, sessionID, workspaceID); err != nil {
+			return errorResp(id, CodeInternalError, "session workspace bind", err)
 		}
 		if strings.TrimSpace(p.Title) != "" {
 			if err := h.SessionStore.UpdateTitle(ctx, sessionID, p.Title); err != nil {

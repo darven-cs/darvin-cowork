@@ -69,15 +69,22 @@ import type {
   DarvinTestMcpConnectionResponse,
   DarvinWorkspaceInfoResponse,
   DarvinWorkspaceRootResult,
+  DarvinWorkspace,
+  DarvinListWorkspacesResponse,
+  DarvinCreateWorkspaceResponse,
+  DarvinActiveWorkspaceResponse,
+  DarvinSetActiveWorkspaceResponse,
+  DarvinDeleteWorkspaceResponse,
+  DarvinBindSessionWorkspaceResponse,
 } from '../shared/darvin-api';
 import { DarvinPushEvent } from '../shared/darvin-api';
 
 const api: DarvinApi = {
-  async createSession(req?: { title?: string }): Promise<DarvinCreateSessionResponse> {
+  async createSession(req?: { title?: string; workspaceId?: string }): Promise<DarvinCreateSessionResponse> {
     return ipcRenderer.invoke('darvin:create_session', req);
   },
-  async listSessions(): Promise<DarvinListSessionsResponse> {
-    return ipcRenderer.invoke('darvin:list_sessions');
+  async listSessions(workspaceId?: string): Promise<DarvinListSessionsResponse> {
+    return ipcRenderer.invoke('darvin:list_sessions', workspaceId);
   },
   async switchSession(sessionId: string): Promise<DarvinSwitchSessionResponse> {
     return ipcRenderer.invoke('darvin:switch_session', sessionId);
@@ -237,6 +244,37 @@ const api: DarvinApi = {
   },
   async getWorkspaceRoot(): Promise<DarvinWorkspaceRootResult> {
     return ipcRenderer.invoke('darvin:get_workspace_root');
+  },
+  async listWorkspaces(): Promise<DarvinListWorkspacesResponse> {
+    return ipcRenderer.invoke('darvin:list_workspaces');
+  },
+  async createWorkspace(req?: { name?: string; rootPath?: string }): Promise<DarvinCreateWorkspaceResponse> {
+    return ipcRenderer.invoke('darvin:create_workspace', req);
+  },
+  async getActiveWorkspace(): Promise<DarvinActiveWorkspaceResponse> {
+    return ipcRenderer.invoke('darvin:get_active_workspace');
+  },
+  async setActiveWorkspace(workspaceId: string): Promise<DarvinSetActiveWorkspaceResponse> {
+    return ipcRenderer.invoke('darvin:set_active_workspace', workspaceId);
+  },
+  async deleteWorkspace(workspaceId: string, opts?: { force?: boolean }): Promise<DarvinDeleteWorkspaceResponse> {
+    return ipcRenderer.invoke('darvin:delete_workspace', { workspaceId, force: opts?.force === true });
+  },
+  async renameWorkspace(req: { workspaceId: string; name: string }): Promise<DarvinCreateWorkspaceResponse> {
+    return ipcRenderer.invoke('darvin:rename_workspace', req);
+  },
+  async updateWorkspaceRoot(req: { workspaceId: string; rootPath: string }): Promise<DarvinCreateWorkspaceResponse> {
+    return ipcRenderer.invoke('darvin:update_workspace_root', req);
+  },
+  async bindSessionWorkspace(sessionId: string, workspaceId: string): Promise<DarvinBindSessionWorkspaceResponse> {
+    return ipcRenderer.invoke('darvin:bind_session_workspace', { sessionId, workspaceId });
+  },
+  onWorkspacesChanged(handler: (workspaces: DarvinWorkspace[]) => void): () => void {
+    const wrap = (_e: unknown, workspaces: DarvinWorkspace[]) => handler(workspaces);
+    ipcRenderer.on(DarvinPushEvent.WorkspacesChanged, wrap);
+    return () => {
+      ipcRenderer.off(DarvinPushEvent.WorkspacesChanged, wrap);
+    };
   },
 
   async listSkills(): Promise<DarvinListSkillsResponse> {

@@ -3,8 +3,8 @@
     <button
       type="button"
       class="inline-flex max-w-[60%] cursor-pointer items-center gap-1.5 rounded-md px-2 py-0.5 font-sans text-[11px] text-text-subtle transition-colors hover:bg-surface-2 hover:text-text"
-      :title="t('workspace.pick.title')"
-      :aria-label="t('workspace.pick.title')"
+      :title="t('workspace.switch')"
+      :aria-label="t('workspace.switch')"
       data-testid="composer-workspace"
       @click="open = !open"
     >
@@ -13,13 +13,7 @@
       <Icon name="chevron-down" :size="10" />
     </button>
     <div v-if="open" class="fixed inset-0 z-20" @click="open = false" />
-    <FolderPicker
-      v-if="open"
-      :root-path="rootPath"
-      :label="workspaceLabel"
-      @close="open = false"
-      @changed="refresh"
-    />
+    <WorkspacePicker v-if="open" @close="open = false" @manage="goWorkspaces" />
     <span
       class="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-sans text-[11px] text-text-subtle"
       data-testid="composer-agent"
@@ -32,39 +26,29 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
-import { useSession } from '../../composables/useSession';
+import { computed, ref } from 'vue';
+import { useWorkspaces } from '../../composables/useWorkspaces';
+import { useViewMode } from '../../composables/useViewMode';
 import { t } from '../../services/i18n';
 import Icon from '../common/Icon.vue';
-import FolderPicker from './FolderPicker.vue';
+import WorkspacePicker from './WorkspacePicker.vue';
 
-const workspaceLabel = ref<string>(t('composer.workspace'));
-const rootPath = ref<string | null>(null);
+const workspaces = useWorkspaces();
+const viewMode = useViewMode();
 const open = ref(false);
-const session = useSession();
 
-async function refresh(): Promise<void> {
-  try {
-    const [info, root] = await Promise.all([
-      window.darvin.getWorkspaceInfo(),
-      window.darvin.getWorkspaceRoot(),
-    ]);
-    if (info.label) workspaceLabel.value = info.label;
-    rootPath.value = root.rootPath;
-  } catch {
-    /* agent offline：保留默认文案 */
-  }
-}
-
-// 会话切换后工作目录会变，watch active session 重新拉取
-watch(
-  () => session.activeSessionId.value,
-  () => {
-    void refresh();
-  },
+const workspaceLabel = computed(
+  () => workspaces.activeWorkspace.value?.label ?? t('workspace.pick'),
 );
 
-onMounted(() => {
-  void refresh();
-});
+function goWorkspaces(): void {
+  open.value = false;
+  viewMode.goWorkspaces();
+}
+
+function openPicker(): void {
+  open.value = true;
+}
+
+defineExpose({ openPicker });
 </script>

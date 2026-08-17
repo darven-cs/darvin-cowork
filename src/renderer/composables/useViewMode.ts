@@ -10,6 +10,7 @@ import { ref } from 'vue';
 
 export type ViewMode =
   | 'home'
+  | 'workspaces'
   | 'chat'
   | 'suite'
   | 'settings'
@@ -26,6 +27,7 @@ export function useViewMode() {
   }
   function goHome(): void { mode.value = 'home'; }
   function goChat(): void { mode.value = 'chat'; }
+  function goWorkspaces(): void { mode.value = 'workspaces'; }
   function goSuite(): void { mode.value = 'suite'; }
   function goSettings(): void { mode.value = 'settings'; }
   function goSearch(): void { mode.value = 'search'; }
@@ -34,6 +36,6 @@ export function useViewMode() {
   function goMcp(): void { mode.value = 'mcp'; }
   return {
     mode, navigate,
-    goHome, goChat, goSuite, goSettings, goSearch, goScheduled, goSkills, goMcp,
+    goHome, goChat, goWorkspaces, goSuite, goSettings, goSearch, goScheduled, goSkills, goMcp,
   };
 }
