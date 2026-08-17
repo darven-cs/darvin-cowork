@@ -80,7 +80,7 @@ import type {
 import { DarvinPushEvent } from '../shared/darvin-api';
 
 const api: DarvinApi = {
-  async createSession(req?: { title?: string; workspaceId?: string }): Promise<DarvinCreateSessionResponse> {
+  async createSession(req?: { title?: string; workspaceId?: string; systemPrompt?: string; identity?: string }): Promise<DarvinCreateSessionResponse> {
     return ipcRenderer.invoke('darvin:create_session', req);
   },
   async listSessions(workspaceId?: string): Promise<DarvinListSessionsResponse> {

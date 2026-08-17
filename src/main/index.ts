@@ -487,13 +487,13 @@ const createWindow = (): void => {
 
 ipcMain.handle(
   'darvin:create_session',
-  async (_e, req?: { title?: string; workspaceId?: string }): Promise<DarvinCreateSessionResponse> => {
+  async (_e, req?: { title?: string; workspaceId?: string; systemPrompt?: string; identity?: string }): Promise<DarvinCreateSessionResponse> => {
     if (!client.isConnected()) throw new Error('agent offline');
     // 新建会话必须落在 active workspace；调用方不传时用 activeWorkspaceId。
     const workspaceId = req?.workspaceId ?? activeWorkspaceId;
     const r = await client.request<DarvinCreateSessionResponse>(
       'agent.create_session',
-      { title: req?.title, workspaceId },
+      { title: req?.title, workspaceId, systemPrompt: req?.systemPrompt, identity: req?.identity },
     );
     cache.activeSessionId = r.session.id;
     // 重锚 workspace 到 active workspace（新会话落在那）

@@ -5,7 +5,7 @@
         <Icon :name="agent.icon" :size="20" />
       </span>
       <div class="min-w-0 flex-1">
-        <h3 class="truncate font-sans text-[15px] font-semibold text-text">{{ agent.name }}</h3>
+        <h3 class="truncate font-sans text-[15px] font-semibold text-text">{{ displayName }}</h3>
         <span class="mt-1 inline-block rounded bg-primary-muted px-2 py-0.5 font-sans text-[10.5px] text-primary">
           {{ categoryLabel }}
         </span>
@@ -13,7 +13,7 @@
     </div>
 
     <p class="mb-4 line-clamp-2 font-sans text-[12.5px] leading-[1.55] text-text-muted">
-      {{ agent.description }}
+      {{ displayDescription }}
     </p>
 
     <div class="mt-auto flex items-center justify-between">
@@ -41,11 +41,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import Icon from '../common/Icon.vue';
-import { t } from '../../services/i18n';
+import { t, getLang } from '../../services/i18n';
 import type { ExpertAgent } from '../../services/mock-data';
 
 const props = defineProps<{ agent: ExpertAgent }>();
 const emit = defineEmits<{ use: [agent: ExpertAgent]; details: [agent: ExpertAgent] }>();
 
 const categoryLabel = computed(() => t(`expert.filter.${props.agent.category}`));
+const displayName = computed(() => (getLang() === 'en' ? props.agent.nameEn : props.agent.name));
+const displayDescription = computed(() => (getLang() === 'en' ? props.agent.descriptionEn : props.agent.description));
 </script>

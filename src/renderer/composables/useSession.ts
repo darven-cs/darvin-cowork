@@ -72,8 +72,13 @@ function ensureSubscribed(): void {
 export function useSession() {
   ensureSubscribed();
 
-  async function createSession(title?: string, workspaceId?: string): Promise<DarvinSession> {
-    const r = await window.darvin.createSession({ title, workspaceId });
+  async function createSession(
+    title?: string,
+    workspaceId?: string,
+    systemPrompt?: string,
+    identity?: string,
+  ): Promise<DarvinSession> {
+    const r = await window.darvin.createSession({ title, workspaceId, systemPrompt, identity });
     if (!sessions.value.some((s) => s.id === r.session.id)) {
       sessions.value = [r.session, ...sessions.value];
     }

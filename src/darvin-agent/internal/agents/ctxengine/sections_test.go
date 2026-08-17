@@ -139,3 +139,25 @@ func TestAssembleAttachesBuiltInSections(t *testing.T) {
 		t.Fatalf("SystemAddition missing fs entry:\n%s", got.SystemAddition)
 	}
 }
+
+func TestIdentitySection(t *testing.T) {
+	sec, ok := IdentitySection("x")
+	if !ok {
+		t.Fatalf("ok = false for non-blank content")
+	}
+	if sec.Content != "<IDENTITY>\nx\n</IDENTITY>" {
+		t.Fatalf("Content = %q", sec.Content)
+	}
+	if sec.Priority != 31 {
+		t.Fatalf("Priority = %d, want 31", sec.Priority)
+	}
+}
+
+func TestIdentitySectionBlank(t *testing.T) {
+	if _, ok := IdentitySection(""); ok {
+		t.Fatalf("empty content ok = true, want false")
+	}
+	if _, ok := IdentitySection("   "); ok {
+		t.Fatalf("whitespace content ok = true, want false")
+	}
+}

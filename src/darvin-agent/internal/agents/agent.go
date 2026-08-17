@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -390,15 +391,21 @@ func (a *Agent) Tools() protocol.ToolRegistry {
 }
 
 // Instructions returns the system prompt — the skill's SKILL.md body
-// during a mini loop, else the agent instructions + imported-files note.
+// during a mini loop, else the agent instructions with the optional
+// session-level system prompt and imported-files note appended (later
+// blocks weigh more, so session content lands after the global base).
 func (a *Agent) Instructions() string {
 	if a.runSkillPrompt != "" {
 		return a.runSkillPrompt
 	}
-	if a.runImportedNote != "" {
-		return a.instructions + "\n\n" + a.runImportedNote
+	base := a.instructions
+	if systemPrompt, _ := a.session.Prompt(); systemPrompt != "" {
+		base = strings.TrimSpace(base) + "\n\n" + systemPrompt
 	}
-	return a.instructions
+	if a.runImportedNote != "" {
+		base += "\n\n" + a.runImportedNote
+	}
+	return base
 }
 func (a *Agent) Config() executor.Config {
 	return executor.Config{
@@ -413,8 +420,16 @@ func (a *Agent) Emit(ev event.Event) { a.bus.Emit(ev) }
 // Assembler returns the wired ContextEngine (nil if unconfigured).
 func (a *Agent) Assembler() ctxengine.ContextEngine { return a.assembler }
 
-// SystemSections returns caller-supplied system sections; nil today.
-func (a *Agent) SystemSections() []ctxengine.SystemSection { return nil }
+// SystemSections returns the session-level <IDENTITY> section; nil when
+// the session carries no identity.
+func (a *Agent) SystemSections() []ctxengine.SystemSection {
+	_, identity := a.session.Prompt()
+	if identity == "" {
+		return nil
+	}
+	sec, _ := ctxengine.IdentitySection(identity)
+	return []ctxengine.SystemSection{sec}
+}
 
 // AssemblerEnabled reports assembler opt-in; false → legacy path.
 func (a *Agent) AssemblerEnabled() bool { return a.assemblerEnabled }

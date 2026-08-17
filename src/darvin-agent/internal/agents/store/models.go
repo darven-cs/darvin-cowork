@@ -19,6 +19,8 @@ type Session struct {
 	Status          string    `gorm:"default:active"`
 	CreatedAt       time.Time `gorm:"autoCreateTime"`
 	UpdatedAt       time.Time `gorm:"autoUpdateTime"`
+	SystemPrompt    string    `gorm:"type:text;default:''"`
+	Identity        string    `gorm:"type:text;default:''"`
 }
 
 func (Session) TableName() string { return "sessions" }

@@ -28,21 +28,26 @@ func NewSQLiteStore(db *gorm.DB) *SQLiteStore {
 	return &SQLiteStore{db: db}
 }
 
-// Save upserts the session row by primary key. Title / ClaudeSessionID
-// are preserved from the existing row: they are renderer-facing metadata
-// owned by the RPC handlers, and the agent's session.Session domain model
-// carries no Title, so a prompt's metadata save must not clobber a rename.
+// Save upserts the session row by primary key. Title / ClaudeSessionID /
+// WorkspaceID are preserved from the existing row: they are
+// renderer-facing metadata owned by the RPC handlers, and the agent's
+// session.Session domain model carries no Title, so a prompt's metadata
+// save must not clobber a rename. SystemPrompt / Identity are carried by
+// the in-memory session and written verbatim.
 func (s *SQLiteStore) Save(ctx context.Context, sess *session.Session) error {
 	if sess == nil {
 		return ErrNilSession
 	}
+	systemPrompt, identity := sess.Prompt()
 	row := Session{
-		ID:        sess.ID,
-		Key:       sess.Key,
-		AgentID:   sess.AgentID,
-		Status:    string(sess.Status),
-		CreatedAt: sess.CreatedAt,
-		UpdatedAt: sess.UpdatedAt(),
+		ID:           sess.ID,
+		Key:          sess.Key,
+		AgentID:      sess.AgentID,
+		Status:       string(sess.Status),
+		CreatedAt:    sess.CreatedAt,
+		UpdatedAt:    sess.UpdatedAt(),
+		SystemPrompt: systemPrompt,
+		Identity:     identity,
 	}
 	// One extra SELECT per metadata save; sessions table is tiny and the
 	// trade keeps rename / claude-bridge writes authoritative.
@@ -101,6 +106,7 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 func (r *Session) toSession() *session.Session {
 	out := session.NewSession(r.ID)
 	out.ReplaceAllMeta(r.Key, r.AgentID, session.Status(r.Status), r.CreatedAt, r.UpdatedAt)
+	out.SetPrompt(r.SystemPrompt, r.Identity)
 	return out
 }
 

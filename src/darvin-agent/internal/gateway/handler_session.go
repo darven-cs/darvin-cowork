@@ -29,6 +29,8 @@ type SessionWire struct {
 	UpdatedAt       int64   `json:"updatedAt"`
 	Status          string  `json:"status"`
 	ClaudeSessionID *string `json:"claudeSessionId"`
+	SystemPrompt    string  `json:"systemPrompt,omitempty"`
+	Identity        string  `json:"identity,omitempty"`
 }
 
 // toSessionWire projects a store.Session row onto SessionWire.
@@ -41,6 +43,8 @@ func toSessionWire(r store.Session) SessionWire {
 		UpdatedAt:       r.UpdatedAt.UnixMilli(),
 		Status:          r.Status,
 		ClaudeSessionID: r.ClaudeSessionID,
+		SystemPrompt:    r.SystemPrompt,
+		Identity:        r.Identity,
 	}
 }
 
@@ -100,9 +104,13 @@ type GetSessionUsageResult struct {
 // title is optional; an empty title falls back to the store default.
 // workspaceId is optional; an empty value falls back to the active
 // workspace, and a session cannot be created without a workspace.
+// systemPrompt / identity are optional session-level prompt data; both
+// are fixed at creation time.
 type CreateSessionParams struct {
-	Title       string `json:"title,omitempty"`
-	WorkspaceID string `json:"workspaceId,omitempty"`
+	Title        string `json:"title,omitempty"`
+	WorkspaceID  string `json:"workspaceId,omitempty"`
+	SystemPrompt string `json:"systemPrompt,omitempty"`
+	Identity     string `json:"identity,omitempty"`
 }
 
 // CreateSessionResult is the JSON-RPC result for agent.create_session.
@@ -369,6 +377,9 @@ func handleCreateSession(ctx context.Context, id json.RawMessage, params json.Ra
 	if err != nil {
 		return errorResp(id, CodeAgentInitFailed, "create session", err)
 	}
+	// Must land before SessionStore.Save below so the prompt reaches the
+	// row on the same write.
+	entry.Session.SetPrompt(p.SystemPrompt, p.Identity)
 	if h.SessionStore != nil {
 		if err := h.SessionStore.Save(ctx, entry.Session); err != nil {
 			return errorResp(id, CodeInternalError, "session save", err)

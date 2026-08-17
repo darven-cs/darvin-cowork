@@ -47,6 +47,10 @@ export interface DarvinSession {
   updatedAt: number;
   status?: DarvinSessionStatus;
   claudeSessionId?: string | null;
+  /** 会话级系统提示词；空 = 未设置。 */
+  systemPrompt?: string;
+  /** 会话级人设；空 = 未注入 <IDENTITY>。 */
+  identity?: string;
 }
 
 /** 工具种类。兜底 `string & { __brand?: never }` 允许自定义工具名。 */
@@ -1048,7 +1052,7 @@ export interface DarvinSubagentReadResultResponse {
 }
 
 export interface DarvinApi {
-  createSession(req?: { title?: string; workspaceId?: string }): Promise<DarvinCreateSessionResponse>;
+  createSession(req?: { title?: string; workspaceId?: string; systemPrompt?: string; identity?: string }): Promise<DarvinCreateSessionResponse>;
   listSessions(workspaceId?: string): Promise<DarvinListSessionsResponse>;
   switchSession(sessionId: string): Promise<DarvinSwitchSessionResponse>;
   deleteSession(sessionId: string): Promise<DarvinDeleteSessionResponse>;

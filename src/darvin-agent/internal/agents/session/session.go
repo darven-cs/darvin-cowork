@@ -18,6 +18,12 @@ type Session struct {
 	AgentID   string
 	Status    Status
 	CreatedAt time.Time
+	// SystemPrompt is the session-level capability prompt appended to
+	// the agent's global instructions; empty means "not set".
+	SystemPrompt string
+	// Identity is the session-level persona injected as the <IDENTITY>
+	// system section; empty means "not injected".
+	Identity string
 
 	mu        sync.RWMutex
 	updatedAt time.Time
@@ -88,6 +94,23 @@ func (s *Session) ReplaceAll(messages []protocol.Message) {
 	}
 	s.messages = cloned
 	s.updatedAt = time.Now()
+}
+
+// SetPrompt overwrites the session-level system prompt and identity in
+// one shot.
+func (s *Session) SetPrompt(systemPrompt, identity string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SystemPrompt = systemPrompt
+	s.Identity = identity
+}
+
+// Prompt returns the session-level system prompt and identity. Readers
+// on other goroutines must use this accessor, not the raw fields.
+func (s *Session) Prompt() (systemPrompt, identity string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SystemPrompt, s.Identity
 }
 
 // Meta returns a snapshot of session metadata without copying messages.

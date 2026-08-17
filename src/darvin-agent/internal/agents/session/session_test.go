@@ -89,6 +89,21 @@ func TestMeta(t *testing.T) {
 	}
 }
 
+func TestSetPromptAndPrompt(t *testing.T) {
+	s := NewSession("sp1")
+	if sp, id := s.Prompt(); sp != "" || id != "" {
+		t.Fatalf("zero-value Prompt() = (%q, %q), want empty", sp, id)
+	}
+	s.SetPrompt("capability", "persona")
+	if sp, id := s.Prompt(); sp != "capability" || id != "persona" {
+		t.Fatalf("Prompt() = (%q, %q), want set values", sp, id)
+	}
+	s.SetPrompt("", "")
+	if sp, id := s.Prompt(); sp != "" || id != "" {
+		t.Fatalf("after overwrite Prompt() = (%q, %q), want empty", sp, id)
+	}
+}
+
 func TestNewSessionDefaults(t *testing.T) {
 	before := time.Now()
 	s := NewSession("x")

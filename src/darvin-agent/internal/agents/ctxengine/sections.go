@@ -177,6 +177,21 @@ func renderIdentitySection(content string) string {
 	return "<IDENTITY>\n" + strings.TrimSpace(content) + "\n</IDENTITY>"
 }
 
+// IdentitySection wraps session-level identity content as an
+// <IDENTITY> block at PriorityIdentity+1, landing after the workspace
+// IDENTITY.md section and before SOUL. ok=false when content is blank;
+// the caller skips the section in that case.
+func IdentitySection(content string) (SystemSection, bool) {
+	if strings.TrimSpace(content) == "" {
+		return SystemSection{}, false
+	}
+	return SystemSection{
+		Name:     "IDENTITY",
+		Content:  renderIdentitySection(content),
+		Priority: PriorityIdentity + 1,
+	}, true
+}
+
 // renderSoulSection wraps SOUL.md content.
 func renderSoulSection(content string) string {
 	if strings.TrimSpace(content) == "" {

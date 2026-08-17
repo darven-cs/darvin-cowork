@@ -26,6 +26,13 @@ const hydrateTimeout = 5 * time.Second
 // Final slice is [digests...] + [tail of messages after the latest
 // digest's FirstKeptID/FirstKeptTimestamp].
 func hydrateSession(ctx context.Context, f *AgentFactory, sess *session.Session) {
+	// Prompt restore runs before the MessageStore short-circuit so a
+	// missing message store never leaves the session prompt behind.
+	if sess != nil && f.Store != nil {
+		if row, err := f.Store.GetByID(ctx, sess.ID); err == nil {
+			sess.SetPrompt(row.SystemPrompt, row.Identity)
+		}
+	}
 	if f.MessageStore == nil || sess == nil {
 		return
 	}

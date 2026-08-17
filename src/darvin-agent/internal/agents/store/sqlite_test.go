@@ -350,3 +350,30 @@ func TestSessionStore_SearchByTitleAndContent(t *testing.T) {
 		t.Errorf("SearchByContent whitespace returned %d rows, want 0", len(hits))
 	}
 }
+
+func TestSQLiteStoreSaveLoadPrompt(t *testing.T) {
+	ctx := context.Background()
+	store := newTestSQLiteStore(t)
+
+	src := session.NewSession("sp1")
+	src.SetPrompt("capability prompt", "persona")
+	if err := store.Save(ctx, src); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	row, err := store.GetByID(ctx, "sp1")
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if row.SystemPrompt != "capability prompt" || row.Identity != "persona" {
+		t.Fatalf("row prompt = (%q, %q)", row.SystemPrompt, row.Identity)
+	}
+
+	got, err := store.Load(ctx, "sp1")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if sp, id := got.Prompt(); sp != "capability prompt" || id != "persona" {
+		t.Fatalf("restored Prompt() = (%q, %q)", sp, id)
+	}
+}

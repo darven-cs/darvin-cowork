@@ -47,7 +47,9 @@ import ChatHeader from '../components/chat/ChatHeader.vue';
 import Icon from '../components/common/Icon.vue';
 import AgentCard from '../components/expert/AgentCard.vue';
 import AgentFilterTabs, { type FilterTabId } from '../components/expert/AgentFilterTabs.vue';
-import { t } from '../services/i18n';
+import { useSession } from '../composables/useSession';
+import { useViewMode } from '../composables/useViewMode';
+import { t, getLang } from '../services/i18n';
 import { expertSuiteAgents, type ExpertAgent } from '../services/mock-data';
 
 defineProps<{ sidePanelOpen: boolean }>();
@@ -59,12 +61,20 @@ const emit = defineEmits<{
 const query = ref<string>('');
 const activeTab = ref<FilterTabId>('all');
 
+const session = useSession();
+const viewMode = useViewMode();
+
 const filtered = computed<ExpertAgent[]>(() => {
   const q = query.value.trim().toLowerCase();
+  const en = getLang() === 'en';
   return expertSuiteAgents.filter((a) => {
     if (activeTab.value === 'free' && a.price !== 'Free') return false;
     if (activeTab.value !== 'all' && activeTab.value !== 'free' && a.category !== activeTab.value) return false;
-    if (q && !a.name.toLowerCase().includes(q) && !a.description.toLowerCase().includes(q)) return false;
+    if (q) {
+      const name = en ? a.nameEn : a.name;
+      const desc = en ? a.descriptionEn : a.description;
+      if (!name.toLowerCase().includes(q) && !desc.toLowerCase().includes(q)) return false;
+    }
     return true;
   });
 });
@@ -74,8 +84,14 @@ function onSelectTab(id: FilterTabId) {
 }
 
 function onUse(agent: ExpertAgent) {
-  // eslint-disable-next-line no-console
-  console.log('[expert] use:', agent.id, agent.name);
+  const en = getLang() === 'en';
+  const name = en ? agent.nameEn : agent.name;
+  const systemPrompt = en ? agent.systemPromptEn : agent.systemPrompt;
+  const identity = en ? agent.identityEn : agent.identity;
+  // workspaceId 不传 → main 侧兜底 activeWorkspaceId（现有行为），新会话落在 active workspace。
+  void session.createSession(name, undefined, systemPrompt, identity).then(() => {
+    viewMode.navigate('chat');
+  });
 }
 
 function onDetails(agent: ExpertAgent) {
