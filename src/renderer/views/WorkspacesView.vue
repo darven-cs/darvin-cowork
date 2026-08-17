@@ -96,6 +96,23 @@
           </li>
         </ul>
 
+        <!-- 默认 Agent 选择器（每个 workspace 卡片底） -->
+        <div class="mt-3 flex flex-col gap-2 rounded-xl border border-border bg-surface px-4 py-3">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex flex-col gap-0.5">
+              <span class="font-sans text-[12.5px] font-medium text-text">{{ t('workspace.default_agent') }}</span>
+              <span class="font-sans text-[11px] text-text-subtle">{{ t('workspace.default_agent_hint') }}</span>
+            </div>
+            <select
+              :value="w.defaultAgentId ?? ''"
+              class="rounded-md border border-border bg-surface-2 px-2 py-1 font-sans text-[12.5px] text-text outline-none focus:border-border-strong"
+              @change="onDefaultAgentChange(w.id, ($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="opt in defaultAgentOptions(w.id)" :key="opt.id" :value="opt.id">{{ opt.label }}</option>
+            </select>
+          </div>
+        </div>
+
         <!-- 新建表单 -->
         <form
           v-if="creating"
@@ -154,8 +171,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
-import type { DarvinWorkspace } from '../../shared/darvin-api';
+import { ref, watch } from 'vue';
+import type { DarvinWorkspace, DarvinAgent } from '../../shared/darvin-api';
 import ChatHeader from '../components/chat/ChatHeader.vue';
 import Mascot from '../components/home/Mascot.vue';
 import Icon from '../components/common/Icon.vue';
@@ -163,7 +180,7 @@ import WorkspaceEditModal from '../components/workspaces/WorkspaceEditModal.vue'
 import WorkspaceDeleteModal from '../components/workspaces/WorkspaceDeleteModal.vue';
 import { useWorkspaces } from '../composables/useWorkspaces';
 import { useViewMode } from '../composables/useViewMode';
-import { t, formatNumber, formatRelativeTime } from '../services/i18n';
+import { t, formatNumber, formatRelativeTime, getLang } from '../services/i18n';
 
 defineProps<{ sidePanelOpen: boolean }>();
 const emit = defineEmits<{
@@ -180,6 +197,53 @@ const pickedDir = ref<string | null>(null);
 const busy = ref(false);
 const editing = ref<DarvinWorkspace | null>(null);
 const deleting = ref<DarvinWorkspace | null>(null);
+
+// 缓存每个 workspace 的 agent 列表：{ workspaceId -> DarvinAgent[] }
+const agentCache = ref<Map<string, DarvinAgent[]>>(new Map());
+
+async function loadAgentsFor(workspaceId: string): Promise<void> {
+  if (agentCache.value.has(workspaceId)) return;
+  try {
+    const r = await window.darvin.listAgents(workspaceId);
+    agentCache.value.set(workspaceId, r.agents);
+  } catch {
+    agentCache.value.set(workspaceId, []);
+  }
+}
+
+watch(
+  () => workspaces.workspaces.value.map((w) => w.id),
+  async (ids) => { for (const id of ids) await loadAgentsFor(id); },
+  { immediate: true },
+);
+// 推送事件（agents 增删）刷新
+window.darvin?.onAgentsChanged((agents) => {
+  // 仅刷新当前 cache 中匹配的 workspace
+  for (const [wid, list] of agentCache.value.entries()) {
+    if (agents.length > 0 && list.length > 0 && list[0].workspaceId === agents[0].workspaceId) {
+      agentCache.value.set(wid, agents);
+    }
+  }
+});
+
+function defaultAgentOptions(workspaceId: string): Array<{ id: string; label: string }> {
+  const list = agentCache.value.get(workspaceId) ?? [];
+  const en = getLang() === 'en';
+  return list
+    .filter((a) => !a.isDefault || a.workspaceId === workspaceId)
+    .map((a) => ({
+      id: a.id,
+      label: (en ? (a.nameEn || a.name) : a.name) + (a.isDefault ? ' ★' : ''),
+    }));
+}
+
+async function onDefaultAgentChange(workspaceId: string, agentId: string): Promise<void> {
+  try {
+    await workspaces.updateDefaultAgent({ workspaceId, defaultAgentId: agentId });
+  } catch (e) {
+    console.warn('[workspaces] updateDefaultAgent failed:', (e as Error).message);
+  }
+}
 
 function startCreate(): void {
   creating.value = true;

@@ -51,6 +51,39 @@ export interface DarvinSession {
   systemPrompt?: string;
   /** 会话级人设；空 = 未注入 <IDENTITY>。 */
   identity?: string;
+  /** 创建时绑定的 agent id；空 = 老 session 或无 agent。 */
+  agentId?: string;
+}
+
+/** ExpertSuite filter tabs 用的 agent 分类；不进 DB，preset → 静态映射。 */
+export type ExpertCategory = 'creative' | 'productivity' | 'technical' | 'business';
+
+/** ExpertSuite filter tabs 用的价格档；不进 DB，preset 全 Free。 */
+export type ExpertPrice = 'Free' | '50 credits/次' | '100 credits/次' | '200 credits/次' | '300 credits/次';
+
+/** 持久化的 agent 行（preset 或 user）。 */
+export interface DarvinAgent {
+  id: string;
+  name: string;
+  description: string;
+  nameEn: string;
+  descriptionEn: string;
+  identity: string;
+  identityEn: string;
+  systemPrompt: string;
+  systemPromptEn: string;
+  icon: string;
+  color: string;
+  skillIds: string[];
+  source: 'preset' | 'user';
+  presetId: string;
+  isDefault: boolean;
+  sortOrder: number;
+  enabled: boolean;
+  workspaceId: string;
+  /** Renderer 端按 presetId 静态映射得到；user agent 两字段均为 undefined。 */
+  category?: ExpertCategory;
+  price?: ExpertPrice;
 }
 
 /** 工具种类。兜底 `string & { __brand?: never }` 允许自定义工具名。 */
@@ -602,6 +635,8 @@ export interface DarvinWorkspace {
   sessionCount: number;
   createdAt: number;
   updatedAt: number;
+  /** workspace 默认 agent id；新会话无 agentId 时用此 agent 派生 prompt。 */
+  defaultAgentId?: string;
 }
 
 export interface DarvinListWorkspacesResponse {
@@ -1004,6 +1039,7 @@ export const DarvinPushEvent = {
   SkillsChanged: 'darvin:push:skills-changed',
   McpServersChanged: 'darvin:push:mcp-servers-changed',
   McpConnectionChanged: 'darvin:push:mcp-connection-changed',
+  AgentsChanged: 'darvin:push:agents-changed',
 } as const;
 export type DarvinPushEvent = typeof DarvinPushEvent[keyof typeof DarvinPushEvent];
 
@@ -1052,7 +1088,7 @@ export interface DarvinSubagentReadResultResponse {
 }
 
 export interface DarvinApi {
-  createSession(req?: { title?: string; workspaceId?: string; systemPrompt?: string; identity?: string }): Promise<DarvinCreateSessionResponse>;
+  createSession(req?: { title?: string; workspaceId?: string; systemPrompt?: string; identity?: string; agentId?: string }): Promise<DarvinCreateSessionResponse>;
   listSessions(workspaceId?: string): Promise<DarvinListSessionsResponse>;
   switchSession(sessionId: string): Promise<DarvinSwitchSessionResponse>;
   deleteSession(sessionId: string): Promise<DarvinDeleteSessionResponse>;
@@ -1224,4 +1260,33 @@ export interface DarvinApi {
   subagentAbort(runId: string): Promise<{ ok: boolean }>;
   /** 字节偏移分页读 sub-agent 结果。 */
   subagentReadResult(runId: string, offsetBytes: number, limitBytes: number): Promise<DarvinSubagentReadResultResponse>;
+
+  /** 列当前 workspace 的 agent（preset + user）。 */
+  listAgents(workspaceId: string): Promise<{ agents: DarvinAgent[] }>;
+  /** 读单个 agent。 */
+  getAgent(agentId: string): Promise<{ agent: DarvinAgent }>;
+  /** 新建 agent（空白 / fromPresetId 复制预设内容到 user 行）。 */
+  createAgent(req: {
+    workspaceId: string;
+    name: string;
+    description?: string;
+    nameEn?: string;
+    descriptionEn?: string;
+    identity?: string;
+    identityEn?: string;
+    systemPrompt?: string;
+    systemPromptEn?: string;
+    icon?: string;
+    color?: string;
+    skillIds?: string[];
+    fromPresetId?: string;
+  }): Promise<{ agent: DarvinAgent }>;
+  /** 改 agent 任意可改字段；id / workspaceId / source / isDefault / presetId 不可改。 */
+  updateAgent(agentId: string, patch: Partial<DarvinAgent>): Promise<{ agent: DarvinAgent }>;
+  /** 删除 agent；preset 与 default agent 拒绝。 */
+  deleteAgent(agentId: string): Promise<{ deleted: boolean }>;
+  /** 切换 workspace 默认 agent（同时改 Workspace.DefaultAgentID 与 agent.is_default 标志）。 */
+  updateDefaultAgent(req: { workspaceId: string; defaultAgentId: string }): Promise<{ workspace: DarvinWorkspace }>;
+  /** 订阅 agent 列表变更（create / update / delete 之后 main 推）。 */
+  onAgentsChanged(handler: (agents: DarvinAgent[]) => void): () => void;
 }

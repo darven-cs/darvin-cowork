@@ -31,6 +31,7 @@ type SessionWire struct {
 	ClaudeSessionID *string `json:"claudeSessionId"`
 	SystemPrompt    string  `json:"systemPrompt,omitempty"`
 	Identity        string  `json:"identity,omitempty"`
+	AgentID         string  `json:"agentId,omitempty"`
 }
 
 // toSessionWire projects a store.Session row onto SessionWire.
@@ -45,6 +46,7 @@ func toSessionWire(r store.Session) SessionWire {
 		ClaudeSessionID: r.ClaudeSessionID,
 		SystemPrompt:    r.SystemPrompt,
 		Identity:        r.Identity,
+		AgentID:         r.AgentID,
 	}
 }
 
@@ -105,12 +107,15 @@ type GetSessionUsageResult struct {
 // workspaceId is optional; an empty value falls back to the active
 // workspace, and a session cannot be created without a workspace.
 // systemPrompt / identity are optional session-level prompt data; both
-// are fixed at creation time.
+// are fixed at creation time. agentId, when set, takes precedence over
+// systemPrompt / identity — the agent's prompt fields are snapshotted
+// onto the session instead.
 type CreateSessionParams struct {
 	Title        string `json:"title,omitempty"`
 	WorkspaceID  string `json:"workspaceId,omitempty"`
 	SystemPrompt string `json:"systemPrompt,omitempty"`
 	Identity     string `json:"identity,omitempty"`
+	AgentID      string `json:"agentId,omitempty"`
 }
 
 // CreateSessionResult is the JSON-RPC result for agent.create_session.
@@ -356,6 +361,41 @@ func usageTotalCompletion(rec *store.UsageRecord) int {
 //
 // Returns the full SessionWire (including title / status) for the
 // newly created session.
+// errAgentWorkspaceMismatch marks an agentId that resolves to an agent
+// owned by a different workspace — a caller error, not a degradation.
+var errAgentWorkspaceMismatch = errors.New("agent does not belong to this workspace")
+
+// resolveSessionAgent picks the agent a new session derives its prompt
+// from: an explicit params.AgentID first, else the workspace's default
+// agent. Returns the resolved agent id (empty = none) plus the prompt
+// snapshot to land on the session. An agent id pointing into another
+// workspace returns errAgentWorkspaceMismatch; an unknown agent id
+// degrades to "no agent" so params carry the prompt instead.
+func resolveSessionAgent(ctx context.Context, p CreateSessionParams, workspaceID string, h *Handler) (agentID, systemPrompt, identity string, err error) {
+	if h.AgentStore == nil {
+		return "", "", "", nil
+	}
+	resolved := strings.TrimSpace(p.AgentID)
+	if resolved == "" && workspaceID != "" {
+		def, err := h.AgentStore.GetDefaultForWorkspace(ctx, workspaceID)
+		if err == nil && def.ID != "" {
+			resolved = def.ID
+			systemPrompt, identity = def.SystemPrompt, def.Identity
+		}
+	}
+	if resolved == "" {
+		return "", "", "", nil
+	}
+	agent, err := h.AgentStore.GetByID(ctx, resolved)
+	if err != nil {
+		return "", "", "", nil
+	}
+	if workspaceID != "" && agent.WorkspaceID != workspaceID {
+		return "", "", "", errAgentWorkspaceMismatch
+	}
+	return agent.ID, agent.SystemPrompt, agent.Identity, nil
+}
+
 func handleCreateSession(ctx context.Context, id json.RawMessage, params json.RawMessage, c *client, h *Handler) *Response {
 	var p CreateSessionParams
 	if len(params) > 0 {
@@ -372,14 +412,31 @@ func handleCreateSession(ctx context.Context, id json.RawMessage, params json.Ra
 	if workspaceID == "" && h.WorkspaceStore != nil {
 		return errorResp(id, CodeWorkspaceRequired, "workspace is required", nil)
 	}
+
+	resolvedAgentID, agentSystemPrompt, agentIdentity, err := resolveSessionAgent(ctx, p, workspaceID, h)
+	if err != nil {
+		return errorResp(id, CodeInvalidParams, err.Error(), nil)
+	}
+
 	sessionID := c.sessions.MintSessionID()
 	entry, err := c.sessions.GetOrCreateEntry(sessionID)
 	if err != nil {
 		return errorResp(id, CodeAgentInitFailed, "create session", err)
 	}
+	// Agent-derived prompt wins; params act as the fallback for the
+	// no-agent path (legacy sessions / handler-test stubs).
+	sys := agentSystemPrompt
+	if sys == "" {
+		sys = p.SystemPrompt
+	}
+	ident := agentIdentity
+	if ident == "" {
+		ident = p.Identity
+	}
 	// Must land before SessionStore.Save below so the prompt reaches the
 	// row on the same write.
-	entry.Session.SetPrompt(p.SystemPrompt, p.Identity)
+	entry.Session.SetPrompt(sys, ident)
+	entry.Session.SetAgentID(resolvedAgentID)
 	if h.SessionStore != nil {
 		if err := h.SessionStore.Save(ctx, entry.Session); err != nil {
 			return errorResp(id, CodeInternalError, "session save", err)
@@ -417,6 +474,7 @@ func wireForSession(ctx context.Context, h *Handler, sessionID string, entry *Se
 		CreatedAt: entry.Session.CreatedAt.UnixMilli(),
 		UpdatedAt: entry.Session.UpdatedAt().UnixMilli(),
 		Status:    string(entry.Session.Status),
+		AgentID:   entry.Session.Meta().AgentID,
 	}
 }
 

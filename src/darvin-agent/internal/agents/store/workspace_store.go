@@ -67,6 +67,14 @@ func (s *SQLiteWorkspaceStore) UpdateName(ctx context.Context, id, name string) 
 		Update("name", name).Error
 }
 
+// UpdateDefaultAgent sets the workspace's default agent id; empty clears it.
+func (s *SQLiteWorkspaceStore) UpdateDefaultAgent(ctx context.Context, id, defaultAgentID string) error {
+	return s.db.WithContext(ctx).
+		Model(&Workspace{}).
+		Where("id = ?", id).
+		Update("default_agent_id", defaultAgentID).Error
+}
+
 // UpdateRoot relocates the workspace to a new root path and bumps UpdatedAt.
 // The directory itself is expected to already exist; callers that want a
 // mkdir-on-update behavior call os.MkdirAll before invoking this.

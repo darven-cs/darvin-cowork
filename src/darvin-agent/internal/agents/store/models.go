@@ -1,4 +1,4 @@
-// GORM row models for sessions, messages, usage, and imported files.
+// GORM row models for sessions, workspaces, agents, messages, usage, and imported files.
 
 package store
 
@@ -27,16 +27,49 @@ func (Session) TableName() string { return "sessions" }
 
 // Workspace is the first-class workspace row. Sessions reference one via
 // Session.WorkspaceID; a workspace owns a physical directory (RootPath)
-// shared by every session bound to it.
+// shared by every session bound to it. DefaultAgentID points at the agent
+// used when create_session carries no agentId; empty means "no default".
 type Workspace struct {
-	ID        string    `gorm:"primaryKey"`
-	Name      string    `gorm:"index"`
-	RootPath  string    `gorm:"uniqueIndex"`
-	CreatedAt time.Time `gorm:"autoCreateTime"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+	ID             string    `gorm:"primaryKey"`
+	Name           string    `gorm:"index"`
+	RootPath       string    `gorm:"uniqueIndex"`
+	DefaultAgentID string    `gorm:"default:''"`
+	CreatedAt      time.Time `gorm:"autoCreateTime"`
+	UpdatedAt      time.Time `gorm:"autoUpdateTime"`
 }
 
 func (Workspace) TableName() string { return "workspaces" }
+
+// Agent is a persisted agent (preset or user-defined). Sessions reference
+// one via Session.AgentID; at session creation the agent's SystemPrompt /
+// Identity are snapshotted onto the session so editing an agent later does
+// not retroactively rewrite existing conversations. Agent rows are scoped
+// per workspace via WorkspaceID — the same PresetID may exist in many
+// workspaces.
+type Agent struct {
+	ID             string    `gorm:"primaryKey"`
+	Name           string    `gorm:"index"`
+	Description    string    `gorm:"default:''"`
+	NameEn         string    `gorm:"default:''"`
+	DescriptionEn  string    `gorm:"default:''"`
+	Identity       string    `gorm:"type:text;default:''"`
+	IdentityEn     string    `gorm:"type:text;default:''"`
+	SystemPrompt   string    `gorm:"type:text;default:''"`
+	SystemPromptEn string    `gorm:"type:text;default:''"`
+	Icon           string    `gorm:"default:''"`
+	Color          string    `gorm:"default:'blue'"`
+	SkillIDs       string    `gorm:"type:text;default:''"`
+	Source         string    `gorm:"default:'user'"`
+	PresetID       string    `gorm:"default:''"`
+	IsDefault      bool      `gorm:"default:false"`
+	SortOrder      int       `gorm:"default:0"`
+	Enabled        bool      `gorm:"default:true"`
+	WorkspaceID    string    `gorm:"index;default:''"`
+	CreatedAt      time.Time `gorm:"autoCreateTime"`
+	UpdatedAt      time.Time `gorm:"autoUpdateTime"`
+}
+
+func (Agent) TableName() string { return "agents" }
 
 // Message is one persisted LLM turn.
 type Message struct {

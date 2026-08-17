@@ -102,6 +102,8 @@ import type {
   DarvinBindSessionWorkspaceResponse,
   DarvinWorkspaceInfoResponse,
   DarvinWorkspaceRootResult,
+  DarvinAgent,
+  DarvinApi,
 } from '../shared/darvin-api';
 import { DarvinPushEvent } from '../shared/darvin-api';
 import { DARVIN_PROVIDERS, darvinProviderPreset } from '../shared/providers';
@@ -487,13 +489,13 @@ const createWindow = (): void => {
 
 ipcMain.handle(
   'darvin:create_session',
-  async (_e, req?: { title?: string; workspaceId?: string; systemPrompt?: string; identity?: string }): Promise<DarvinCreateSessionResponse> => {
+  async (_e, req?: { title?: string; workspaceId?: string; systemPrompt?: string; identity?: string; agentId?: string }): Promise<DarvinCreateSessionResponse> => {
     if (!client.isConnected()) throw new Error('agent offline');
     // 新建会话必须落在 active workspace；调用方不传时用 activeWorkspaceId。
     const workspaceId = req?.workspaceId ?? activeWorkspaceId;
     const r = await client.request<DarvinCreateSessionResponse>(
       'agent.create_session',
-      { title: req?.title, workspaceId, systemPrompt: req?.systemPrompt, identity: req?.identity },
+      { title: req?.title, workspaceId, systemPrompt: req?.systemPrompt, identity: req?.identity, agentId: req?.agentId },
     );
     cache.activeSessionId = r.session.id;
     // 重锚 workspace 到 active workspace（新会话落在那）
@@ -1563,6 +1565,70 @@ ipcMain.handle('darvin:get_app_info', async (): Promise<DarvinAppInfo> => {
     arch: process.arch,
   };
 });
+
+async function broadcastAgentsChanged(workspaceId: string): Promise<void> {
+  if (!client.isConnected()) return;
+  try {
+    const r = await client.request<{ agents: DarvinAgent[] }>('agent.list_agents', { workspaceId });
+    for (const w of BrowserWindow.getAllWindows()) {
+      w.webContents.send(DarvinPushEvent.AgentsChanged, r.agents);
+    }
+  } catch (e) {
+    console.warn(`[main] broadcast agents-changed failed: ${(e as Error).message}`);
+  }
+}
+
+ipcMain.handle('agents:list', async (_e, workspaceId: string): Promise<{ agents: DarvinAgent[] }> => {
+  if (!client.isConnected()) throw new Error('agent offline');
+  return client.request('agent.list_agents', { workspaceId });
+});
+
+ipcMain.handle('agents:get', async (_e, agentId: string): Promise<{ agent: DarvinAgent }> => {
+  if (!client.isConnected()) throw new Error('agent offline');
+  return client.request('agent.get_agent', { agentId });
+});
+
+ipcMain.handle(
+  'agents:create',
+  async (_e, req: Parameters<DarvinApi['createAgent']>[0]): Promise<{ agent: DarvinAgent }> => {
+    if (!client.isConnected()) throw new Error('agent offline');
+    const r = await client.request<{ agent: DarvinAgent }>('agent.create_agent', req);
+    void broadcastAgentsChanged(req.workspaceId);
+    return r;
+  },
+);
+
+ipcMain.handle(
+  'agents:update',
+  async (
+    _e,
+    args: { agentId: string; patch: Partial<DarvinAgent> },
+  ): Promise<{ agent: DarvinAgent }> => {
+    if (!client.isConnected()) throw new Error('agent offline');
+    const r = await client.request<{ agent: DarvinAgent }>('agent.update_agent', {
+      agentId: args.agentId,
+      ...args.patch,
+    });
+    void broadcastAgentsChanged(r.agent.workspaceId);
+    return r;
+  },
+);
+
+ipcMain.handle('agents:delete', async (_e, agentId: string): Promise<{ deleted: boolean }> => {
+  if (!client.isConnected()) throw new Error('agent offline');
+  return client.request('agent.delete_agent', { agentId });
+});
+
+ipcMain.handle(
+  'agents:update_default',
+  async (_e, req: { workspaceId: string; defaultAgentId: string }) => {
+    if (!client.isConnected()) throw new Error('agent offline');
+    const r = await client.request<{ workspace: DarvinWorkspace }>('agent.update_default_agent', req);
+    void refreshWorkspaceCache();
+    void broadcastAgentsChanged(req.workspaceId);
+    return r;
+  },
+);
 
 ipcMain.handle(
   'darvin:get_locale',

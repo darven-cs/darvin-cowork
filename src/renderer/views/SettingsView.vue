@@ -20,6 +20,7 @@
           <SettingsPanelModels v-else-if="active === 'models'" />
           <SettingsPanelMemory v-else-if="active === 'memory'" />
           <SettingsPanelRuntime v-else-if="active === 'runtime'" />
+          <SettingsPanelAgents v-else-if="active === 'agents'" />
           <SettingsPanelAbout v-else />
         </div>
       </div>
@@ -38,6 +39,7 @@ import SettingsPanelShortcuts from '../components/settings/SettingsPanelShortcut
 import SettingsPanelModels from '../components/settings/SettingsPanelModels.vue';
 import SettingsPanelMemory from '../components/settings/SettingsPanelMemory.vue';
 import SettingsPanelRuntime from '../components/settings/SettingsPanelRuntime.vue';
+import SettingsPanelAgents from '../components/settings/SettingsPanelAgents.vue';
 import SettingsPanelAbout from '../components/settings/SettingsPanelAbout.vue';
 import { t } from '../services/i18n';
 

@@ -105,6 +105,15 @@ func (s *Session) SetPrompt(systemPrompt, identity string) {
 	s.Identity = identity
 }
 
+// SetAgentID records the agent this session was derived from; empty means
+// "not bound" (legacy sessions created before the agent system). Reads go
+// through Meta(), the existing locked read path.
+func (s *Session) SetAgentID(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AgentID = id
+}
+
 // Prompt returns the session-level system prompt and identity. Readers
 // on other goroutines must use this accessor, not the raw fields.
 func (s *Session) Prompt() (systemPrompt, identity string) {

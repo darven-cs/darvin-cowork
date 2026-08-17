@@ -76,11 +76,12 @@ import type {
   DarvinSetActiveWorkspaceResponse,
   DarvinDeleteWorkspaceResponse,
   DarvinBindSessionWorkspaceResponse,
+  DarvinAgent,
 } from '../shared/darvin-api';
 import { DarvinPushEvent } from '../shared/darvin-api';
 
 const api: DarvinApi = {
-  async createSession(req?: { title?: string; workspaceId?: string; systemPrompt?: string; identity?: string }): Promise<DarvinCreateSessionResponse> {
+  async createSession(req?: { title?: string; workspaceId?: string; systemPrompt?: string; identity?: string; agentId?: string }): Promise<DarvinCreateSessionResponse> {
     return ipcRenderer.invoke('darvin:create_session', req);
   },
   async listSessions(workspaceId?: string): Promise<DarvinListSessionsResponse> {
@@ -376,6 +377,44 @@ const api: DarvinApi = {
   },
   subagentReadResult(runId: string, offsetBytes: number, limitBytes: number): Promise<DarvinSubagentReadResultResponse> {
     return ipcRenderer.invoke('subagent:read_result', runId, offsetBytes, limitBytes);
+  },
+
+  async listAgents(workspaceId: string): Promise<{ agents: DarvinAgent[] }> {
+    return ipcRenderer.invoke('agents:list', workspaceId);
+  },
+  async getAgent(agentId: string): Promise<{ agent: DarvinAgent }> {
+    return ipcRenderer.invoke('agents:get', agentId);
+  },
+  async createAgent(req: {
+    workspaceId: string;
+    name: string;
+    description?: string;
+    nameEn?: string;
+    descriptionEn?: string;
+    identity?: string;
+    identityEn?: string;
+    systemPrompt?: string;
+    systemPromptEn?: string;
+    icon?: string;
+    color?: string;
+    skillIds?: string[];
+    fromPresetId?: string;
+  }): Promise<{ agent: DarvinAgent }> {
+    return ipcRenderer.invoke('agents:create', req);
+  },
+  async updateAgent(agentId: string, patch: Partial<DarvinAgent>): Promise<{ agent: DarvinAgent }> {
+    return ipcRenderer.invoke('agents:update', { agentId, patch });
+  },
+  async deleteAgent(agentId: string): Promise<{ deleted: boolean }> {
+    return ipcRenderer.invoke('agents:delete', agentId);
+  },
+  async updateDefaultAgent(req: { workspaceId: string; defaultAgentId: string }): Promise<{ workspace: DarvinWorkspace }> {
+    return ipcRenderer.invoke('agents:update_default', req);
+  },
+  onAgentsChanged(handler: (agents: DarvinAgent[]) => void): () => void {
+    const listener = (_e: unknown, agents: DarvinAgent[]): void => handler(agents);
+    ipcRenderer.on(DarvinPushEvent.AgentsChanged, listener);
+    return () => ipcRenderer.off(DarvinPushEvent.AgentsChanged, listener);
   },
 };
 

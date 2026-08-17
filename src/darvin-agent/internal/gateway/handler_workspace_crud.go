@@ -21,13 +21,14 @@ var workspaceIDGen = nanoid.MustCustomASCII(sessionAlphabet, sessionIDLen)
 // display title (name when set, else the root basename); RootPath is sent
 // only so the renderer can operate on files in the workspace directory.
 type WorkspaceWire struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Label        string `json:"label"`
-	RootPath     string `json:"rootPath"`
-	SessionCount int64  `json:"sessionCount"`
-	CreatedAt    int64  `json:"createdAt"`
-	UpdatedAt    int64  `json:"updatedAt"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Label          string `json:"label"`
+	RootPath       string `json:"rootPath"`
+	SessionCount   int64  `json:"sessionCount"`
+	DefaultAgentID string `json:"defaultAgentId,omitempty"`
+	CreatedAt      int64  `json:"createdAt"`
+	UpdatedAt      int64  `json:"updatedAt"`
 }
 
 // ListWorkspacesResult is the JSON-RPC result for agent.list_workspaces.
@@ -99,6 +100,20 @@ func handleCreateWorkspace(ctx context.Context, id json.RawMessage, params json.
 	w := store.Workspace{ID: workspaceIDGen(), Name: strings.TrimSpace(p.Name), RootPath: p.RootPath}
 	if err := h.WorkspaceStore.Create(ctx, w); err != nil {
 		return errorResp(id, CodeInternalError, "create workspace", err)
+	}
+	// Seed the 9 expert presets + bind the Main Agent default so a fresh
+	// workspace is immediately usable by the expert suite / settings UI.
+	// Failures keep the workspace functional but agent-less; the
+	// create_session path degrades to "no default agent".
+	if h.AgentStore != nil {
+		if err := h.AgentStore.SeedPresets(ctx, w.ID); err != nil {
+			return errorResp(id, CodeInternalError, "seed agent presets", err)
+		}
+		main, err := h.AgentStore.EnsureDefaultForWorkspace(ctx, w.ID)
+		if err == nil {
+			_ = h.WorkspaceStore.UpdateDefaultAgent(ctx, w.ID, main.ID)
+			w.DefaultAgentID = main.ID
+		}
 	}
 	return successResp(id, CreateWorkspaceResult{Workspace: toWorkspaceWire(w, 0)})
 }
@@ -340,13 +355,14 @@ func toWorkspaceWire(w store.Workspace, sessionCount int64) WorkspaceWire {
 		label = filepath.Base(w.RootPath)
 	}
 	return WorkspaceWire{
-		ID:           w.ID,
-		Name:         w.Name,
-		Label:        label,
-		RootPath:     w.RootPath,
-		SessionCount: sessionCount,
-		CreatedAt:    w.CreatedAt.UnixMilli(),
-		UpdatedAt:    w.UpdatedAt.UnixMilli(),
+		ID:             w.ID,
+		Name:           w.Name,
+		Label:          label,
+		RootPath:       w.RootPath,
+		SessionCount:   sessionCount,
+		DefaultAgentID: w.DefaultAgentID,
+		CreatedAt:      w.CreatedAt.UnixMilli(),
+		UpdatedAt:      w.UpdatedAt.UnixMilli(),
 	}
 }
 

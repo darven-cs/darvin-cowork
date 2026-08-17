@@ -83,6 +83,12 @@ export function useWorkspaces() {
     return r.workspace;
   }
 
+  async function updateDefaultAgent(req: { workspaceId: string; defaultAgentId: string }): Promise<DarvinWorkspace> {
+    const r = await window.darvin.updateDefaultAgent(req);
+    replaceInList(r.workspace);
+    return r.workspace;
+  }
+
   function replaceInList(updated: DarvinWorkspace): void {
     const i = workspaces.value.findIndex((w) => w.id === updated.id);
     if (i === -1) workspaces.value = [updated, ...workspaces.value];
@@ -107,5 +113,6 @@ export function useWorkspaces() {
     deleteWorkspace,
     renameWorkspace,
     updateWorkspaceRoot,
+    updateDefaultAgent,
   };
 }

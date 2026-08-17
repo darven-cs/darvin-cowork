@@ -52,6 +52,10 @@ type HandlerOptions struct {
 	// binding. nil means those handlers return empty results, suiting
 	// handler-test stubs.
 	WorkspaceStore *store.SQLiteWorkspaceStore
+	// AgentStore backs the agent CRUD RPCs and create_session's agent
+	// prompt derivation. nil disables derivation (params carry the prompt)
+	// and the agent.* handlers return empty results / not-configured.
+	AgentStore store.AgentStore
 }
 
 type Handler struct {
@@ -101,6 +105,9 @@ type Handler struct {
 	SubagentStore store.SubagentStore
 	// WorkspaceStore backs workspace CRUD + session→workspace binding.
 	WorkspaceStore *store.SQLiteWorkspaceStore
+	// AgentStore backs agent CRUD + create_session agent derivation.
+	// nil disables both (handler-test stubs).
+	AgentStore store.AgentStore
 }
 
 // NewHandler wires the dependencies. The runtime injects SessionManager,
@@ -135,6 +142,7 @@ func NewHandler(
 		Log:              o.Log,
 		SubagentStore:    o.SubagentStore,
 		WorkspaceStore:   o.WorkspaceStore,
+		AgentStore:       o.AgentStore,
 	}
 }
 
@@ -246,6 +254,18 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleSubagentAbort(ctx, req.ID, req.Params, h)
 	case "agent.subagent.read_result":
 		return handleSubagentReadResult(ctx, req.ID, req.Params, h)
+	case "agent.list_agents":
+		return handleListAgents(ctx, req.ID, req.Params, h)
+	case "agent.get_agent":
+		return handleGetAgent(ctx, req.ID, req.Params, h)
+	case "agent.create_agent":
+		return handleCreateAgent(ctx, req.ID, req.Params, h)
+	case "agent.update_agent":
+		return handleUpdateAgent(ctx, req.ID, req.Params, h)
+	case "agent.delete_agent":
+		return handleDeleteAgent(ctx, req.ID, req.Params, h)
+	case "agent.update_default_agent":
+		return handleUpdateDefaultAgent(ctx, req.ID, req.Params, h)
 	default:
 		return errorResp(req.ID, CodeMethodNotFound,
 			"Method not found: "+req.Method, nil)

@@ -28,6 +28,7 @@ const items: { id: SettingsSectionId; labelKey: string }[] = [
   { id: 'models',     labelKey: 'settings.models.title' },
   { id: 'memory',     labelKey: 'settings.memory.title' },
   { id: 'runtime',    labelKey: 'settings.runtime.title' },
+  { id: 'agents',     labelKey: 'settings.agents.title' },
   { id: 'about',      labelKey: 'settings.about.title' },
 ];
 

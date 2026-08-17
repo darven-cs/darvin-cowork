@@ -42,15 +42,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import ChatHeader from '../components/chat/ChatHeader.vue';
 import Icon from '../components/common/Icon.vue';
 import AgentCard from '../components/expert/AgentCard.vue';
 import AgentFilterTabs, { type FilterTabId } from '../components/expert/AgentFilterTabs.vue';
+import { useAgents } from '../composables/useAgents';
 import { useSession } from '../composables/useSession';
 import { useViewMode } from '../composables/useViewMode';
+import { useWorkspaces } from '../composables/useWorkspaces';
 import { t, getLang } from '../services/i18n';
-import { expertSuiteAgents, type ExpertAgent } from '../services/mock-data';
+import { darvinAgentToExpert, type ExpertAgent } from '../services/mock-data';
 
 defineProps<{ sidePanelOpen: boolean }>();
 const emit = defineEmits<{
@@ -63,20 +65,39 @@ const activeTab = ref<FilterTabId>('all');
 
 const session = useSession();
 const viewMode = useViewMode();
+const workspaces = useWorkspaces();
+const agentsApi = useAgents();
+
+// 拉当前 workspace 的 agent 列表；workspace 切换时刷新；服务端 push 触发二次刷新。
+async function syncAgents(): Promise<void> {
+  const ws = workspaces.activeWorkspaceId.value;
+  if (!ws) {
+    agentsApi.listAgents('').then(() => undefined).catch(() => undefined);
+    return;
+  }
+  await agentsApi.listAgents(ws);
+}
+void syncAgents();
+watch(() => workspaces.activeWorkspaceId.value, () => { void syncAgents(); });
+watch(() => agentsApi.agents.value.length, () => { /* 触发 derived re-evaluation */ });
 
 const filtered = computed<ExpertAgent[]>(() => {
   const q = query.value.trim().toLowerCase();
   const en = getLang() === 'en';
-  return expertSuiteAgents.filter((a) => {
-    if (activeTab.value === 'free' && a.price !== 'Free') return false;
-    if (activeTab.value !== 'all' && activeTab.value !== 'free' && a.category !== activeTab.value) return false;
-    if (q) {
-      const name = en ? a.nameEn : a.name;
-      const desc = en ? a.descriptionEn : a.description;
-      if (!name.toLowerCase().includes(q) && !desc.toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
+  // 过滤 Main Agent（isDefault=true）— 它走设置页切换默认 agent，不进专家套件。
+  return agentsApi.agents.value
+    .filter((a) => !a.isDefault)
+    .map(darvinAgentToExpert)
+    .filter((a) => {
+      if (activeTab.value === 'free' && a.price !== 'Free') return false;
+      if (activeTab.value !== 'all' && activeTab.value !== 'free' && a.category !== activeTab.value) return false;
+      if (q) {
+        const name = en ? a.nameEn : a.name;
+        const desc = en ? a.descriptionEn : a.description;
+        if (!name.toLowerCase().includes(q) && !desc.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
 });
 
 function onSelectTab(id: FilterTabId) {
@@ -84,12 +105,9 @@ function onSelectTab(id: FilterTabId) {
 }
 
 function onUse(agent: ExpertAgent) {
-  const en = getLang() === 'en';
-  const name = en ? agent.nameEn : agent.name;
-  const systemPrompt = en ? agent.systemPromptEn : agent.systemPrompt;
-  const identity = en ? agent.identityEn : agent.identity;
-  // workspaceId 不传 → main 侧兜底 activeWorkspaceId（现有行为），新会话落在 active workspace。
-  void session.createSession(name, undefined, systemPrompt, identity).then(() => {
+  // workspaceId 不传 → main 侧兜底 activeWorkspaceId；systemPrompt/identity 不传，
+  // 由 agent 表内容派生（handler 端 SnapShot 到 session）。
+  void session.createSession(agent.name, undefined, '', '', agent.id).then(() => {
     viewMode.navigate('chat');
   });
 }

@@ -77,8 +77,9 @@ export function useSession() {
     workspaceId?: string,
     systemPrompt?: string,
     identity?: string,
+    agentId?: string,
   ): Promise<DarvinSession> {
-    const r = await window.darvin.createSession({ title, workspaceId, systemPrompt, identity });
+    const r = await window.darvin.createSession({ title, workspaceId, systemPrompt, identity, agentId });
     if (!sessions.value.some((s) => s.id === r.session.id)) {
       sessions.value = [r.session, ...sessions.value];
     }

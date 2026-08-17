@@ -9,6 +9,7 @@ export const SettingsSections = [
   'models',
   'memory',
   'runtime',
+  'agents',
   'about',
 ] as const;
 
