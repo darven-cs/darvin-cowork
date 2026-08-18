@@ -14,6 +14,7 @@
 
 import { onUnmounted, ref } from 'vue';
 import type {
+  DarvinIMCheck,
   DarvinIMInstance,
   DarvinIMLoginResult,
 } from '../../shared/darvin-api';
@@ -79,7 +80,7 @@ async function toggle(instanceId: string, enabled: boolean): Promise<void> {
   }
 }
 
-async function test(channel: string, config: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+async function test(channel: string, config: Record<string, unknown>): Promise<{ ok: boolean; error?: string; checks?: DarvinIMCheck[] }> {
   try {
     return await window.darvin.imTest({ channel, config });
   } catch (e) {

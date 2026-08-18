@@ -32,6 +32,8 @@ const (
 	pathUpdates  = "/ilink/bot/getupdates"
 	pathSend     = "/ilink/bot/sendmessage"
 	pathTyping   = "/ilink/bot/sendtyping"
+	// probeTimeout bounds a one-shot Probe getupdates (3s poll window + slack).
+	probeTimeout = 12 * time.Second
 )
 
 // Config is the persisted credential payload for a weixin instance.
@@ -127,6 +129,58 @@ func NewConnector(ctx context.Context, seed im.InstanceSeed) (im.Instance, error
 
 // ID returns the instance id.
 func (c *Connector) ID() string { return c.Base.InstanceID }
+
+// Probe runs a one-shot getupdates against the gateway with a short poll
+// window (timeout:3) to verify the bot token without blocking. Unlike the
+// live pollLoop it does not touch the cursor, cache context tokens, or
+// dispatch inbound messages. A missing token fails without any request.
+func (c *Connector) Probe(ctx context.Context) ([]im.Check, error) {
+	if c.cfg.BotToken == "" {
+		return []im.Check{{
+			Code: "login_ok", Title: "Bot token", Level: "fail", Detail: "missing token",
+		}}, nil
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+
+	resp, err := c.post(probeCtx, pathUpdates, map[string]any{
+		"timeout":   3,
+		"base_info": map[string]any{"channel_version": "1.0.3"},
+	})
+	if err != nil {
+		return []im.Check{{
+			Code: "auth_ok", Title: "Get updates", Level: "fail", Detail: err.Error(),
+		}}, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		return []im.Check{{
+			Code: "auth_ok", Title: "Get updates", Level: "fail",
+			Detail: fmt.Sprintf("updates http %d", resp.StatusCode),
+		}}, nil
+	}
+	var out struct {
+		Ret int `json:"ret"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return []im.Check{{
+			Code: "auth_ok", Title: "Get updates", Level: "fail", Detail: err.Error(),
+		}}, err
+	}
+	if out.Ret == -14 {
+		return []im.Check{{
+			Code: "login_ok", Title: "Session", Level: "fail", Detail: errSessionTimeout.Error(),
+		}}, nil
+	}
+	if out.Ret != 0 {
+		return []im.Check{{
+			Code: "auth_ok", Title: "Get updates", Level: "fail",
+			Detail: fmt.Sprintf("ret=%d", out.Ret),
+		}}, nil
+	}
+	return []im.Check{{Code: "auth_ok", Title: "Get updates", Level: "pass"}}, nil
+}
 
 // Start launches the long-poll receive loop.
 func (c *Connector) Start(ctx context.Context) error {

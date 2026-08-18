@@ -88,6 +88,21 @@ type Instance interface {
 	SetInboundHandler(h InboundHandler)
 }
 
+// Prober performs a one-shot connectivity check for the candidate config
+// without persisting or staying connected. Connectors able to probe
+// implement it; others fall back to a build-only pass.
+type Prober interface {
+	Probe(ctx context.Context) ([]Check, error)
+}
+
+// Check is one granular connectivity check inside a probe report.
+type Check struct {
+	Code   string `json:"code"`
+	Title  string `json:"title"`
+	Level  string `json:"level"` // pass | warn | fail
+	Detail string `json:"detail,omitempty"`
+}
+
 // Config is the persisted, channel-agnostic record one instance needs to
 // construct its connector. Channel-specific fields ride in Raw.
 type Config struct {

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onUnmounted, reactive, ref } from 'vue';
+import { computed, onUnmounted, reactive, ref, watch } from 'vue';
 import { showToast } from '../../services/toast';
 import { t } from '../../services/i18n';
 import { useIm } from '../../composables/useIm';
-import type { DarvinIMInstance, DarvinIMLoginResult } from '../../../shared/darvin-api';
+import type { DarvinIMCheck, DarvinIMInstance, DarvinIMLoginResult } from '../../../shared/darvin-api';
 import { toDataURL } from 'qrcode';
 import Icon from '../common/Icon.vue';
 
@@ -23,9 +23,22 @@ const { update, remove, toggle, test, loginStart, loginPoll, create, loadAll } =
 
 const editingId = ref<string | null>(null);
 const editing = reactive<Record<string, string>>({});
+const originalEditing = ref<Record<string, string>>({});
 const saving = ref(false);
 
 const adding = reactive<Record<string, string>>({});
+const showSecretEdit = ref(false);
+const showSecretAdd = ref(false);
+
+const dirty = ref<Record<string, boolean>>({});
+
+const testResult = ref<{ ok: boolean; error?: string; checks?: DarvinIMCheck[] } | null>(null);
+const testSource = ref<DarvinIMInstance | null>(null);
+
+const confirmDelete = ref<DarvinIMInstance | null>(null);
+
+const renamingId = ref<string | null>(null);
+const nameDraft = ref('');
 
 const STATUS_KEY: Record<string, string> = {
   connected: 'im.status.connected',
@@ -112,7 +125,35 @@ async function pollQr(): Promise<void> {
   }
 }
 
-onUnmounted(stopQrPoll);
+onUnmounted(() => {
+  stopQrPoll();
+  warnDiscard();
+});
+
+// 判定编辑面板相对已落库值的改动；切换平台/关闭时据此提示未保存
+watch(editing, () => {
+  if (editingId.value) {
+    dirty.value[editingId.value] = editingDirty();
+  }
+}, { deep: true });
+
+// 组件在平台 tab 切换时保持挂载（ImView 只换 channel prop），需在此提示丢弃
+watch(() => props.channel, () => {
+  warnDiscard();
+  editingId.value = null;
+});
+
+function editingDirty(): boolean {
+  const o = originalEditing.value;
+  return Object.keys(o).some((k) => (editing[k] ?? '') !== (o[k] ?? ''));
+}
+
+function warnDiscard(): void {
+  if (editingId.value && dirty.value[editingId.value]) {
+    showToast(t('im.dirty.discard'), 'info');
+    delete dirty.value[editingId.value];
+  }
+}
 
 function statusLabel(s: string): string {
   return t(STATUS_KEY[s] ?? 'im.status.stopped');
@@ -122,13 +163,21 @@ async function onToggle(inst: DarvinIMInstance): Promise<void> {
   await toggle(inst.id, !inst.enabled);
 }
 
-async function onDelete(inst: DarvinIMInstance): Promise<void> {
+function requestDelete(inst: DarvinIMInstance): void {
+  confirmDelete.value = inst;
+}
+
+async function confirmDeleteInstance(): Promise<void> {
+  const inst = confirmDelete.value;
+  confirmDelete.value = null;
+  if (!inst) return;
   await remove(inst.id);
 }
 
 function startEdit(inst: DarvinIMInstance): void {
+  warnDiscard();
   editingId.value = inst.id;
-  Object.assign(editing, {
+  const snapshot = {
     name: inst.name ?? '',
     appId: (inst.config?.appId as string) ?? '',
     appSecret: (inst.config?.appSecret as string) ?? '',
@@ -136,7 +185,15 @@ function startEdit(inst: DarvinIMInstance): void {
     secret: (inst.config?.secret as string) ?? '',
     accessMode: inst.accessMode ?? 'open',
     allowFrom: (inst.allowFrom ?? []).join(','),
-  });
+  };
+  originalEditing.value = { ...snapshot };
+  Object.assign(editing, snapshot);
+  showSecretEdit.value = false;
+}
+
+function cancelEdit(): void {
+  warnDiscard();
+  editingId.value = null;
 }
 
 async function onSave(inst: DarvinIMInstance): Promise<void> {
@@ -156,13 +213,19 @@ async function onSave(inst: DarvinIMInstance): Promise<void> {
       access_mode: editing.accessMode,
       allow_from: editing.allowFrom,
     });
+    originalEditing.value = { ...editing };
+    dirty.value[inst.id] = false;
     editingId.value = null;
   } finally {
     saving.value = false;
   }
 }
 
-async function onTest(): Promise<void> {
+function markDirty(): void {
+  if (editingId.value) dirty.value[editingId.value] = true;
+}
+
+async function onTest(inst: DarvinIMInstance): Promise<void> {
   const config: Record<string, unknown> = {};
   if (props.channel === 'qq') {
     config.appId = editing.appId;
@@ -171,12 +234,41 @@ async function onTest(): Promise<void> {
     config.botId = editing.botId;
     config.secret = editing.secret;
   }
+  testSource.value = inst;
   const res = await test(props.channel, config);
-  if (res.ok) {
-    showToast(t('im.toast.test_ok'), 'success');
-  } else {
-    showToast(t('im.toast.test_ko', { error: res.error ?? 'unknown' }), 'error');
+  testResult.value = res;
+}
+
+function testVerdict(): 'pass' | 'warn' | 'fail' {
+  const checks = testResult.value?.checks ?? [];
+  if (checks.some((c) => c.level === 'fail')) return 'fail';
+  if (checks.some((c) => c.level === 'warn')) return 'warn';
+  return checks.length > 0 ? 'pass' : (testResult.value?.ok ? 'pass' : 'fail');
+}
+
+async function confirmEnableFromTest(): Promise<void> {
+  const inst = testSource.value;
+  testResult.value = null;
+  testSource.value = null;
+  if (inst && !inst.enabled) {
+    await toggle(inst.id, true);
   }
+}
+
+function closeTest(): void {
+  testResult.value = null;
+  testSource.value = null;
+}
+
+function beginRename(inst: DarvinIMInstance): void {
+  renamingId.value = inst.id;
+  nameDraft.value = inst.name || inst.channel;
+}
+
+async function commitRename(inst: DarvinIMInstance): Promise<void> {
+  renamingId.value = null;
+  const name = nameDraft.value.trim() || inst.channel;
+  await update(inst.id, { name });
 }
 
 async function beginQr(): Promise<void> {
@@ -242,6 +334,22 @@ async function submitCreate(): Promise<void> {
   }
   emit('submit-create', config);
 }
+
+const testVerdictClass: Record<'pass' | 'warn' | 'fail', string> = {
+  pass: 'text-success',
+  warn: 'text-warning',
+  fail: 'text-danger',
+};
+
+const testVerdictKey = computed(() => `im.test.verdict.${testVerdict()}`);
+
+const showEnableFromTest = computed(
+  () =>
+    testVerdict() === 'pass' &&
+    !!testSource.value &&
+    !testSource.value.enabled &&
+    !!testResult.value,
+);
 </script>
 
 <template>
@@ -321,7 +429,31 @@ async function submitCreate(): Promise<void> {
           </label>
           <label v-if="channel === 'qq'" class="flex flex-col gap-1 text-xs text-text-muted">
             {{ t('im.form.qq.appSecret') }}
-            <input v-model="adding.appSecret" type="password" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" />
+            <div class="relative">
+              <input
+                v-model="adding.appSecret"
+                :type="showSecretAdd ? 'text' : 'password'"
+                class="w-full rounded-md border border-border bg-bg px-2 py-1.5 pr-16 text-sm text-text"
+              />
+              <div class="absolute inset-y-0 right-0 flex items-center pr-1">
+                <button
+                  type="button"
+                  class="p-1 text-text-muted hover:text-text"
+                  :aria-label="showSecretAdd ? t('im.action.hide_secret') : t('im.action.show_secret')"
+                  @click="showSecretAdd = !showSecretAdd"
+                >
+                  <Icon :name="showSecretAdd ? 'eye-off' : 'eye'" :size="16" />
+                </button>
+                <button
+                  type="button"
+                  class="p-1 text-text-muted hover:text-text"
+                  :aria-label="t('im.action.clear')"
+                  @click="adding.appSecret = ''"
+                >
+                  <Icon name="x" :size="15" />
+                </button>
+              </div>
+            </div>
           </label>
           <label v-if="channel === 'wecom'" class="flex flex-col gap-1 text-xs text-text-muted">
             {{ t('im.form.wecom.botId') }}
@@ -329,7 +461,31 @@ async function submitCreate(): Promise<void> {
           </label>
           <label v-if="channel === 'wecom'" class="flex flex-col gap-1 text-xs text-text-muted">
             {{ t('im.form.wecom.secret') }}
-            <input v-model="adding.secret" type="password" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" />
+            <div class="relative">
+              <input
+                v-model="adding.secret"
+                :type="showSecretAdd ? 'text' : 'password'"
+                class="w-full rounded-md border border-border bg-bg px-2 py-1.5 pr-16 text-sm text-text"
+              />
+              <div class="absolute inset-y-0 right-0 flex items-center pr-1">
+                <button
+                  type="button"
+                  class="p-1 text-text-muted hover:text-text"
+                  :aria-label="showSecretAdd ? t('im.action.hide_secret') : t('im.action.show_secret')"
+                  @click="showSecretAdd = !showSecretAdd"
+                >
+                  <Icon :name="showSecretAdd ? 'eye-off' : 'eye'" :size="16" />
+                </button>
+                <button
+                  type="button"
+                  class="p-1 text-text-muted hover:text-text"
+                  :aria-label="t('im.action.clear')"
+                  @click="adding.secret = ''"
+                >
+                  <Icon name="x" :size="15" />
+                </button>
+              </div>
+            </div>
           </label>
         </div>
         <div class="mt-4 flex gap-2">
@@ -356,7 +512,26 @@ async function submitCreate(): Promise<void> {
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <Icon name="message-square" :size="16" class="text-text-muted" />
-          <span class="text-sm font-medium text-text">{{ inst.name || inst.channel }}</span>
+          <template v-if="renamingId === inst.id">
+            <input
+              v-model="nameDraft"
+              class="rounded-md border border-border bg-bg px-2 py-1 text-sm text-text"
+              :placeholder="t('im.rename.placeholder')"
+              @keydown.enter="commitRename(inst)"
+              @keydown.esc="renamingId = null"
+              @blur="commitRename(inst)"
+            />
+          </template>
+          <template v-else>
+            <span
+              class="cursor-pointer text-sm font-medium text-text hover:underline"
+              :title="t('im.rename.placeholder')"
+              @click="beginRename(inst)"
+            >{{ inst.name || inst.channel }}</span>
+          </template>
+          <span v-if="dirty[inst.id]" class="rounded-full bg-warning/15 px-2 py-0.5 text-xs text-warning">
+            {{ t('im.dirty.unsaved') }}
+          </span>
           <span class="rounded-full px-2 py-0.5 text-xs" :class="STATUS_CLASS[inst.status.state] ?? STATUS_CLASS.stopped">
             {{ statusLabel(inst.status.state) }}
           </span>
@@ -369,36 +544,95 @@ async function submitCreate(): Promise<void> {
           <button class="text-xs text-text-muted hover:text-text" @click="startEdit(inst)">
             {{ t('im.action.save') }}
           </button>
-          <button class="text-xs text-danger" @click="onDelete(inst)">
+          <button class="text-xs text-danger" @click="requestDelete(inst)">
             {{ t('im.action.delete') }}
           </button>
         </div>
       </div>
 
+      <!-- lastError 红条 -->
+      <div
+        v-if="inst.status?.lastError"
+        class="mt-2 flex items-start gap-1.5 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger"
+      >
+        <Icon name="alert-circle" :size="14" class="mt-0.5 shrink-0" />
+        <span class="break-all">{{ inst.status.lastError }}</span>
+      </div>
+
       <div v-if="editingId === inst.id" class="mt-3 flex flex-col gap-3 border-t border-border pt-3">
         <label class="flex flex-col gap-1 text-xs text-text-muted">
           {{ t('im.form.name') }}
-          <input v-model="editing.name" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" />
+          <input v-model="editing.name" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" @input="markDirty" />
         </label>
         <label v-if="channel === 'qq'" class="flex flex-col gap-1 text-xs text-text-muted">
           {{ t('im.form.qq.appId') }}
-          <input v-model="editing.appId" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" />
+          <input v-model="editing.appId" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" @input="markDirty" />
         </label>
         <label v-if="channel === 'qq'" class="flex flex-col gap-1 text-xs text-text-muted">
           {{ t('im.form.qq.appSecret') }}
-          <input v-model="editing.appSecret" type="password" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" />
+          <div class="relative">
+            <input
+              v-model="editing.appSecret"
+              :type="showSecretEdit ? 'text' : 'password'"
+              class="w-full rounded-md border border-border bg-bg px-2 py-1.5 pr-16 text-sm text-text"
+              @input="markDirty"
+            />
+            <div class="absolute inset-y-0 right-0 flex items-center pr-1">
+              <button
+                type="button"
+                class="p-1 text-text-muted hover:text-text"
+                :aria-label="showSecretEdit ? t('im.action.hide_secret') : t('im.action.show_secret')"
+                @click="showSecretEdit = !showSecretEdit"
+              >
+                <Icon :name="showSecretEdit ? 'eye-off' : 'eye'" :size="16" />
+              </button>
+              <button
+                type="button"
+                class="p-1 text-text-muted hover:text-text"
+                :aria-label="t('im.action.clear')"
+                @click="editing.appSecret = ''; markDirty()"
+              >
+                <Icon name="x" :size="15" />
+              </button>
+            </div>
+          </div>
         </label>
         <label v-if="channel === 'wecom'" class="flex flex-col gap-1 text-xs text-text-muted">
           {{ t('im.form.wecom.botId') }}
-          <input v-model="editing.botId" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" />
+          <input v-model="editing.botId" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" @input="markDirty" />
         </label>
         <label v-if="channel === 'wecom'" class="flex flex-col gap-1 text-xs text-text-muted">
           {{ t('im.form.wecom.secret') }}
-          <input v-model="editing.secret" type="password" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" />
+          <div class="relative">
+            <input
+              v-model="editing.secret"
+              :type="showSecretEdit ? 'text' : 'password'"
+              class="w-full rounded-md border border-border bg-bg px-2 py-1.5 pr-16 text-sm text-text"
+              @input="markDirty"
+            />
+            <div class="absolute inset-y-0 right-0 flex items-center pr-1">
+              <button
+                type="button"
+                class="p-1 text-text-muted hover:text-text"
+                :aria-label="showSecretEdit ? t('im.action.hide_secret') : t('im.action.show_secret')"
+                @click="showSecretEdit = !showSecretEdit"
+              >
+                <Icon :name="showSecretEdit ? 'eye-off' : 'eye'" :size="16" />
+              </button>
+              <button
+                type="button"
+                class="p-1 text-text-muted hover:text-text"
+                :aria-label="t('im.action.clear')"
+                @click="editing.secret = ''; markDirty()"
+              >
+                <Icon name="x" :size="15" />
+              </button>
+            </div>
+          </div>
         </label>
         <label class="flex flex-col gap-1 text-xs text-text-muted">
           {{ t('im.form.access') }}
-          <select v-model="editing.accessMode" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text">
+          <select v-model="editing.accessMode" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" @change="markDirty">
             <option value="open">{{ t('im.form.access.open') }}</option>
             <option value="allowlist">{{ t('im.form.access.allowlist') }}</option>
             <option value="disabled">{{ t('im.form.access.disabled') }}</option>
@@ -406,17 +640,92 @@ async function submitCreate(): Promise<void> {
         </label>
         <label class="flex flex-col gap-1 text-xs text-text-muted">
           {{ t('im.form.allowFrom') }}
-          <input v-model="editing.allowFrom" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" />
+          <input v-model="editing.allowFrom" class="rounded-md border border-border bg-bg px-2 py-1.5 text-sm text-text" @input="markDirty" />
         </label>
         <div class="flex gap-2">
           <button class="rounded-md bg-primary px-3 py-1.5 text-sm text-white" :disabled="saving" @click="onSave(inst)">
             {{ t('im.action.save') }}
           </button>
-          <button class="rounded-md border border-border px-3 py-1.5 text-sm text-text-muted" @click="onTest">
+          <button class="rounded-md border border-border px-3 py-1.5 text-sm text-text-muted" @click="onTest(inst)">
             {{ t('im.action.test') }}
           </button>
-          <button class="rounded-md border border-border px-3 py-1.5 text-sm text-text-muted" @click="editingId = null">
+          <button class="rounded-md border border-border px-3 py-1.5 text-sm text-text-muted" @click="cancelEdit">
             {{ t('im.action.cancel') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 测试报告弹窗 -->
+    <div v-if="testResult" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="closeTest">
+      <div class="w-full max-w-md rounded-xl bg-surface p-5 shadow-lg">
+        <div class="mb-3 flex items-center justify-between">
+          <h3 class="text-base font-semibold text-text">{{ t('im.test.title') }}</h3>
+          <button class="text-text-muted hover:text-text" :aria-label="t('im.test.close')" @click="closeTest">
+            <Icon name="x" :size="18" />
+          </button>
+        </div>
+
+        <div class="mb-4 flex items-center gap-2 text-sm font-medium" :class="testVerdictClass[testVerdict()]">
+          <Icon
+            :name="testVerdict() === 'pass' ? 'check' : (testVerdict() === 'warn' ? 'alert-circle' : 'x')"
+            :size="18"
+          />
+          <span>{{ t(testVerdictKey) }}</span>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <div
+            v-for="c in testResult.checks"
+            :key="c.code"
+            class="flex items-start gap-2 rounded-md border border-border p-2.5"
+          >
+            <Icon
+              :name="c.level === 'pass' ? 'check' : (c.level === 'warn' ? 'alert-circle' : 'x')"
+              :size="15"
+              class="mt-0.5 shrink-0"
+              :class="c.level === 'pass' ? 'text-success' : (c.level === 'warn' ? 'text-warning' : 'text-danger')"
+            />
+            <div class="min-w-0">
+              <div class="text-sm text-text">{{ c.title }}</div>
+              <div v-if="c.detail" class="break-all text-xs text-text-muted">{{ c.detail }}</div>
+            </div>
+          </div>
+          <div v-if="testResult.checks?.length === 0 && testResult.error" class="text-xs text-text-muted">
+            {{ testResult.error }}
+          </div>
+        </div>
+
+        <div v-if="testVerdict() !== 'pass'" class="mt-4 text-xs text-text-muted">
+          {{ t('im.test.retry_hint') }}
+        </div>
+
+        <div class="mt-5 flex gap-2">
+          <button
+            v-if="showEnableFromTest"
+            class="rounded-md bg-primary px-3 py-1.5 text-sm text-white"
+            @click="confirmEnableFromTest"
+          >
+            {{ t('im.test.enable') }}
+          </button>
+          <button class="ml-auto rounded-md border border-border px-3 py-1.5 text-sm text-text-muted" @click="closeTest">
+            {{ t('im.test.close') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除二次确认弹窗 -->
+    <div v-if="confirmDelete" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="confirmDelete = null">
+      <div class="w-full max-w-sm rounded-xl bg-surface p-5 shadow-lg">
+        <h3 class="mb-3 text-base font-semibold text-text">{{ t('im.confirm.delete.title') }}</h3>
+        <p class="text-sm text-text-muted">{{ t('im.confirm.delete.body', { name: confirmDelete.name || confirmDelete.channel }) }}</p>
+        <div class="mt-5 flex justify-end gap-2">
+          <button class="rounded-md border border-border px-3 py-1.5 text-sm text-text-muted" @click="confirmDelete = null">
+            {{ t('im.confirm.no') }}
+          </button>
+          <button class="rounded-md bg-danger px-3 py-1.5 text-sm text-white" @click="confirmDeleteInstance">
+            {{ t('im.confirm.yes') }}
           </button>
         </div>
       </div>

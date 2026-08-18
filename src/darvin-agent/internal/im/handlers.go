@@ -115,10 +115,13 @@ type TestParams struct {
 	Config      json.RawMessage `json:"config"`
 }
 
-// TestResult reports connectivity for a candidate config.
+// TestResult reports connectivity for a candidate config. When the channel
+// implements Prober, Checks carries the granular probe report; otherwise a
+// build-only pass check is emitted. The ok flag is derived from checks.
 type TestResult struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	OK     bool    `json:"ok"`
+	Error  string  `json:"error,omitempty"`
+	Checks []Check `json:"checks,omitempty"`
 }
 
 // LoginStartParams / LoginPollParams drive the QR login state machine.
@@ -291,6 +294,9 @@ func (h *Handlers) handleSetEnabled(ctx context.Context, params json.RawMessage)
 }
 
 // handleTest probes connectivity for a candidate config without persisting.
+// Results converge on a single TestResult: unknown channel / bad config are
+// emitted as fail checks (not JSON-RPC errors), and channels implementing
+// Prober return their granular report.
 func (h *Handlers) handleTest(ctx context.Context, params json.RawMessage) (any, error) {
 	if h.mgr == nil {
 		return nil, errors.New("im handlers not wired")
@@ -301,11 +307,25 @@ func (h *Handlers) handleTest(ctx context.Context, params json.RawMessage) (any,
 	}
 	build, ok := h.mgr.builders[p.Channel]
 	if !ok {
-		return TestResult{}, fmt.Errorf("no connector for channel %q", p.Channel)
+		return TestResult{
+			OK: false,
+			Checks: []Check{{
+				Code: "channel", Title: "Connector", Level: "fail",
+				Detail: fmt.Sprintf("no connector for channel %q", p.Channel),
+			}},
+		}, nil
 	}
 	var cfg map[string]any
 	if p.Config != nil {
-		_ = decodeRaw(p.Config, &cfg)
+		if err := decodeRaw(p.Config, &cfg); err != nil {
+			return TestResult{
+				OK: false,
+				Checks: []Check{{
+					Code: "config_valid", Title: "Config", Level: "fail",
+					Detail: err.Error(),
+				}},
+			}, nil
+		}
 	}
 	seed := InstanceSeed{
 		Broadcaster: h.mgr.bcast,
@@ -315,10 +335,45 @@ func (h *Handlers) handleTest(ctx context.Context, params json.RawMessage) (any,
 	}
 	inst, err := build(h.ctx, seed)
 	if err != nil {
-		return TestResult{OK: false, Error: err.Error()}, nil
+		return TestResult{
+			OK: false,
+			Checks: []Check{{
+				Code: "config_valid", Title: "Config", Level: "fail",
+				Detail: err.Error(),
+			}},
+		}, nil
 	}
-	_ = inst.Stop(h.ctx)
-	return TestResult{OK: true}, nil
+	defer inst.Stop(h.ctx)
+
+	if prober, ok := inst.(Prober); ok {
+		checks, perr := prober.Probe(h.ctx)
+		res := TestResult{Checks: checks}
+		if perr != nil {
+			res.Error = perr.Error()
+			if len(checks) == 0 {
+				res.Checks = []Check{{
+					Code: "probe", Title: "Probe", Level: "fail", Detail: perr.Error(),
+				}}
+			}
+		}
+		res.OK = allPass(checks)
+		return res, nil
+	}
+	return TestResult{OK: true, Checks: []Check{{Code: "build_ok", Title: "Build", Level: "pass"}}}, nil
+}
+
+// allPass reports whether every check is at least pass-level (warn/fail
+// disqualify), treating an empty report as unresolved.
+func allPass(checks []Check) bool {
+	if len(checks) == 0 {
+		return false
+	}
+	for _, c := range checks {
+		if c.Level != "pass" {
+			return false
+		}
+	}
+	return true
 }
 
 // handleLoginStart begins a QR login session (weixin).

@@ -39,6 +39,9 @@ const (
 	heartbeatInterval = 30 * time.Second
 	sendAckTimeout    = 15 * time.Second
 	dialTimeout       = 10 * time.Second
+	// probeTimeout bounds a one-shot Probe session (handshake + auth ack);
+	// waitAuth uses its own WS read deadline, so this is a belt-and-braces cap.
+	probeTimeout = 20 * time.Second
 	// readDeadline is how long to wait for any frame (incl. heartbeat pong)
 	// before considering the connection dead.
 	readDeadline = 3 * heartbeatInterval
@@ -98,6 +101,42 @@ func NewConnector(ctx context.Context, seed im.InstanceSeed) (im.Instance, error
 
 // ID returns the instance id.
 func (c *Connector) ID() string { return c.Base.InstanceID }
+
+// Probe runs a one-shot authentication against the gateway: dial, send
+// aibot_subscribe, wait for the auth ack, then close. waitAuth enforces its
+// own read deadline, and probeCtx caps the whole session (waitAuth does not
+// observe ctx directly).
+func (c *Connector) Probe(ctx context.Context) ([]im.Check, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+
+	conn, _, err := (&websocket.Dialer{HandshakeTimeout: dialTimeout}).DialContext(probeCtx, wsURL, nil)
+	if err != nil {
+		return []im.Check{{
+			Code: "auth_ok", Title: "Gateway auth", Level: "fail", Detail: err.Error(),
+		}}, err
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]any{
+		"cmd":     cmdSubscribe,
+		"headers": map[string]string{"req_id": newReqID(cmdSubscribe)},
+		"body":    map[string]any{"bot_id": c.cfg.BotID, "secret": c.cfg.Secret},
+	}); err != nil {
+		return []im.Check{{
+			Code: "auth_ok", Title: "Gateway auth", Level: "fail", Detail: err.Error(),
+		}}, err
+	}
+
+	authed, ack := c.waitAuth(conn)
+	if !authed {
+		return []im.Check{{
+			Code: "auth_ok", Title: "Gateway auth", Level: "fail",
+			Detail: fmt.Sprintf("errcode=%d errmsg=%s", ack.errcode, ack.errmsg),
+		}}, nil
+	}
+	return []im.Check{{Code: "auth_ok", Title: "Gateway auth", Level: "pass"}}, nil
+}
 
 // Start opens the gateway connection and launches the read/heartbeat loop.
 func (c *Connector) Start(ctx context.Context) error {

@@ -1372,7 +1372,7 @@ export interface DarvinApi {
   /** IM 通道：单独切换 enabled。 */
   imSetEnabled(req: { instanceId: string; enabled: boolean }): Promise<{ instance: DarvinIMInstance }>;
   /** IM 通道：连通性测试（不持久化）。 */
-  imTest(req: { channel: string; config: Record<string, unknown> }): Promise<{ ok: boolean; error?: string }>;
+  imTest(req: { channel: string; config: Record<string, unknown> }): Promise<{ ok: boolean; error?: string; checks?: DarvinIMCheck[] }>;
   /** IM 通道：开始扫码登录（qq / weixin）。 */
   imLoginStart(req: { workspaceId?: string; channel: string; instanceId: string }): Promise<DarvinIMLoginResult>;
   /** IM 通道：轮询扫码登录状态。 */
@@ -1393,6 +1393,14 @@ export interface DarvinIMStatus {
   startedAt?: number;
   sentCount: number;
   recvCount: number;
+}
+
+/** IM 通道连通性测试中的一条检查项（imTest 返回结构）。 */
+export interface DarvinIMCheck {
+  code: string;
+  title: string;
+  level: 'pass' | 'warn' | 'fail';
+  detail?: string;
 }
 
 /** IM 通道：一个已配置实例（凭据 + 策略 + 状态）。 */

@@ -81,6 +81,18 @@ func NewConnector(ctx context.Context, seed im.InstanceSeed) (im.Instance, error
 // ID returns the instance id.
 func (c *Connector) ID() string { return c.Base.InstanceID }
 
+// Probe performs a one-shot connectivity check by exchanging an app access
+// token with the QQ open platform. The freshly built connector holds no
+// cached token, so this always hits the real endpoint.
+func (c *Connector) Probe(ctx context.Context) ([]im.Check, error) {
+	if err := c.ensureToken(ctx); err != nil {
+		return []im.Check{{
+			Code: "auth_ok", Title: "App access token", Level: "fail", Detail: err.Error(),
+		}}, err
+	}
+	return []im.Check{{Code: "auth_ok", Title: "App access token", Level: "pass"}}, nil
+}
+
 // Start acquires a token and launches the gateway loop.
 func (c *Connector) Start(ctx context.Context) error {
 	c.mu.Lock()
