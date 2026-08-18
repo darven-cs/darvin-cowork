@@ -29,6 +29,7 @@ import { SkillManager } from './libs/skillManager';
 import { installSkillFromFolder, uninstallSkill } from './libs/skillInstall';
 import { McpManager } from './libs/mcpManager';
 import { McpStore } from './libs/mcpStore';
+import { createScheduleProxy } from './libs/scheduleProxy';
 import type {
   DarvinActiveSessionResponse,
   DarvinAppInfo,
@@ -1637,6 +1638,19 @@ ipcMain.handle(
     return { locale: cfg?.locale ?? 'zh' };
   },
 );
+
+const scheduleProxy = createScheduleProxy(client);
+
+ipcMain.handle('schedule:list', async (_e, req: { workspaceId: string }) => scheduleProxy.list(req));
+ipcMain.handle('schedule:get', async (_e, req: { workspaceId: string; scheduleId: string }) => scheduleProxy.get(req));
+ipcMain.handle('schedule:create', async (_e, req: { workspaceId: string; schedule: Parameters<DarvinApi['scheduleCreate']>[0]['schedule'] }) => scheduleProxy.create(req));
+ipcMain.handle('schedule:update', async (_e, req: Parameters<DarvinApi['scheduleUpdate']>[0]) => scheduleProxy.update(req));
+ipcMain.handle('schedule:delete', async (_e, req: { workspaceId: string; scheduleId: string }) => scheduleProxy.delete(req));
+ipcMain.handle('schedule:toggle', async (_e, req: Parameters<DarvinApi['scheduleToggle']>[0]) => scheduleProxy.toggle(req));
+ipcMain.handle('schedule:run_now', async (_e, req: { workspaceId: string; scheduleId: string }) => scheduleProxy.runNow(req));
+ipcMain.handle('schedule:abort', async (_e, req: Parameters<DarvinApi['scheduleAbort']>[0]) => scheduleProxy.abort(req));
+ipcMain.handle('schedule:list_runs', async (_e, req: Parameters<DarvinApi['scheduleListRuns']>[0]) => scheduleProxy.listRuns(req));
+ipcMain.handle('schedule:list_all_runs', async (_e, req: Parameters<DarvinApi['scheduleListAllRuns']>[0]) => scheduleProxy.listAllRuns(req));
 
 ipcMain.handle(
   'darvin:set_locale',

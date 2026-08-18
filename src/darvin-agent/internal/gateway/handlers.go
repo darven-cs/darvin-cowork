@@ -9,6 +9,7 @@ import (
 
 	"darvin-cowork/backend/internal/agents/store"
 	"darvin-cowork/backend/internal/mcp"
+	"darvin-cowork/backend/internal/scheduledtask"
 	"darvin-cowork/backend/internal/skills"
 )
 
@@ -56,6 +57,9 @@ type HandlerOptions struct {
 	// prompt derivation. nil disables derivation (params carry the prompt)
 	// and the agent.* handlers return empty results / not-configured.
 	AgentStore store.AgentStore
+	// ScheduleHandlers dispatches agent.schedule.* RPCs. nil makes those
+	// handlers return an internal-error response.
+	ScheduleHandlers *scheduledtask.Handlers
 }
 
 type Handler struct {
@@ -108,6 +112,8 @@ type Handler struct {
 	// AgentStore backs agent CRUD + create_session agent derivation.
 	// nil disables both (handler-test stubs).
 	AgentStore store.AgentStore
+	// ScheduleHandlers dispatches agent.schedule.* RPCs. nil disables them.
+	ScheduleHandlers *scheduledtask.Handlers
 }
 
 // NewHandler wires the dependencies. The runtime injects SessionManager,
@@ -143,6 +149,7 @@ func NewHandler(
 		SubagentStore:    o.SubagentStore,
 		WorkspaceStore:   o.WorkspaceStore,
 		AgentStore:       o.AgentStore,
+		ScheduleHandlers: o.ScheduleHandlers,
 	}
 }
 
@@ -266,6 +273,26 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleDeleteAgent(ctx, req.ID, req.Params, h)
 	case "agent.update_default_agent":
 		return handleUpdateDefaultAgent(ctx, req.ID, req.Params, h)
+	case "agent.schedule.list":
+		return handleScheduleList(ctx, req.ID, req.Params, h)
+	case "agent.schedule.get":
+		return handleScheduleGet(ctx, req.ID, req.Params, h)
+	case "agent.schedule.create":
+		return handleScheduleCreate(ctx, req.ID, req.Params, h)
+	case "agent.schedule.update":
+		return handleScheduleUpdate(ctx, req.ID, req.Params, h)
+	case "agent.schedule.delete":
+		return handleScheduleDelete(ctx, req.ID, req.Params, h)
+	case "agent.schedule.toggle":
+		return handleScheduleToggle(ctx, req.ID, req.Params, h)
+	case "agent.schedule.run_now":
+		return handleScheduleRunNow(ctx, req.ID, req.Params, h)
+	case "agent.schedule.abort":
+		return handleScheduleAbort(ctx, req.ID, req.Params, h)
+	case "agent.schedule.list_runs":
+		return handleScheduleListRuns(ctx, req.ID, req.Params, h)
+	case "agent.schedule.list_all_runs":
+		return handleScheduleListAllRuns(ctx, req.ID, req.Params, h)
 	default:
 		return errorResp(req.ID, CodeMethodNotFound,
 			"Method not found: "+req.Method, nil)

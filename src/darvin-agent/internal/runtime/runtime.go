@@ -26,6 +26,7 @@ import (
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/mcp"
 	"darvin-cowork/backend/internal/memory"
+	"darvin-cowork/backend/internal/scheduledtask"
 	"darvin-cowork/backend/internal/sessionruntime"
 	"darvin-cowork/backend/internal/skills"
 	tool "darvin-cowork/backend/internal/tools"
@@ -72,6 +73,8 @@ type Runtime struct {
 	Factory            *sessionruntime.AgentFactory
 	Stores             Stores
 	WorkspaceBootstrap *WorkspaceBootstrap
+	ScheduleEngine     *scheduledtask.Engine
+	ScheduleHandlers   *scheduledtask.Handlers
 }
 
 // Stores aggregates the SQLite-backed stores the runtime owns.
@@ -88,6 +91,7 @@ type Stores struct {
 	Digests       store.DigestStore
 	Subagents     *store.SQLiteSubagentStore
 	Agents        *store.SQLiteAgentStore
+	Schedules     *store.ScheduleStore
 }
 
 // Shutdown stops the gateway server, disposes every registered
@@ -96,6 +100,11 @@ type Stores struct {
 // the return value; every error is collected via errors.Join.
 func (r *Runtime) Shutdown(ctx context.Context) error {
 	var errs []error
+	if r.ScheduleEngine != nil {
+		if err := r.ScheduleEngine.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("schedule engine: %w", err))
+		}
+	}
 	if r.Server != nil {
 		if err := r.Server.Shutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("server: %w", err))
@@ -259,6 +268,13 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		return nil, err
 	}
 
+	scheduleEngine := scheduledtask.NewEngine(stores.Schedules, ledger, sessions, log)
+	if err := scheduleEngine.Start(ctx); err != nil {
+		return nil, fmt.Errorf("start schedule engine: %w", err)
+	}
+	scheduleHandlers := scheduledtask.NewHandlers(scheduleEngine, stores.Schedules, log)
+	handler.ScheduleHandlers = scheduleHandlers
+
 	if activeID, err := stores.AppState.GetActiveSession(ctx); err == nil && activeID != "" {
 		if _, err := sessions.EnsureEntry(activeID); err != nil {
 			log.Warn("bootstrap active session failed", zap.String("session_id", activeID), zap.Error(err))
@@ -280,6 +296,8 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		Factory:            factory,
 		Stores:             stores,
 		WorkspaceBootstrap: workspaceBootstrap,
+		ScheduleEngine:     scheduleEngine,
+		ScheduleHandlers:   scheduleHandlers,
 	}, nil
 }
 

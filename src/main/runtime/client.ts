@@ -515,6 +515,9 @@ export function parseDarvinEvent(
     case 'context_usage':
     case 'artifact':
     case 'permission_request':
+    case 'ScheduleChanged':
+    case 'ScheduleRunsChanged':
+    case 'ScheduleFired':
       return raw as unknown as DarvinEvent;
     default:
       return null;

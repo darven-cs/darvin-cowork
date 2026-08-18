@@ -42,6 +42,8 @@ func loadDatabase(ctx context.Context, cfg *config.Config, log *zap.Logger) (Sto
 		&store.ImportedFile{},
 		&store.SessionUsage{},
 		&store.Subagent{},
+		&store.Schedule{},
+		&store.ScheduleRun{},
 	); err != nil {
 		return Stores{}, fmt.Errorf("auto migrate: %w", err)
 	}
@@ -62,6 +64,7 @@ func loadDatabase(ctx context.Context, cfg *config.Config, log *zap.Logger) (Sto
 		Usages:        store.NewSQLiteUsageStore(db),
 		Subagents:     store.NewSQLiteSubagentStore(db),
 		Agents:        agents,
+		Schedules:     store.NewScheduleStore(db),
 	}, nil
 }
 

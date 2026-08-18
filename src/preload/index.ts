@@ -416,6 +416,51 @@ const api: DarvinApi = {
     ipcRenderer.on(DarvinPushEvent.AgentsChanged, listener);
     return () => ipcRenderer.off(DarvinPushEvent.AgentsChanged, listener);
   },
+  scheduleList(req: { workspaceId: string }) {
+    return ipcRenderer.invoke('schedule:list', req);
+  },
+  scheduleGet(req: { workspaceId: string; scheduleId: string }) {
+    return ipcRenderer.invoke('schedule:get', req);
+  },
+  scheduleCreate(req: Parameters<DarvinApi['scheduleCreate']>[0]) {
+    return ipcRenderer.invoke('schedule:create', req);
+  },
+  scheduleUpdate(req: Parameters<DarvinApi['scheduleUpdate']>[0]) {
+    return ipcRenderer.invoke('schedule:update', req);
+  },
+  scheduleDelete(req: { workspaceId: string; scheduleId: string }) {
+    return ipcRenderer.invoke('schedule:delete', req);
+  },
+  scheduleToggle(req: Parameters<DarvinApi['scheduleToggle']>[0]) {
+    return ipcRenderer.invoke('schedule:toggle', req);
+  },
+  scheduleRunNow(req: { workspaceId: string; scheduleId: string }) {
+    return ipcRenderer.invoke('schedule:run_now', req);
+  },
+  scheduleAbort(req: Parameters<DarvinApi['scheduleAbort']>[0]) {
+    return ipcRenderer.invoke('schedule:abort', req);
+  },
+  scheduleListRuns(req: Parameters<DarvinApi['scheduleListRuns']>[0]) {
+    return ipcRenderer.invoke('schedule:list_runs', req);
+  },
+  scheduleListAllRuns(req: Parameters<DarvinApi['scheduleListAllRuns']>[0]) {
+    return ipcRenderer.invoke('schedule:list_all_runs', req);
+  },
+  onSchedulesChanged(handler: (payload: { workspaceId: string }) => void): () => void {
+    const listener = (_e: unknown, payload: { workspaceId: string }): void => handler(payload);
+    ipcRenderer.on(DarvinPushEvent.SchedulesChanged, listener);
+    return () => ipcRenderer.off(DarvinPushEvent.SchedulesChanged, listener);
+  },
+  onScheduleRunsChanged(handler: (payload: { scheduleId: string; runId: string }) => void): () => void {
+    const listener = (_e: unknown, payload: { scheduleId: string; runId: string }): void => handler(payload);
+    ipcRenderer.on(DarvinPushEvent.ScheduleRunsChanged, listener);
+    return () => ipcRenderer.off(DarvinPushEvent.ScheduleRunsChanged, listener);
+  },
+  onScheduleFired(handler: (payload: { scheduleId: string; runId: string; triggeredAt: number }) => void): () => void {
+    const listener = (_e: unknown, payload: { scheduleId: string; runId: string; triggeredAt: number }): void => handler(payload);
+    ipcRenderer.on(DarvinPushEvent.ScheduleFired, listener);
+    return () => ipcRenderer.off(DarvinPushEvent.ScheduleFired, listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('darvin', api);

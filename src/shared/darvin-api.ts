@@ -348,6 +348,24 @@ export type DarvinEvent =
       /** 产出该 artifact 的 assistant 消息 id；聊天消息内卡片组按它挂载（向后兼容，可缺省）。 */
       messageId?: string;
       createdAt: number;
+    }
+  | {
+      type: 'ScheduleChanged';
+      payload: { workspaceId: string };
+      sessionId?: string;
+      runId?: string;
+    }
+  | {
+      type: 'ScheduleRunsChanged';
+      payload: { scheduleId: string; runId: string };
+      sessionId?: string;
+      runId?: string;
+    }
+  | {
+      type: 'ScheduleFired';
+      payload: { scheduleId: string; runId: string; triggeredAt: number };
+      sessionId?: string;
+      runId?: string;
     };
 
 export interface DarvinPromptRequest {
@@ -1040,6 +1058,9 @@ export const DarvinPushEvent = {
   McpServersChanged: 'darvin:push:mcp-servers-changed',
   McpConnectionChanged: 'darvin:push:mcp-connection-changed',
   AgentsChanged: 'darvin:push:agents-changed',
+  SchedulesChanged: 'darvin:push:schedules-changed',
+  ScheduleRunsChanged: 'darvin:push:schedule-runs-changed',
+  ScheduleFired: 'darvin:push:schedule-fired',
 } as const;
 export type DarvinPushEvent = typeof DarvinPushEvent[keyof typeof DarvinPushEvent];
 
@@ -1289,4 +1310,78 @@ export interface DarvinApi {
   updateDefaultAgent(req: { workspaceId: string; defaultAgentId: string }): Promise<{ workspace: DarvinWorkspace }>;
   /** 订阅 agent 列表变更（create / update / delete 之后 main 推）。 */
   onAgentsChanged(handler: (agents: DarvinAgent[]) => void): () => void;
+  /** 列出当前 workspace 下所有 schedule（含 disabled）。 */
+  scheduleList(req: { workspaceId: string }): Promise<{ schedules: DarvinSchedule[] }>;
+  /** 按 id 拿单个 schedule。 */
+  scheduleGet(req: { workspaceId: string; scheduleId: string }): Promise<{ schedule: DarvinSchedule }>;
+  /** 校验 + 落库 + 计算 nextFireAt。 */
+  scheduleCreate(req: { workspaceId: string; schedule: DarvinScheduleInput }): Promise<{ schedule: DarvinSchedule }>;
+  /** patch 模式更新。 */
+  scheduleUpdate(req: { workspaceId: string; scheduleId: string; patch: Partial<DarvinScheduleInput> }): Promise<{ schedule: DarvinSchedule }>;
+  /** 删除 schedule + 级联 schedule_runs。 */
+  scheduleDelete(req: { workspaceId: string; scheduleId: string }): Promise<{ deleted: boolean }>;
+  /** 单独切换 enabled。 */
+  scheduleToggle(req: { workspaceId: string; scheduleId: string; enabled: boolean }): Promise<{ schedule: DarvinSchedule }>;
+  /** 立即触发（不等 tick），乐观写一条 manual run。 */
+  scheduleRunNow(req: { workspaceId: string; scheduleId: string }): Promise<{ run: DarvinScheduleRun }>;
+  /** 立即停止正在跑的 schedule run。 */
+  scheduleAbort(req: { workspaceId: string; scheduleId: string; runId: string }): Promise<{ aborted: boolean }>;
+  /** 按 scheduleId 拿 run 历史（分页）。 */
+  scheduleListRuns(req: { workspaceId: string; scheduleId: string; limit?: number; offset?: number }): Promise<{ runs: DarvinScheduleRun[] }>;
+  /** 当前 workspace 全部 run（全局历史）。 */
+  scheduleListAllRuns(req: { workspaceId: string; limit?: number; offset?: number }): Promise<{ runs: DarvinScheduleRun[] }>;
+  /** 订阅 schedule 列表变更。 */
+  onSchedulesChanged(handler: (payload: { workspaceId: string }) => void): () => void;
+  /** 订阅 schedule run 状态变化。 */
+  onScheduleRunsChanged(handler: (payload: { scheduleId: string; runId: string }) => void): () => void;
+  /** 订阅 schedule 真正触发的瞬间（前端 toast）。 */
+  onScheduleFired(handler: (payload: { scheduleId: string; runId: string; triggeredAt: number }) => void): () => void;
+}
+
+/** Scheduled task 三种 kind 的判别联合；schedule 字段由 kind 决定。 */
+export type DarvinScheduleBody =
+  | { kind: 'at'; at: string }
+  | { kind: 'every'; everyMs: number; anchorMs?: number }
+  | { kind: 'cron'; expr: string; tz?: string };
+
+export interface DarvinSchedule {
+  id: string;
+  workspaceId: string;
+  agentId?: string;
+  name: string;
+  enabled: boolean;
+  kind: 'at' | 'every' | 'cron';
+  schedule: DarvinScheduleBody;
+  prompt: string;
+  sessionTitle?: string;
+  createdAt: number;
+  updatedAt: number;
+  lastFiredAt?: number;
+  nextFireAt?: number;
+  consecutiveErrors: number;
+}
+
+/** renderer → main 创建 / 更新 schedule 时用的 input shape（不带 id / createdAt / updatedAt 等服务端派生字段）。 */
+export interface DarvinScheduleInput {
+  agentId?: string;
+  name: string;
+  enabled?: boolean;
+  kind: 'at' | 'every' | 'cron';
+  schedule: DarvinScheduleBody;
+  prompt: string;
+  sessionTitle?: string;
+}
+
+export interface DarvinScheduleRun {
+  id: string;
+  scheduleId: string;
+  triggeredAt: number;
+  trigger: 'scheduled' | 'manual';
+  sessionId?: string;
+  runId?: string;
+  startedAt?: number;
+  endedAt?: number;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'aborted';
+  error?: string;
+  attempts: number;
 }

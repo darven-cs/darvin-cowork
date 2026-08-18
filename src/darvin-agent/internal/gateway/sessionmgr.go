@@ -204,6 +204,64 @@ func (m *SessionManager) RefreshAllTools() int {
 	return n
 }
 
+// ScheduleSessionID returns the stable session id pinned to scheduleID.
+// Reusing the id across fires gives the schedule a continuous context.
+func ScheduleSessionID(scheduleID string) string {
+	return "schedule-" + scheduleID
+}
+
+// SubmitForSchedule enqueues a headless turn on the schedule's pinned
+// session. The session is created on first call and reused thereafter
+// so the agent sees a continuous conversation across firings.
+func (m *SessionManager) SubmitForSchedule(ctx context.Context, scheduleID, prompt string) (string, error) {
+	sessionID := ScheduleSessionID(scheduleID)
+	entry, err := m.GetOrCreateEntry(sessionID)
+	if err != nil {
+		return "", err
+	}
+	if entry.SessionRuntime == nil {
+		return "", errors.New("scheduled session: no SessionRuntime bound")
+	}
+	ticket, err := entry.SessionRuntime.Loop.Submit(sessionruntime.PromptRequest{
+		Content: prompt,
+	})
+	if err != nil {
+		return "", err
+	}
+	return ticket.RunID, nil
+}
+
+// Abort cancels the in-flight turn on the schedule's pinned session.
+// runID is checked against the active run; a stale runID is a no-op.
+func (m *SessionManager) Abort(ctx context.Context, scheduleID, runID string) error {
+	sessionID := ScheduleSessionID(scheduleID)
+	entry, err := m.GetOrCreateEntry(sessionID)
+	if err != nil {
+		return err
+	}
+	if entry.SessionRuntime == nil {
+		return nil
+	}
+	if entry.SessionRuntime.Loop.ActiveRunID() != runID {
+		return nil
+	}
+	return entry.SessionRuntime.Loop.Abort(ctx)
+}
+
+// IsRunActive reports whether runID is the in-flight turn on the
+// schedule's pinned session. The scheduled-task engine reconciles its
+// "running" run rows against this on every tick.
+func (m *SessionManager) IsRunActive(ctx context.Context, scheduleID, runID string) bool {
+	sessionID := ScheduleSessionID(scheduleID)
+	m.mu.Lock()
+	e, ok := m.byID[sessionID]
+	m.mu.Unlock()
+	if !ok || e == nil || e.SessionRuntime == nil {
+		return false
+	}
+	return e.SessionRuntime.Loop.ActiveRunID() == runID
+}
+
 // GetOrCreateEntry returns the SessionEntry for id, creating it (and
 // lazily building SessionRuntime when factory is wired) for unknown
 // ids. On a hit it checks stoppedUntilMs (ErrSessionStalled), refreshes

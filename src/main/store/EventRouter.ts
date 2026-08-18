@@ -67,6 +67,40 @@ export class EventRouter {
       }
     }
 
+    if (ev.type === 'ScheduleChanged') {
+      for (const win of this.getWindow()) {
+        if (win.isDestroyed()) continue;
+        try {
+          win.webContents.send(DarvinPushEvent.SchedulesChanged, ev.payload);
+        } catch (e) {
+          this.logger.warn(`[eventrouter] send schedules-changed 失败: ${(e as Error).message}`);
+        }
+      }
+      return;
+    }
+    if (ev.type === 'ScheduleRunsChanged') {
+      for (const win of this.getWindow()) {
+        if (win.isDestroyed()) continue;
+        try {
+          win.webContents.send(DarvinPushEvent.ScheduleRunsChanged, ev.payload);
+        } catch (e) {
+          this.logger.warn(`[eventrouter] send schedule-runs-changed 失败: ${(e as Error).message}`);
+        }
+      }
+      return;
+    }
+    if (ev.type === 'ScheduleFired') {
+      for (const win of this.getWindow()) {
+        if (win.isDestroyed()) continue;
+        try {
+          win.webContents.send(DarvinPushEvent.ScheduleFired, ev.payload);
+        } catch (e) {
+          this.logger.warn(`[eventrouter] send schedule-fired 失败: ${(e as Error).message}`);
+        }
+      }
+      return;
+    }
+
     for (const win of this.getWindow()) {
       if (win.isDestroyed()) continue;
       try {
