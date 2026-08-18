@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"sync"
 	"time"
@@ -140,7 +141,8 @@ func (c *Connector) Send(ctx context.Context, to im.Target, msg im.Outbound) err
 	}
 	payload := map[string]any{
 		"content":  msg.Text,
-		"msg_type": 0, // text
+		"msg_type": 0,
+		"msg_seq":  nextMsgSeq(), // QQ uses msg_seq for idempotency/ordering
 	}
 	var url string
 	switch to.PeerKind {
@@ -158,6 +160,14 @@ func (c *Connector) Send(ctx context.Context, to im.Target, msg im.Outbound) err
 	c.MarkSent()
 	c.MarkError(nil)
 	return nil
+}
+
+// nextMsgSeq returns a message sequence number in the 0..65535 range, mirroring
+// the QQ official SDK: QQ uses msg_seq for idempotency/ordering, so every
+// send must carry a fresh one.
+func nextMsgSeq() int {
+	timePart := time.Now().UnixMilli() % 100_000_000
+	return int((timePart ^ int64(rand.Int31n(65536))) % 65536)
 }
 
 // gatewayLoop owns the WS connection: connect → identify → pump events →
