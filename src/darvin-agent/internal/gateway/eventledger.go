@@ -173,6 +173,12 @@ func mapEventToTS(ev event.Event, _ string) any {
 		return m
 	}
 	switch e := ev.(type) {
+	case event.PromptReceivedEvent:
+		return withCommon(map[string]any{
+			"type":      ev.EventName(),
+			"content":   e.Content,
+			"messageId": ev.Common().MessageID,
+		})
 	case event.TextDeltaEvent:
 		return withCommon(map[string]any{
 			"type":      ev.EventName(),

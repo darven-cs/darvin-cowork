@@ -111,9 +111,11 @@ func NewConnector(ctx context.Context, seed im.InstanceSeed) (im.Instance, error
 		return nil, fmt.Errorf("weixin: bad config: %w", err)
 	}
 	return &Connector{
-		Base:     im.NewBase(im.ChannelWeixin, seed.InstanceID),
-		cfg:      cfg,
-		client:   &http.Client{Timeout: 30 * time.Second},
+		Base: im.NewBase(im.ChannelWeixin, seed.InstanceID),
+		cfg:  cfg,
+		// 客户端超时必须大于服务端 getupdates 长轮询窗口（timeout:50），
+		// 否则每个周期在 30s 被强杀成 context deadline exceeded，轮询退避拖慢收消息。
+		client:   &http.Client{Timeout: 90 * time.Second},
 		stop:     make(chan struct{}),
 		ctxToken: make(map[string]string),
 	}, nil
@@ -219,7 +221,9 @@ func (c *Connector) pollLoop() {
 			return
 		default:
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		// context 必须比服务端 getupdates 长轮询窗口（timeout:50）留有足够余量，
+		// 否则偶发阻塞超 60s 会被强杀成 deadline exceeded，连接器持续显示 error。
+		ctx, cancel := context.WithTimeout(context.Background(), 80*time.Second)
 		_, err := c.fetchUpdates(ctx)
 		cancel()
 		if err != nil {
@@ -240,6 +244,8 @@ func (c *Connector) pollLoop() {
 			}
 			continue
 		}
+		// 成功轮询清除上次的瞬时错误，连接器稳定显示 connected。
+		c.MarkError(nil)
 		backoff = time.Second
 	}
 }

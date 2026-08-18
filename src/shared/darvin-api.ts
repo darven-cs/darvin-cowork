@@ -313,6 +313,7 @@ export type DarvinEvent =
   | { type: 'done'; sessionId?: string; runId?: string; messageId: string; usage?: DarvinUsage }
   | { type: 'error'; sessionId?: string; runId?: string; messageId: string; message: string }
   | { type: 'agent_end'; sessionId?: string; runId?: string }
+  | { type: 'prompt_received'; sessionId?: string; runId?: string; messageId: string; content: string }
   | {
       type: 'compaction';
       sessionId: string;

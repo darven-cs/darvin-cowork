@@ -26,17 +26,25 @@ export class EventRouter {
   private logger: Logger;
   private getTitle: (sessionId: string) => string | undefined;
   private unsubscribe: (() => void) | null = null;
+  private onSessionsChanged?: () => void;
+  private onWorkspacesChanged?: () => void;
 
   constructor(opts: {
     client: AgentClient;
     getWindows: () => BrowserWindow[];
     logger?: Logger;
     getTitle?: (sessionId: string) => string | undefined;
+    /** Go 广播 SessionsChanged 时触发；main 用它重查并广播真实 session 列表。 */
+    onSessionsChanged?: () => void;
+    /** Go 广播 WorkspacesChanged 时触发；main 用它重查并广播真实 workspace 列表。 */
+    onWorkspacesChanged?: () => void;
   }) {
     this.client = opts.client;
     this.getWindow = opts.getWindows;
     this.logger = opts.logger ?? console;
     this.getTitle = opts.getTitle ?? (() => undefined);
+    this.onSessionsChanged = opts.onSessionsChanged;
+    this.onWorkspacesChanged = opts.onWorkspacesChanged;
   }
 
   /** 订阅 AgentClient 事件流，开始路由。多次调用幂等。 */
@@ -125,25 +133,14 @@ export class EventRouter {
     }
 
     if (ev.type === 'WorkspacesChanged') {
-      for (const win of this.getWindow()) {
-        if (win.isDestroyed()) continue;
-        try {
-          win.webContents.send(DarvinPushEvent.WorkspacesChanged, ev.payload);
-        } catch (e) {
-          this.logger.warn(`[eventrouter] send workspaces-changed 失败: ${(e as Error).message}`);
-        }
-      }
+      // Go 广播的是空通知（无列表）。让 main 重查并广播真实 workspace 列表，
+      // 否则 renderer 会把 workspaces.value 覆盖成空/undefined 导致侧栏异常。
+      this.onWorkspacesChanged?.();
       return;
     }
     if (ev.type === 'SessionsChanged') {
-      for (const win of this.getWindow()) {
-        if (win.isDestroyed()) continue;
-        try {
-          win.webContents.send(DarvinPushEvent.SessionsChanged, ev.payload);
-        } catch (e) {
-          this.logger.warn(`[eventrouter] send sessions-changed 失败: ${(e as Error).message}`);
-        }
-      }
+      // 同上：重查并广播真实 session 列表，避免空 payload 覆盖 renderer 状态。
+      this.onSessionsChanged?.();
       return;
     }
 

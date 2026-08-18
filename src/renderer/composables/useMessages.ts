@@ -235,6 +235,8 @@ export function interleaveToolSegments(items: AssistantTurnItem[]): InterleavedS
 const messagesBySessionId = ref<Record<string, Message[]>>({});
 const streamingSessionIds = ref<Set<string>>(new Set());
 const unreadSessionIds = ref<Set<string>>(new Set());
+/** 已处理过 prompt_received 的 runId 集合（每个 run 只补一条 user 气泡）。 */
+const pendingPromptRunIds = new Set<string>();
 /** 每 session 上下文用量快照，来自 Go 的 `context_usage` 事件。 */
 const contextUsageBySessionId = ref<Record<string, DarvinContextUsage>>({});
 /** 每 session 已发生的压缩标记，来自 Go 的 `compaction` 事件。 */
@@ -517,6 +519,25 @@ function inferToolEndError(output: unknown): boolean {
 }
 
 function appendToBucket(list: Message[], sid: string, ev: DarvinEvent): void {
+  // 后台/IM 会话的流式事件可能先于任何骨架到达（renderer 不调
+  // startAssistantMessage 调用链）。找不到对应 assistant 消息时兜底创建，
+  // 否则 text_delta/done 被静默丢弃、聊天区不更新。
+  if (
+    ev.messageId &&
+    (ev.type === 'text_delta' || ev.type === 'thinking_delta' || ev.type === 'done' || ev.type === 'error') &&
+    !list.some((m) => m.id === ev.messageId && m.role === 'assistant')
+  ) {
+    list.push({
+      id: ev.messageId,
+      sessionId: sid,
+      role: 'assistant',
+      content: '',
+      done: ev.type === 'done' || ev.type === 'error',
+      error: ev.type === 'error' ? ev.message : undefined,
+      thinking: ev.type === 'thinking_delta' ? ev.delta : undefined,
+      createdAt: Date.now(),
+    });
+  }
   if (ev.type === 'text_delta') {
     const msg = list.find((m) => m.id === ev.messageId);
     if (msg) msg.content += ev.delta;
@@ -535,6 +556,23 @@ function appendToBucket(list: Message[], sid: string, ev: DarvinEvent): void {
     if (msg) {
       msg.done = true;
       msg.error = ev.message;
+    }
+  } else if (ev.type === 'prompt_received') {
+    // IM/headless 会话的 user 消息不会走 renderer 的 appendUserMessage 调用链，
+    // 只能靠 Go 推的 prompt_received 事件补齐。按 runId 去重（每 run 唯一），
+    // 不能按 content 去重——同一文本分两次发是两个 turn，后者会被误跳过。
+    if (sid.startsWith('im-') && ev.runId && ev.content && !pendingPromptRunIds.has(ev.runId)) {
+      pendingPromptRunIds.add(ev.runId);
+      // 事件 messageId 是 assistant run 的 messageId，user 气泡须用独立 id，
+      // 否则与 assistant 消息 id 冲突。
+      list.push({
+        id: `im-u-${ev.runId}`,
+        sessionId: sid,
+        role: 'user',
+        content: ev.content,
+        done: true,
+        createdAt: Date.now(),
+      });
     }
   } else if (ev.type === 'tool_start') {
     const toolUseId = ev.toolUseId ?? ev.messageId;

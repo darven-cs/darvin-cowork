@@ -388,6 +388,12 @@ const eventRouter = new EventRouter({
   client,
   getWindows: () => BrowserWindow.getAllWindows(),
   getTitle: (sessionId) => sessionTitles.get(sessionId),
+  onSessionsChanged: () => {
+    void refreshSessionsAndBroadcast();
+  },
+  onWorkspacesChanged: () => {
+    void refreshWorkspaceCache().then(() => broadcastWorkspacesChanged());
+  },
 });
 
 /** 允许交给系统浏览器 / 外部 handler 的协议白名单。 */

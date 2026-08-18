@@ -511,6 +511,7 @@ export function parseDarvinEvent(
     case 'done':
     case 'error':
     case 'agent_end':
+    case 'prompt_received':
     case 'compaction':
     case 'context_usage':
     case 'artifact':
