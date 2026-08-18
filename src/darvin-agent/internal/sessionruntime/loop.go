@@ -6,6 +6,7 @@ package sessionruntime
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 
 	"github.com/jaevor/go-nanoid"
@@ -40,6 +41,10 @@ type PromptRequest struct {
 	// run only; empty values keep the session default.
 	Provider string
 	Model    string
+	// ReplySink, when non-nil, is invoked once with the final assistant
+	// text after the turn settles. Used by headless integrations (scheduled
+	// tasks, IM channels) that need the reply without a live WS subscriber.
+	ReplySink func(ctx context.Context, reply string, runID string)
 }
 
 // RunTicket correlates a submitted turn with its events; Queued reports
@@ -70,6 +75,7 @@ type promptReq struct {
 	provider    string
 	model       string
 	skill       *SkillInvocation
+	sink        func(ctx context.Context, reply string, runID string)
 	msgID       string
 	userMsgID   string
 }
@@ -159,6 +165,7 @@ func (l *Loop) admit(req PromptRequest, skill *SkillInvocation, jumpQueue bool) 
 		provider:    req.Provider,
 		model:       req.Model,
 		skill:       skill,
+		sink:        req.ReplySink,
 		msgID:       l.idGen(),
 		userMsgID:   l.idGen(),
 	}
@@ -376,7 +383,41 @@ func (l *Loop) executeTurn(req promptReq) {
 	// settles or ctx is cancelled. Errors carry the harness / runner's
 	// verdict; the agent's event bus already saw every LLM / tool event
 	// the harness emitted, so the renderer has a complete picture.
-	_, _ = harness.RunAttemptWithLifecycle(runCtx, l.harness, params)
+	//
+	// The harness does not propagate the final assistant text back into
+	// AttemptResult (AssistantText is only ever set by the mock CLI), so
+	// capture it from the agent bus — the same TextDeltaEvent concatenation
+	// the sub-agent runner uses. Events are delivered to the buffered
+	// channel synchronously during the run (Bus.Emit), so draining right
+	// after the synchronous run captures the full reply with no race; we
+	// filter to this turn's runID in case a steered follow-up overlapped.
+	sub := l.agent.Subscribe(128)
+	result, _ := harness.RunAttemptWithLifecycle(runCtx, l.harness, params)
+	var replyText strings.Builder
+drain:
+	for {
+		select {
+		case ev, ok := <-sub.C():
+			if !ok {
+				break drain
+			}
+			if te, ok := ev.(event.TextDeltaEvent); ok && te.RunID == req.runID {
+				replyText.WriteString(te.Delta)
+			}
+		default:
+			break drain
+		}
+	}
+	sub.Unsubscribe()
+	if req.sink != nil {
+		// Detach from runCtx (cancelled below) so a headless reply still
+		// reaches its peer even after the turn context unwinds.
+		text := replyText.String()
+		if text == "" && result != nil {
+			text = result.AssistantText
+		}
+		req.sink(context.WithoutCancel(l.ctx), text, req.runID)
+	}
 }
 
 // errNoHarness is surfaced when a session has no harness bound. Spec 04

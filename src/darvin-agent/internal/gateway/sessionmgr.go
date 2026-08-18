@@ -231,6 +231,35 @@ func (m *SessionManager) SubmitForSchedule(ctx context.Context, scheduleID, prom
 	return ticket.RunID, nil
 }
 
+// IMSessionID returns the stable session id for an IM conversation key.
+// The key ("im:<channel>:<account>:<peerKind>:<peerID>") is already unique
+// per peer, so it maps 1:1 onto a darvin session id.
+func IMSessionID(imKey string) string {
+	return "im-" + imKey
+}
+
+// SubmitForIM enqueues a headless turn on the session pinned to imKey. The
+// session is created on first call and reused thereafter, so a chat peer
+// sees a continuous context. sink receives the final assistant text.
+func (m *SessionManager) SubmitForIM(ctx context.Context, imKey, prompt string, sink func(ctx context.Context, reply string, runID string)) (string, error) {
+	sessionID := IMSessionID(imKey)
+	entry, err := m.GetOrCreateEntry(sessionID)
+	if err != nil {
+		return "", err
+	}
+	if entry.SessionRuntime == nil {
+		return "", errors.New("im session: no SessionRuntime bound")
+	}
+	ticket, err := entry.SessionRuntime.Loop.Submit(sessionruntime.PromptRequest{
+		Content:   prompt,
+		ReplySink: sink,
+	})
+	if err != nil {
+		return "", err
+	}
+	return ticket.RunID, nil
+}
+
 // Abort cancels the in-flight turn on the schedule's pinned session.
 // runID is checked against the active run; a stale runID is a no-op.
 func (m *SessionManager) Abort(ctx context.Context, scheduleID, runID string) error {

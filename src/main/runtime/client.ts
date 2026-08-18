@@ -518,6 +518,10 @@ export function parseDarvinEvent(
     case 'ScheduleChanged':
     case 'ScheduleRunsChanged':
     case 'ScheduleFired':
+    case 'ImChanged':
+    case 'ImStatusChanged':
+    case 'WorkspacesChanged':
+    case 'SessionsChanged':
       return raw as unknown as DarvinEvent;
     default:
       return null;

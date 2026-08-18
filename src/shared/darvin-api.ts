@@ -366,6 +366,18 @@ export type DarvinEvent =
       payload: { scheduleId: string; runId: string; triggeredAt: number };
       sessionId?: string;
       runId?: string;
+    }
+  | {
+      type: 'ImChanged';
+      payload: Record<string, never>;
+      sessionId?: string;
+      runId?: string;
+    }
+  | {
+      type: 'ImStatusChanged';
+      payload: Record<string, never>;
+      sessionId?: string;
+      runId?: string;
     };
 
 export interface DarvinPromptRequest {
@@ -1061,6 +1073,8 @@ export const DarvinPushEvent = {
   SchedulesChanged: 'darvin:push:schedules-changed',
   ScheduleRunsChanged: 'darvin:push:schedule-runs-changed',
   ScheduleFired: 'darvin:push:schedule-fired',
+  ImChanged: 'darvin:push:im-changed',
+  ImStatusChanged: 'darvin:push:im-status-changed',
 } as const;
 export type DarvinPushEvent = typeof DarvinPushEvent[keyof typeof DarvinPushEvent];
 
@@ -1336,7 +1350,73 @@ export interface DarvinApi {
   onScheduleRunsChanged(handler: (payload: { scheduleId: string; runId: string }) => void): () => void;
   /** 订阅 schedule 真正触发的瞬间（前端 toast）。 */
   onScheduleFired(handler: (payload: { scheduleId: string; runId: string; triggeredAt: number }) => void): () => void;
+  /** IM 通道：列出全部通道实例（含状态快照）。IM 实例是全局的，workspaceId 可选。 */
+  imList(req: { workspaceId?: string }): Promise<{ instances: DarvinIMInstance[] }>;
+  /** IM 通道：按 id 拿单个实例。 */
+  imGet(req: { instanceId: string }): Promise<{ instance: DarvinIMInstance }>;
+  /** IM 通道：创建实例（含 channel + config）。workspaceId 可选（全局实例）。 */
+  imCreate(req: {
+    workspaceId?: string;
+    channel: string;
+    name: string;
+    enabled?: boolean;
+    config: Record<string, unknown>;
+    accessMode?: string;
+    allowFrom?: string[];
+  }): Promise<{ instance: DarvinIMInstance }>;
+  /** IM 通道：patch 更新配置 + 热重载。 */
+  imUpdate(req: { instanceId: string; patch: Record<string, unknown> }): Promise<{ instance: DarvinIMInstance }>;
+  /** IM 通道：删除实例。 */
+  imDelete(req: { instanceId: string }): Promise<{ deleted: boolean }>;
+  /** IM 通道：单独切换 enabled。 */
+  imSetEnabled(req: { instanceId: string; enabled: boolean }): Promise<{ instance: DarvinIMInstance }>;
+  /** IM 通道：连通性测试（不持久化）。 */
+  imTest(req: { channel: string; config: Record<string, unknown> }): Promise<{ ok: boolean; error?: string }>;
+  /** IM 通道：开始扫码登录（qq / weixin）。 */
+  imLoginStart(req: { workspaceId?: string; channel: string; instanceId: string }): Promise<DarvinIMLoginResult>;
+  /** IM 通道：轮询扫码登录状态。 */
+  imLoginPoll(req: { workspaceId?: string; sessionId: string }): Promise<DarvinIMLoginResult>;
+  /** 订阅 IM 通道实例 / 配置变更。 */
+  onImChanged(handler: () => void): () => void;
+  /** 订阅 IM 通道连接状态变更。 */
+  onImStatusChanged(handler: () => void): () => void;
 }
+
+/** IM 通道实例的状态快照。 */
+export interface DarvinIMStatus {
+  channel: string;
+  instanceId: string;
+  enabled: boolean;
+  state: 'connected' | 'disconnected' | 'error' | 'stopped' | 'login_expired';
+  lastError?: string;
+  startedAt?: number;
+  sentCount: number;
+  recvCount: number;
+}
+
+/** IM 通道：一个已配置实例（凭据 + 策略 + 状态）。 */
+export interface DarvinIMInstance {
+  id: string;
+  workspaceId: string;
+  channel: 'qq' | 'wecom' | 'weixin';
+  name: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  accessMode: 'open' | 'allowlist' | 'disabled';
+  allowFrom?: string[];
+  status: DarvinIMStatus;
+}
+
+/** IM 通道：扫码登录会话结果（agent.im.login_* 返回）。 */
+export interface DarvinIMLoginResult {
+  state: 'waiting' | 'scanned' | 'confirmed' | 'expired' | 'cancelled' | 'error';
+  token?: string;
+  botId?: string;
+  avatarUrl?: string;
+  expiresIn?: number;
+  qrUrl?: string;
+}
+
 
 /** Scheduled task 三种 kind 的判别联合；schedule 字段由 kind 决定。 */
 export type DarvinScheduleBody =

@@ -54,7 +54,7 @@ import { useViewMode, type ViewMode } from '../../composables/useViewMode';
 import { useWorkspaces } from '../../composables/useWorkspaces';
 import { t } from '../../services/i18n';
 
-type NavId = 'new_task' | 'search' | 'scheduled' | 'suite' | 'skill' | 'mcp';
+type NavId = 'new_task' | 'search' | 'scheduled' | 'suite' | 'skill' | 'mcp' | 'im';
 
 const NAV_BY_VIEW: Record<string, NavId> = {
   home: 'new_task',
@@ -64,6 +64,7 @@ const NAV_BY_VIEW: Record<string, NavId> = {
   suite: 'suite',
   skills: 'skill',
   mcp: 'mcp',
+  im: 'im',
 };
 
 defineProps<{ collapsed: boolean }>();
@@ -100,6 +101,8 @@ function onNavigate(id: NavId) {
     emit('navigate', 'skills');
   } else if (id === 'mcp') {
     emit('navigate', 'mcp');
+  } else if (id === 'im') {
+    emit('navigate', 'im');
   }
 }
 

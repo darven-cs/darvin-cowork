@@ -461,6 +461,43 @@ const api: DarvinApi = {
     ipcRenderer.on(DarvinPushEvent.ScheduleFired, listener);
     return () => ipcRenderer.off(DarvinPushEvent.ScheduleFired, listener);
   },
+  imList(req: { workspaceId?: string }) {
+    return ipcRenderer.invoke('im:list', req);
+  },
+  imGet(req: { instanceId: string }) {
+    return ipcRenderer.invoke('im:get', req);
+  },
+  imCreate(req: Parameters<DarvinApi['imCreate']>[0]) {
+    return ipcRenderer.invoke('im:create', req);
+  },
+  imUpdate(req: Parameters<DarvinApi['imUpdate']>[0]) {
+    return ipcRenderer.invoke('im:update', req);
+  },
+  imDelete(req: { instanceId: string }) {
+    return ipcRenderer.invoke('im:delete', req);
+  },
+  imSetEnabled(req: Parameters<DarvinApi['imSetEnabled']>[0]) {
+    return ipcRenderer.invoke('im:set_enabled', req);
+  },
+  imTest(req: Parameters<DarvinApi['imTest']>[0]) {
+    return ipcRenderer.invoke('im:test', req);
+  },
+  imLoginStart(req: Parameters<DarvinApi['imLoginStart']>[0]) {
+    return ipcRenderer.invoke('im:login_start', req);
+  },
+  imLoginPoll(req: Parameters<DarvinApi['imLoginPoll']>[0]) {
+    return ipcRenderer.invoke('im:login_poll', req);
+  },
+  onImChanged(handler: () => void): () => void {
+    const listener = (): void => handler();
+    ipcRenderer.on(DarvinPushEvent.ImChanged, listener);
+    return () => ipcRenderer.off(DarvinPushEvent.ImChanged, listener);
+  },
+  onImStatusChanged(handler: () => void): () => void {
+    const listener = (): void => handler();
+    ipcRenderer.on(DarvinPushEvent.ImStatusChanged, listener);
+    return () => ipcRenderer.off(DarvinPushEvent.ImStatusChanged, listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('darvin', api);

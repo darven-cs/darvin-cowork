@@ -24,7 +24,7 @@
 import { t } from '../../services/i18n';
 import Icon from '../common/Icon.vue';
 
-type NavId = 'new_task' | 'search' | 'scheduled' | 'suite' | 'skill' | 'mcp';
+type NavId = 'new_task' | 'search' | 'scheduled' | 'suite' | 'skill' | 'mcp' | 'im';
 
 interface NavItem {
   id: NavId;
@@ -42,5 +42,6 @@ const items: NavItem[] = [
   { id: 'suite',     labelKey: 'sidebar.nav.suite',     icon: 'layout' },
   { id: 'skill',     labelKey: 'sidebar.nav.skill',     icon: 'star' },
   { id: 'mcp',       labelKey: 'sidebar.nav.mcp',       icon: 'link' },
+  { id: 'im',        labelKey: 'sidebar.nav.im',        icon: 'message-square' },
 ];
 </script>

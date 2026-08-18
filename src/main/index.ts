@@ -30,6 +30,7 @@ import { installSkillFromFolder, uninstallSkill } from './libs/skillInstall';
 import { McpManager } from './libs/mcpManager';
 import { McpStore } from './libs/mcpStore';
 import { createScheduleProxy } from './libs/scheduleProxy';
+import { createIMProxy } from './libs/imProxy';
 import type {
   DarvinActiveSessionResponse,
   DarvinAppInfo,
@@ -1640,6 +1641,7 @@ ipcMain.handle(
 );
 
 const scheduleProxy = createScheduleProxy(client);
+const imProxy = createIMProxy(client);
 
 ipcMain.handle('schedule:list', async (_e, req: { workspaceId: string }) => scheduleProxy.list(req));
 ipcMain.handle('schedule:get', async (_e, req: { workspaceId: string; scheduleId: string }) => scheduleProxy.get(req));
@@ -1651,6 +1653,16 @@ ipcMain.handle('schedule:run_now', async (_e, req: { workspaceId: string; schedu
 ipcMain.handle('schedule:abort', async (_e, req: Parameters<DarvinApi['scheduleAbort']>[0]) => scheduleProxy.abort(req));
 ipcMain.handle('schedule:list_runs', async (_e, req: Parameters<DarvinApi['scheduleListRuns']>[0]) => scheduleProxy.listRuns(req));
 ipcMain.handle('schedule:list_all_runs', async (_e, req: Parameters<DarvinApi['scheduleListAllRuns']>[0]) => scheduleProxy.listAllRuns(req));
+
+ipcMain.handle('im:list', async (_e, req: { workspaceId?: string }) => imProxy.list(req));
+ipcMain.handle('im:get', async (_e, req: { instanceId: string }) => imProxy.get(req));
+ipcMain.handle('im:create', async (_e, req: Parameters<DarvinApi['imCreate']>[0]) => imProxy.create(req));
+ipcMain.handle('im:update', async (_e, req: Parameters<DarvinApi['imUpdate']>[0]) => imProxy.update(req));
+ipcMain.handle('im:delete', async (_e, req: { instanceId: string }) => imProxy.delete(req));
+ipcMain.handle('im:set_enabled', async (_e, req: Parameters<DarvinApi['imSetEnabled']>[0]) => imProxy.setEnabled(req));
+ipcMain.handle('im:test', async (_e, req: Parameters<DarvinApi['imTest']>[0]) => imProxy.test(req));
+ipcMain.handle('im:login_start', async (_e, req: Parameters<DarvinApi['imLoginStart']>[0]) => imProxy.loginStart(req));
+ipcMain.handle('im:login_poll', async (_e, req: Parameters<DarvinApi['imLoginPoll']>[0]) => imProxy.loginPoll(req));
 
 ipcMain.handle(
   'darvin:set_locale',

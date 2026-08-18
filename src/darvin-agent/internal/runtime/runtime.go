@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -23,6 +24,10 @@ import (
 	"darvin-cowork/backend/internal/database"
 	"darvin-cowork/backend/internal/gateway"
 	"darvin-cowork/backend/internal/harness"
+	"darvin-cowork/backend/internal/im"
+	"darvin-cowork/backend/internal/im/qq"
+	"darvin-cowork/backend/internal/im/wecom"
+	"darvin-cowork/backend/internal/im/weixin"
 	"darvin-cowork/backend/internal/llm"
 	"darvin-cowork/backend/internal/mcp"
 	"darvin-cowork/backend/internal/memory"
@@ -31,6 +36,17 @@ import (
 	"darvin-cowork/backend/internal/skills"
 	tool "darvin-cowork/backend/internal/tools"
 )
+
+// imBuilders maps each channel to its live connector constructor. It lives
+// here (not in internal/im) so the registry can import the connector
+// subpackages without a cycle.
+func imBuilders() map[string]im.Builder {
+	return map[string]im.Builder{
+		im.ChannelQQ:     qq.NewConnector,
+		im.ChannelWecom:  wecom.NewConnector,
+		im.ChannelWeixin: weixin.NewConnector,
+	}
+}
 
 // Options carries runtime knobs callers may override. Defaults come
 // from config; this struct only holds fields that come from outside
@@ -75,6 +91,8 @@ type Runtime struct {
 	WorkspaceBootstrap *WorkspaceBootstrap
 	ScheduleEngine     *scheduledtask.Engine
 	ScheduleHandlers   *scheduledtask.Handlers
+	IMManager          *im.Manager
+	IMHandlers         *im.Handlers
 }
 
 // Stores aggregates the SQLite-backed stores the runtime owns.
@@ -92,6 +110,7 @@ type Stores struct {
 	Subagents     *store.SQLiteSubagentStore
 	Agents        *store.SQLiteAgentStore
 	Schedules     *store.ScheduleStore
+	IMChannels    *store.IMChannelStore
 }
 
 // Shutdown stops the gateway server, disposes every registered
@@ -104,6 +123,9 @@ func (r *Runtime) Shutdown(ctx context.Context) error {
 		if err := r.ScheduleEngine.Stop(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("schedule engine: %w", err))
 		}
+	}
+	if r.IMManager != nil {
+		r.IMManager.StopAll(ctx)
 	}
 	if r.Server != nil {
 		if err := r.Server.Shutdown(ctx); err != nil {
@@ -275,6 +297,20 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 	scheduleHandlers := scheduledtask.NewHandlers(scheduleEngine, stores.Schedules, log)
 	handler.ScheduleHandlers = scheduleHandlers
 
+	imDir := ""
+	if dsn, err := config.ResolveSessionsDSN(cfg.Database.SessionsDSN); err == nil && dsn != ":memory:" {
+		imDir = filepath.Join(filepath.Dir(dsn), "im-workspaces")
+	}
+	imManager := im.NewManager(stores.IMChannels, sessions, ledger, imBuilders(),
+		stores.Workspaces, stores.Sessions, imDir, log)
+	wid, _ := stores.AppState.GetActiveWorkspace(ctx)
+	if err := imManager.Reload(ctx, wid); err != nil {
+		log.Warn("im reload failed", zap.Error(err))
+	}
+	qr := im.NewQRManager(weixin.NewQRProvider())
+	imHandlers := im.NewHandlers(ctx, imManager, stores.IMChannels, qr, im.InstanceSeed{})
+	handler.IMHandlers = imHandlers
+
 	if activeID, err := stores.AppState.GetActiveSession(ctx); err == nil && activeID != "" {
 		if _, err := sessions.EnsureEntry(activeID); err != nil {
 			log.Warn("bootstrap active session failed", zap.String("session_id", activeID), zap.Error(err))
@@ -298,6 +334,8 @@ func Build(ctx context.Context, opts Options) (*Runtime, error) {
 		WorkspaceBootstrap: workspaceBootstrap,
 		ScheduleEngine:     scheduleEngine,
 		ScheduleHandlers:   scheduleHandlers,
+		IMManager:          imManager,
+		IMHandlers:         imHandlers,
 	}, nil
 }
 

@@ -44,6 +44,8 @@ func loadDatabase(ctx context.Context, cfg *config.Config, log *zap.Logger) (Sto
 		&store.Subagent{},
 		&store.Schedule{},
 		&store.ScheduleRun{},
+		&store.IMChannel{},
+		&store.IMChannelToken{},
 	); err != nil {
 		return Stores{}, fmt.Errorf("auto migrate: %w", err)
 	}
@@ -65,6 +67,7 @@ func loadDatabase(ctx context.Context, cfg *config.Config, log *zap.Logger) (Sto
 		Subagents:     store.NewSQLiteSubagentStore(db),
 		Agents:        agents,
 		Schedules:     store.NewScheduleStore(db),
+		IMChannels:    store.NewIMChannelStore(db),
 	}, nil
 }
 

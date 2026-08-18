@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"darvin-cowork/backend/internal/agents/store"
+	"darvin-cowork/backend/internal/im"
 	"darvin-cowork/backend/internal/mcp"
 	"darvin-cowork/backend/internal/scheduledtask"
 	"darvin-cowork/backend/internal/skills"
@@ -60,6 +61,9 @@ type HandlerOptions struct {
 	// ScheduleHandlers dispatches agent.schedule.* RPCs. nil makes those
 	// handlers return an internal-error response.
 	ScheduleHandlers *scheduledtask.Handlers
+	// IMHandlers dispatches agent.im.* RPCs. nil makes those handlers
+	// return an internal-error response.
+	IMHandlers *im.Handlers
 }
 
 type Handler struct {
@@ -114,6 +118,8 @@ type Handler struct {
 	AgentStore store.AgentStore
 	// ScheduleHandlers dispatches agent.schedule.* RPCs. nil disables them.
 	ScheduleHandlers *scheduledtask.Handlers
+	// IMHandlers dispatches agent.im.* RPCs. nil disables them.
+	IMHandlers *im.Handlers
 }
 
 // NewHandler wires the dependencies. The runtime injects SessionManager,
@@ -150,6 +156,7 @@ func NewHandler(
 		WorkspaceStore:   o.WorkspaceStore,
 		AgentStore:       o.AgentStore,
 		ScheduleHandlers: o.ScheduleHandlers,
+		IMHandlers:       o.IMHandlers,
 	}
 }
 
@@ -293,6 +300,24 @@ func dispatchRequest(ctx context.Context, req *Request, c *client, h *Handler) *
 		return handleScheduleListRuns(ctx, req.ID, req.Params, h)
 	case "agent.schedule.list_all_runs":
 		return handleScheduleListAllRuns(ctx, req.ID, req.Params, h)
+	case "agent.im.list":
+		return handleIMList(ctx, req.ID, req.Params, h)
+	case "agent.im.get":
+		return handleIMGet(ctx, req.ID, req.Params, h)
+	case "agent.im.create":
+		return handleIMCreate(ctx, req.ID, req.Params, h)
+	case "agent.im.update":
+		return handleIMUpdate(ctx, req.ID, req.Params, h)
+	case "agent.im.delete":
+		return handleIMDelete(ctx, req.ID, req.Params, h)
+	case "agent.im.set_enabled":
+		return handleIMSetEnabled(ctx, req.ID, req.Params, h)
+	case "agent.im.test":
+		return handleIMTest(ctx, req.ID, req.Params, h)
+	case "agent.im.login_start":
+		return handleIMLoginStart(ctx, req.ID, req.Params, h)
+	case "agent.im.login_poll":
+		return handleIMLoginPoll(ctx, req.ID, req.Params, h)
 	default:
 		return errorResp(req.ID, CodeMethodNotFound,
 			"Method not found: "+req.Method, nil)

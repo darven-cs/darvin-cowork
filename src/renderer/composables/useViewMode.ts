@@ -17,7 +17,8 @@ export type ViewMode =
   | 'search'
   | 'scheduled'
   | 'skills'
-  | 'mcp';
+  | 'mcp'
+  | 'im';
 
 const mode = ref<ViewMode>('home');
 
@@ -34,8 +35,10 @@ export function useViewMode() {
   function goScheduled(): void { mode.value = 'scheduled'; }
   function goSkills(): void { mode.value = 'skills'; }
   function goMcp(): void { mode.value = 'mcp'; }
+  function goIm(): void { mode.value = 'im'; }
   return {
     mode, navigate,
     goHome, goChat, goWorkspaces, goSuite, goSettings, goSearch, goScheduled, goSkills, goMcp,
+    goIm,
   };
 }

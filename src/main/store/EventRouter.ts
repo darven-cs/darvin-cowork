@@ -101,6 +101,52 @@ export class EventRouter {
       return;
     }
 
+    if (ev.type === 'ImChanged') {
+      for (const win of this.getWindow()) {
+        if (win.isDestroyed()) continue;
+        try {
+          win.webContents.send(DarvinPushEvent.ImChanged, ev.payload);
+        } catch (e) {
+          this.logger.warn(`[eventrouter] send im-changed 失败: ${(e as Error).message}`);
+        }
+      }
+      return;
+    }
+    if (ev.type === 'ImStatusChanged') {
+      for (const win of this.getWindow()) {
+        if (win.isDestroyed()) continue;
+        try {
+          win.webContents.send(DarvinPushEvent.ImStatusChanged, ev.payload);
+        } catch (e) {
+          this.logger.warn(`[eventrouter] send im-status-changed 失败: ${(e as Error).message}`);
+        }
+      }
+      return;
+    }
+
+    if (ev.type === 'WorkspacesChanged') {
+      for (const win of this.getWindow()) {
+        if (win.isDestroyed()) continue;
+        try {
+          win.webContents.send(DarvinPushEvent.WorkspacesChanged, ev.payload);
+        } catch (e) {
+          this.logger.warn(`[eventrouter] send workspaces-changed 失败: ${(e as Error).message}`);
+        }
+      }
+      return;
+    }
+    if (ev.type === 'SessionsChanged') {
+      for (const win of this.getWindow()) {
+        if (win.isDestroyed()) continue;
+        try {
+          win.webContents.send(DarvinPushEvent.SessionsChanged, ev.payload);
+        } catch (e) {
+          this.logger.warn(`[eventrouter] send sessions-changed 失败: ${(e as Error).message}`);
+        }
+      }
+      return;
+    }
+
     for (const win of this.getWindow()) {
       if (win.isDestroyed()) continue;
       try {
