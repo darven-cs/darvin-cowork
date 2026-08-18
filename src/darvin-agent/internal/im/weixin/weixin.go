@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+
 	"darvin-cowork/backend/internal/im"
 )
 
@@ -43,12 +45,13 @@ type Connector struct {
 	*im.Base
 	cfg    Config
 	client *http.Client
+	log    *zap.Logger
 
 	mu       sync.RWMutex
 	stop     chan struct{}
 	started  bool
 	cursor   string            // get_updates_buf 长轮询游标（字符串）
-	ctxToken map[string]string // peerID -> context_token（回复必须回显）
+	ctxToken map[string]string // peerID -> context_token（BOT 消息必须回显）
 }
 
 // errSessionTimeout reports an iLink -14 session timeout; the bot token /
@@ -113,6 +116,7 @@ func NewConnector(ctx context.Context, seed im.InstanceSeed) (im.Instance, error
 	return &Connector{
 		Base: im.NewBase(im.ChannelWeixin, seed.InstanceID),
 		cfg:  cfg,
+		log:  seed.Logger,
 		// 客户端超时必须大于服务端 getupdates 长轮询窗口（timeout:50），
 		// 否则每个周期在 30s 被强杀成 context deadline exceeded，轮询退避拖慢收消息。
 		client:   &http.Client{Timeout: 90 * time.Second},
@@ -176,8 +180,11 @@ func (c *Connector) Status() im.Status {
 	}
 }
 
-// Send pushes a text reply back to a peer. iLink requires echoes the
-// context_token captured from the inbound message for that peer.
+// Send pushes a text reply back to a peer. The msg envelope must carry the
+// bot's message_type/state and a freshly generated client_id (not the
+// inbound peer's), and the text lives inside text_item — mirroring Tencent's
+// openclaw-weixin plugin wire format, otherwise iLink accepts the message
+// but never routes it to the peer's WeChat window.
 func (c *Connector) Send(ctx context.Context, to im.Target, msg im.Outbound) error {
 	c.mu.RLock()
 	ct := c.ctxToken[to.PeerID]
@@ -185,9 +192,13 @@ func (c *Connector) Send(ctx context.Context, to im.Target, msg im.Outbound) err
 	payload := map[string]any{
 		"base_info": map[string]any{"channel_version": "1.0.3"},
 		"msg": map[string]any{
+			"from_user_id":  "",
 			"to_user_id":    to.PeerID,
+			"client_id":     newClientID(),
+			"message_type":  2, // BOT
+			"message_state": 2, // FINISH
 			"context_token": ct,
-			"item_list":     []any{map[string]any{"type": 1, "text": msg.Text}},
+			"item_list":     []any{map[string]any{"type": 1, "text_item": map[string]any{"text": msg.Text}}},
 		},
 	}
 	resp, err := c.post(ctx, pathSend, payload)
@@ -198,16 +209,42 @@ func (c *Connector) Send(ctx context.Context, to im.Target, msg im.Outbound) err
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var out struct {
-		Ret int `json:"ret"`
+		Ret  int    `json:"ret"`
+		Msg  string `json:"message"`
+		Desc string `json:"desc"`
 	}
 	_ = json.Unmarshal(body, &out)
+	if c.log != nil {
+		c.log.Info("weixin send done",
+			zap.String("instance_id", c.Base.InstanceID),
+			zap.String("peer", to.PeerID),
+			zap.Bool("has_ctx_token", ct != ""),
+			zap.Int("ret", out.Ret),
+			zap.String("resp", string(body)),
+		)
+	}
 	if out.Ret == -14 {
 		c.MarkError(errSessionTimeout)
 		return errSessionTimeout
 	}
+	if out.Ret != 0 {
+		// 非 0 ret 即 iLink 拒投（context_token 失效 / to_user_id 非法等），
+		// 记录下来避免被误判为成功。
+		rej := fmt.Errorf("weixin: sendmessage rejected ret=%d resp=%s", out.Ret, string(body))
+		c.MarkError(rej)
+		return rej
+	}
 	c.MarkSent()
 	c.MarkError(nil)
 	return nil
+}
+
+// newClientID returns a fresh per-message client id in the shape the iLink
+// plugin uses (prefix:timestamp-hex), one per outbound message.
+func newClientID() string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return fmt.Sprintf("darvin-weixin:%d-%x", time.Now().UnixMilli(), b)
 }
 
 // pollLoop long-polls getupdates and funnels inbound messages to the
@@ -326,6 +363,7 @@ func (c *Connector) post(ctx context.Context, path string, payload any) (*http.R
 		req.Header.Set("AuthorizationType", "ilink_bot_token")
 		req.Header.Set("Authorization", "Bearer "+c.cfg.BotToken)
 	}
+	// 每次请求随机（与腾讯 openclaw-weixin 一样）；UIN 只用于请求序列关联，不需跨请求稳定。
 	req.Header.Set("X-WECHAT-UIN", base64.StdEncoding.EncodeToString([]byte(wechatUIN())))
 	return c.client.Do(req)
 }

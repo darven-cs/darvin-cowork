@@ -46,6 +46,7 @@ type InstanceSeed struct {
 	InstanceID   string
 	AccessPolicy AccessPolicy
 	Config       map[string]any
+	Logger       *zap.Logger
 }
 
 // IMWorkspaceStore narrows the workspace store surface the manager needs
@@ -311,6 +312,7 @@ func (m *Manager) buildInstance(ctx context.Context, ch *store.IMChannel) error 
 		InstanceID:   ch.ID,
 		AccessPolicy: accessPolicy(ch),
 		Config:       cfg,
+		Logger:       m.log,
 	}
 	inst, err := build(ctx, seed)
 	if err != nil {
