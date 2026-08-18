@@ -2,9 +2,17 @@
   "name": "darvin-cowork",
   "productName": "darvin-cowork",
   "version": "1.0.0",
-  "description": "一款桌面智能助手,用于日常工作,报表生成,定时任务等",
+  "description": "Local-first desktop AI assistant. Electron + Vue 3 UI talking to a Go agent runtime over WebSocket JSON-RPC — streaming chat, tools, MCP, skills, scheduled tasks and IM channels.",
   "main": ".vite/build/main/index.js",
-  "private": true,
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/darven-cs/darvin-cowork.git"
+  },
+  "homepage": "https://github.com/darven-cs/darvin-cowork#readme",
+  "bugs": {
+    "url": "https://github.com/darven-cs/darvin-cowork/issues"
+  },
   "scripts": {
     "prestart": "npm run build:agent && npx electron-rebuild -w better-sqlite3",
     "start": "electron-forge start",
@@ -18,7 +26,16 @@
     "test": "vitest run",
     "smoke": "bash scripts/smoke.sh"
   },
-  "keywords": [],
+  "keywords": [
+    "electron",
+    "vue",
+    "go",
+    "ai-agent",
+    "assistant",
+    "llm",
+    "desktop",
+    "local-first"
+  ],
   "author": {
     "name": "darven",
     "email": "1926248272@qq.com"
