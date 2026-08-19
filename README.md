@@ -44,9 +44,13 @@
 
 Three processes, one conversation:
 
-```
-Vue 3 renderer  ──Electron IPC──►  Electron main  ──WebSocket JSON-RPC 2.0──►  darvin-agent (Go)
-   (UI / state)                      (shell / orchestration)                  (agent loop / tools / LLM)
+```mermaid
+flowchart LR
+  R["Vue 3 renderer<br/>(UI / state)"]
+  M["Electron main<br/>(shell / orchestration)"]
+  G["darvin-agent (Go)<br/>(agent loop / tools / LLM)"]
+  R -- "Electron IPC" --> M
+  M -- "WebSocket JSON-RPC 2.0" --> G
 ```
 
 - **Renderer** — Vue 3 + Tailwind CSS v4, styles via `@theme` design tokens, zh/en i18n with runtime switching.

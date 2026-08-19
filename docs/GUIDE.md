@@ -12,18 +12,34 @@ This is a tour of the renderer UI: what every view does, what every panel shows,
 
 ## Top-level layout
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  Sidebar (left rail)         Composer + Chat (center)   Right   │
-│  - Home                      - Message stream          panel    │
-│  - New / Search tasks        - Streaming text/thinking   (arte-  │
-│  - Scheduled tasks           - Tool call / tool result   facts/ │
-│  - Expert suite              - Composer with file attach todos/ │
-│  - Skills                    - Per-session concurrency   sub-   │
-│  - MCP                                                         agents)│
-│  - IM Channels                                                           │
-│  - Settings                                                                  │
-└──────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph sb["Sidebar (left rail)"]
+    B1["Home"]
+    B2["New / Search tasks"]
+    B3["Scheduled tasks"]
+    B4["Expert suite"]
+    B5["Skills"]
+    B6["MCP"]
+    B7["IM Channels"]
+    B8["Settings"]
+  end
+
+  subgraph cc["Composer + Chat (center)"]
+    C1["Message stream"]
+    C2["Streaming text / thinking"]
+    C3["Tool call / tool result cards"]
+    C4["Composer with file attach"]
+    C5["Per-session concurrency"]
+  end
+
+  subgraph rp["Right panel"]
+    R1["ArtifactPanel<br/>(Code / Doc / Html / Image / LocalService / Markdown / Mermaid / Svg / Text / Video — sandboxed iframes)"]
+    R2["TodoPanel"]
+    R3["SubagentPanel"]
+  end
+
+  sb --> cc --> rp
 ```
 
 The sidebar entries map to `src/renderer/views/` (Home / Chat / Im / Skills / Mcp / ExpertSuite / Scheduled / Search / Workspaces / Settings).
@@ -67,6 +83,38 @@ When the agent spawns a sub-agent, you get a sub-agent panel entry with:
 
 Sub-agents run in their own session; the parent waits for results and incorporates them into the next turn. Parallel sub-agents share the parent's session-wide concurrency budget (configurable).
 
+### Sub-agent delegation — sequence diagram
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant V as Renderer (ChatView)
+  participant G as Gateway (handler_subagent.go)
+  participant SP as SessionRuntime.parent.Loop
+  participant SA as SessionRuntime.sub.Loop
+  participant FA as Sub-Agent
+  participant EL as EventLedger
+
+  User->>V: parent run reaches sub_agent tool
+  V->>G: ws.send agent.subagent.delegate(role, prompt)
+  G->>SP: ensure sub-agent session (SessionManager.EnsureEntry)
+  SP->>SA: SessionRuntime build + Loop.Submit
+  par concurrent sub-agents
+    SA->>FA: Agent.Prompt
+    FA-->>SA: text_delta / thinking_delta
+    SA->>EL: ledger.Append (sub session_id)
+  end
+  alt user aborts sub-agent
+    User->>V: click "abort" in SubagentPanel
+    V->>G: agent.subagent.abort(runID)
+    G->>SA: Loop.Abort (sub session)
+  end
+  SA->>SP: ReplySink(reply, runID) -> parent composes
+  SP-->>G: final tool_result
+  G-->>V: parent turn resumes
+```
+
 ## MCP — Model Context Protocol
 
 `McpView` lists every registered MCP server with its transport (`http` / `sse` / `stdio`), connection status, and tool count. Actions per server:
@@ -78,6 +126,22 @@ Sub-agents run in their own session; the parent waits for results and incorporat
 - **Retry resolution** — re-runs the resolver fingerprint when a server's launch config changes.
 
 MCP servers can also contribute prompts and resources; the agent handles them through the standard MCP lifecycle.
+
+### MCP connect / test / enable — flowchart
+
+```mermaid
+flowchart TD
+  R["Register<br/>(window.darvin.mcpRegister → mcp.Registry.persist)"]
+  R --> C["Connect<br/>(resolve transport http/sse/stdio<br/>+ fingerprint")]
+  C --> H["MCP handshake<br/>(initialize + tools/list)"]
+  H --> T["Test<br/>(live round-trip →<br/>handshake duration + tool count)"]
+  T --> E1["Enable<br/>(register server tools<br/>into tool registry)"]
+  E1 --> U["Use<br/>(tools call via bridge →<br/>server → result)"]
+  E1 --> D1["Disable<br/>(temporarily remove<br/>from registry)"]
+  E1 --> U2["Unregister<br/>(persist delete)"]
+  D1 -.re-enable.-> E1
+  R -.retryResolution.-> C
+```
 
 ## Skills
 
@@ -115,6 +179,29 @@ Source payload (from Go agent IPC) is dispatched by type; it is never injected i
 - Runs in a brand-new session (no chat history carried over).
 - Posts its result back to your main session as a `ScheduleFired` notification (with the `runId` for traceability).
 - Logs every run to the Go store; failed runs keep their last output.
+
+### Scheduled-task firing — sequence diagram
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant E as Engine (scheduledtask/engine.go)
+  participant SR as SessionRunner (gateway.SessionManager)
+  participant L as Loop (headless session)
+  participant AG as Agent
+  participant B as Broadcaster (EventLedger)
+  participant V as Renderer
+
+  E->>E: cron tick → poll store for due tasks
+  E->>SR: SubmitForSchedule(scheduleID, prompt)
+  SR->>L: ensure fresh session + Loop.Submit
+  L->>AG: Agent.Prompt (headless turn)
+  AG-->>L: agent_end (final text + usage)
+  L-->>SR: ReplySink (or final assistant)
+  E->>B: Broadcast ScheduleFired { scheduleId, runId, triggeredAt }
+  B-->>V: webContents.send (ScheduleFired push)
+  Note over E: engine reconciles "running" run rows against IsRunActive;<br/>failureBadge=5 consecutiveErrors → UI badge
+```
 
 ## IM channels — overview
 

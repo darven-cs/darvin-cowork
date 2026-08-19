@@ -171,15 +171,21 @@ make lint-agents-boundaries   # forbids agents/ importing capability packages
 
 ## Adding a new IPC channel
 
-1. Define the request / response / event shapes in `src/shared/darvin-api.ts`. Add the method to `DarvinApi`.
-2. Implement the JSON-RPC handler in Go. The path is `agent.<domain>.<op>` and the handler unpacks params, delegates to a manager / store, returns the wire payload.
-3. Add `ipcMain.handle('<domain>.<op>', ...)` in main that proxies to `agentClient`.
-4. Add the method to `window.darvin` in `src/preload/index.ts` with the typed signature from `darvin-api.ts`.
-5. Add the corresponding subscription / push events if the channel emits them.
-6. Write tests:
-   - Protocol parser / serialization helpers (TypeScript).
-   - The Go handler with a fake store (Go).
-7. Don't ship this without a Vitest test for the protocol shape.
+```mermaid
+flowchart LR
+  A["1. Define types in src/shared/darvin-api.ts<br/>+ add method to DarvinApi"]
+  B["2. Implement JSON-RPC handler in Go<br/>path: agent.&lt;domain&gt;.&lt;op&gt;"]
+  D["3. ipcMain.handle('&lt;domain&gt;.&lt;op&gt;', ...)<br/>in src/main/"]
+  E["4. Add method to window.darvin<br/>in src/preload/index.ts<br/>(typed signature from darvin-api.ts)"]
+  F["5. Add push events if applicable<br/>(DarvinPushEvent)"]
+  G["6. Tests:<br/>- TS: protocol parser / serialization<br/>- Go: handler with fake store"]
+  H["7. Don't ship without a Vitest test<br/>for the protocol shape"]
+
+  A --> B --> D --> E
+  E --> F
+  E --> G
+  G --> H
+```
 
 ## Adding a new IM channel
 

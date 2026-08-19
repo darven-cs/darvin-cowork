@@ -34,6 +34,15 @@ npm start
 
 `prestart` 自动顺序执行：
 
+```mermaid
+flowchart LR
+  A["npm run build:agent<br/>（scripts/build-go.js）<br/>CGO_ENABLED=0 → bin/darvin-agent-平台-架构(.exe)"]
+  A --> B["npx electron-rebuild -w better-sqlite3<br/>按 Electron ABI 重建 native binding"]
+  B --> C["electron-forge start"]
+  C --> D["Vite dev server :5173<br/>+ BrowserWindow（dev 下开 remote-debugging-port=9222）"]
+  A -.src/darvin-agent/ 不存在.-> W1["warning + exit 0<br/>Electron 仍起来（agent 没装）"]
+```
+
 1. `npm run build:agent`——把 Go agent 编到 `bin/darvin-agent-<平台>-<架构><.exe?>`，`CGO_ENABLED=0`。若 `src/darvin-agent/` 不存在，这步打 warning 后 `exit 0`，Electron 仍会起来（只是 agent 没装）。
 2. `npx electron-rebuild -w better-sqlite3`——按 Electron 内置 headers 重建 `better-sqlite3`。
 3. `electron-forge start`——起 Vite dev server（renderer 在 `:5173`）并打开 Electron 窗口。
@@ -91,6 +100,18 @@ node .claude/skills/electron-cdp/scripts/edrv.mjs ping   # 通过 CDP 驱动运�
 ```
 
 `npm run smoke`（在 CI 中）验证打包后的二进制能起来、在超时内打出 `<port>`、能响应 JSON-RPC、干净关闭。它**不**碰任何 LLM 接口。
+
+```mermaid
+flowchart TD
+  S1["scripts/smoke.sh"]
+  S1 --> S2["spawn darvin-agent 二进制<br/>（捕获 stdout）"]
+  S2 --> S3{"stdout 在 5s 内匹配<br/>&lt;port&gt;…&lt;/port&gt;？"}
+  S3 -- 否 --> S4["FAIL — 看 .smoke.log<br/>（config 错 / 语法坏）"]
+  S3 -- 是 --> S5["AgentClient 连<br/>ws://localhost:&lt;port&gt;/ws"]
+  S5 --> S6["跑 JSON-RPC 协议栈<br/>（listSessions / getMessages 等）"]
+  S6 --> S7["退出时 SIGKILL 子进程<br/>（释放 SQLite 锁）"]
+  S7 --> S8["PASS"]
+```
 
 ## 排障
 

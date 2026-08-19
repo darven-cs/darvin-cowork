@@ -12,35 +12,36 @@ IM 子系统在 `src/darvin-agent/internal/im/`。它是一个可插拔的传输
 
 ## 架构
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│   Renderer（ImView / ImInstanceCard.vue）                          │
-│   - 每通道 tab（qq / wecom / weixin）                              │
-│   - 新建 / 编辑 / 删除 / 重命名实例                                │
-│   - secret 明文/隐藏 + 清空、删除二次确认                          │
-│   - 内联重命名、未保存 badge、丢弃 toast                            │
-│   - 一次性测试弹窗（verdict + 逐条 check + 启用提示）              │
-│   - lastError 红条                                                 │
-└─────────────────────────────────────────────────────────────────────┘
-                       │ window.darvin.im*  (Electron IPC 上的 JSON-RPC)
-                       ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│   主进程（imProxy → AgentClient）                                  │
-└─────────────────────────────────────────────────────────────────────┘
-                       │  ws://localhost:<port>/ws  (agent.im.*)
-                       ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│   darvin-agent                                                      │
-│   internal/im/                                                      │
-│   - manager.go     生命周期 / 按通道 builder / 实例映射            │
-│   - contract.go    Instance 接口 + Status + Prober + Check          │
-│   - handlers.go    im.* 方法的 JSON-RPC handler                     │
-│   - base.go        共享的 status / inbound plumbing                │
-│   - qq/            QQ 官方机器人                                   │
-│   - wecom/         企业微信 AI Bot WS 通道                         │
-│   - weixin/        个人微信 iLink HTTP 通道（+ 扫码登录）          │
-│   - qrlogin.go     共享 QR 状态机                                  │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph renderer["渲染层 — ImView.vue / ImInstanceCard.vue"]
+    R["tabs（qq / wecom / weixin）<br/>新建 / 编辑 / 删除 / 重命名<br/>secret 明文/隐藏 + 清空<br/>删除二次确认 modal<br/>测试报告 modal<br/>lastError 红条<br/>未保存 badge + 丢弃 toast"]
+  end
+
+  subgraph main["主进程 — imProxy → AgentClient"]
+    M["window.darvin.im* → AgentClient.request"]
+  end
+
+  subgraph go["darvin-agent — internal/im/"]
+    G0["im.Manager<br/>生命周期 / 按通道 builder / 实例映射<br/>入站 funnel → SessionRunner<br/>出站 Send 回给 peer"]
+    G1["im.Handlers<br/>im.* 方法的 JSON-RPC handler"]
+    G2["im.contract.go<br/>Instance 接口 / Status / Prober / Check / SessionRunner / Broadcaster"]
+    G3["im.base.go<br/>共享 status / inbound plumbing"]
+    G4["im/qq/<br/>官方机器人（WS gateway + token + REST send）"]
+    G5["im/wecom/<br/>AI Bot WS 通道 + aibot_subscribe 鉴权"]
+    G6["im/weixin/<br/>iLink HTTP 通道 + 扫码登录 + 长轮询 getupdates"]
+    G7["im.qrlogin.go<br/>共享 QR 状态机"]
+  end
+
+  R -- "window.darvin.im*（Electron IPC 上的 JSON-RPC）" --> M
+  M -- "ws://localhost:&lt;port&gt;/ws（agent.im.*）" --> G1
+  G1 --> G0
+  G0 --> G2
+  G0 --> G3
+  G0 --> G4
+  G0 --> G5
+  G0 --> G6
+  G6 --> G7
 ```
 
 ## 通道
@@ -98,6 +99,64 @@ type Check struct {
 - `internal/im/handlers.go` 里的 handler 用候选 config 新建实例后跑 `Probe`，再 `defer inst.Stop`。实例不会进入 manager 的实例映射。
 - 错误合并进 `Checks`（`level:"fail"`）。空报告视为未决议（非 pass）。
 - 所有错误收敛成单个 `TestResult` shape——`Checks` 承担所有判断，`Error` 是兜底；`imTest` 不再为「未知 channel」「config 损坏」返回 JSON-RPC error——这两类并入 `{code:"channel" / "config_valid", fail}`。
+
+### `imTest` / `Prober` —— 序列图
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant V as 渲染层（ImInstanceCard.vue）
+  participant E as 主进程（imProxy → AgentClient）
+  participant G as Gateway（handler_im.go）
+  participant H as im.Handlers.handleTest
+  participant M as im.Manager.builders
+  participant C as Connector（qq/wecom/weixin）
+  participant NET as 外部端点
+
+  User->>V: 点击「测试连接」
+  V->>E: window.darvin.imTest({channel, config})
+  E->>G: ws.send agent.im.test
+  G->>H: handleTest(ctx, params)
+  H->>M: builders[channel]?
+  alt 未知 channel
+    H-->>G: TestResult{ ok:false, Checks:[{code:"channel", level:"fail"}] }
+  else 已知 channel
+    H->>M: build(seed) → 全新 Connector
+    alt build 失败（config 无效）
+      H-->>G: TestResult{ ok:false, Checks:[{code:"config_valid", level:"fail"}] }
+    else build 成功
+      H->>C: Probe(ctx)
+      Note over C,NET: 连接器专一次一次探测
+      alt qq
+        C->>NET: POST bots.qq.com/app/getAppAccessToken
+        NET-->>C: 200 带 token / 4xx
+      else wecom
+        C->>NET: Dial wss://openws.work.weixin.qq.com
+        C->>NET: aibot_subscribe（bot_id, secret）
+        NET-->>C: ack（errcode）
+      else weixin
+        alt BotToken 为空
+          C-->>H: [{code:"login_ok", level:"fail"}]
+        else
+          C->>NET: POST getupdates（timeout:3）
+          NET-->>C: result（ret）
+        end
+      end
+      C-->>H: []Check（[]im.Check）
+      H->>H: defer inst.Stop(ctx)
+      H-->>G: TestResult{ ok:allPass(checks), Checks:checks }
+    end
+  end
+  G-->>E: TestResult（JSON-RPC result）
+  E-->>V: 返回
+  V->>User: 渲染测试报告 modal（verdict + 逐条 check 行）
+  alt pass + 当前停用
+    V->>User: 显示「启用」按钮 → window.darvin.imSetEnabled(id, true)
+  else fail
+    V->>User: 提示「保存后重试」
+  end
+```
 
 各连接器发出的稳定 `code` 值（renderer i18n 把 code 映射到用户可见 title）：
 
@@ -187,8 +246,12 @@ renderer 可调的 `agent.im.*` 方法（`src/shared/darvin-api.ts`）：
 
 加一个新 IM 通道（如飞书、钉钉）按设计是三步：
 
-1. 创建 `internal/im/<channel>/<channel>.go`，写 `Connector` 类型并（可选）实现 `Probe(ctx) ([]Check, error)`。
-2. 在 `src/darvin-agent/internal/runtime/runtime.go` 注册 builder（`im.ChannelFoo → foo.NewConnector`）。
-3. 把 channel 常量加进 `internal/im/contract.go`，在 renderer 侧加凭据 UI。
-
-Renderer 侧通过 `imList` 的 payload 自动识别新通道。
+```mermaid
+flowchart LR
+  S1["1. 创建 internal/im/&lt;channel&gt;/&lt;channel&gt;.go<br/>Connector 类型<br/>（可选）Probe(ctx) ([]Check, error)"]
+  S2["2. 在 src/darvin-agent/internal/runtime/runtime.go<br/>注册 builder：imBuilders() = map{...}" ]
+  S3["3. 在 internal/im/contract.go 加 channel 常量<br/>（ChannelFoo, StateFoo...）<br/>+ 在 ImInstanceCard.vue 加凭据 UI"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> R["渲染层通过 imList payload 自动接入<br/>（无需其他接入）"]
+```

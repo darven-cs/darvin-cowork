@@ -1,165 +1,477 @@
 # Architecture
 
-> Three processes, one conversation. Vue 3 renderer, Electron shell, Go agent runtime.
+> Three processes, one conversation. Every claim in this document is backed by a file path under `src/`.
 
-## Overview
+darvin-cowork is split into three processes that talk through well-defined boundaries. The renderer is the only process that touches the user. The main process exists only to start the Go child and proxy JSON-RPC traffic. The Go agent is where every piece of business state lives.
 
-darvin-cowork is split into three processes that talk to each other through well-defined boundaries. The renderer is the only process that talks to the user. The main process exists only to start the Go child and proxy JSON-RPC traffic. The Go agent is where every piece of business state lives.
+## 1. Three processes
 
-```
-┌────────────────────────┐    Electron IPC (ipcMain.handle / ipcRenderer.invoke)
-│   Renderer (Vue 3)     │ ◄───────────────────────────────────────────────────┐
-│   src/renderer/        │                                                     │
-│   src/preload/         │ ─── contextBridge exposes window.darvin (typed) ──► │
-└────────────────────────┘                                                     │
-                                                                                ▼
-┌───────────────────────────────────────────────────────────────────────────────┐
-│   Main (Electron)                                                             │
-│   src/main/                                                                   │
-│   - BrowserWindow + DevTools + remote-debugging-port=9222 (dev only)          │
-│   - RuntimeMgr: spawns darvin-agent-<platform>-<arch>, reads <port> from     │
-│     stdout (5s timeout)                                                       │
-│   - AgentClient: WebSocket JSON-RPC 2.0 client                                │
-│   - EventRouter: agent.event → webContents.send (pure forwarder)             │
-│   - ~70 ipcMain.handle channels (session / message / skill / MCP / workspace │
-│     / LLM / prefs / locale / runtime status / attachment / permission / ...)  │
-└───────────────────────────────────────────────────────────────────────────────┘
-                                                                                │
-                                                                                ▼  WebSocket
-                                                                       ws://localhost:<port>/ws
-                                                                                │
-┌───────────────────────────────────────────────────────────────────────────────┐
-│   darvin-agent (Go)                                                           │
-│   src/darvin-agent/                                                           │
-│   - Gateway: WS JSON-RPC server, per-session handler dispatch                 │
-│   - SessionRuntime: per-session agent loop, lifecycle container               │
-│   - Agents: dispatcher / executor / agent loop / ctx engine / permissions     │
-│   - LLM: anthropic / openai / gemini providers, streaming protocol           │
-│   - Tools: built-in tools (fs / shell / search / web_fetch / code_index /     │
-│     sandbox / todo / subagent / notebook_edit / mcp bridge)                   │
-│   - MCP: client (http / sse / stdio) + launcher + registry                    │
-│   - Skills: scanner / loader / frontmatter / registry / runner                │
-│   - IM: QQ / WeCom / WeChat connectors with Prober (one-shot connectivity)   │
-│   - ScheduledTask / SubAgent / Memory / Todos                                │
-│   - Persistence: GORM + SQLite (sessions.db, MCP, skills, scheduled tasks,    │
-│     IM channels, memory)                                                      │
-└───────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph renderer["Renderer (Vue 3) — src/renderer/ + src/preload/"]
+    R1["views / components / composables"]
+    R2["services (i18n, markdown, artifact-renderer)"]
+    R3["window.darvin (typed surface via contextBridge)"]
+  end
+
+  subgraph main["Main (Electron) — src/main/"]
+    M1["ipcMain.handle (~70 channels)"]
+    M2["RuntimeMgr (subprocess lifecycle) — src/main/runtime/manager.ts"]
+    M3["AgentClient (WS JSON-RPC 2.0) — src/main/runtime/client.ts"]
+    M4["EventRouter (agent.event → webContents.send) — src/main/store/EventRouter.ts"]
+  end
+
+  subgraph go["darvin-agent (Go) — src/darvin-agent/"]
+    G1["cmd/app + internal/runtime (assembly)"]
+    G2["internal/gateway (WS server + per-session handlers)"]
+    G3["internal/agents + internal/sessionruntime (turn queue + executor)"]
+    G4["internal/llm (anthropic / openai / gemini + streaming)"]
+    G5["internal/tools (registry / permission / sandbox / mcp bridge)"]
+    G6["internal/mcp + internal/skills + internal/im + internal/scheduledtask + internal/subagent + internal/memory"]
+    G7["internal/database (GORM + SQLite)"]
+  end
+
+  R1 --> R3
+  R3 -- "contextBridge / window.darvin" --> M1
+  M1 -- "ipcMain.handle → AgentClient.request" --> M3
+  M3 -- "ws://localhost:&lt;port&gt;/ws (JSON-RPC 2.0)" --> G2
+  G2 -- "agent.event notifications" --> M3
+  M3 -- "raw events" --> M4
+  M4 -- "webContents.send" --> R1
+  G6 --> G7
 ```
 
-## Why three processes?
+The renderer never imports `better-sqlite3`. The main process never sees LLM keys. The Go agent owns the schema, the agent loop, and every capability.
+
+## 2. Go `runtime.Build` assembly
+
+`runtime.Build` (`src/darvin-agent/internal/runtime/runtime.go`) is the single assembly entry. Frontend (cmd/app/main, future TUI) holds only the returned `*Runtime`.
+
+```mermaid
+flowchart TD
+  S0["frontend: Build(ctx, Options{})"]
+  S0 --> S1["resolveConfigPath()<br/>opts.ConfigPath ?? $DARVIN_CONFIG ?? exe-dir/cwd"]
+  S1 --> S2["loadConfig + zap logger"]
+  S2 --> S3["loadDatabase (database.Open → globalDB)"]
+  S3 --> S4["loadProvider (anthropic / openai / gemini registry)"]
+  S4 --> S5["resolveWorkspace (cfg.Agent.Workdir ?? opts.WorkspaceRoot)"]
+  S5 --> S6["loadTools (NewBuiltins → sandbox + registry)"]
+  S6 --> S7["memory.New(workspace)"]
+  S7 --> S8["newAgentFactory (Agent + Harness + Loop plugins)"]
+  S8 --> S9["bootstrapSkills (scan + load + runner)"]
+  S9 --> S10["bootstrapMCP (resolveMCPPackagesDir + registry)"]
+  S10 --> S11["EventLedger + SessionManager (with AgentFactory)"]
+  S11 --> S12["Wire skill + mcp plugins into factory"]
+  S12 --> S13["gateway.NewHandler (sessions, ledger, stores...)"]
+  S13 --> S14["mcpReg.SetNotifier (handler hooks)"]
+  S14 --> S15["gateway.NewServer.Start(ctx) — binds WS port"]
+  S15 --> S16["scheduledtask.NewEngine + Start"]
+  S16 --> S17["im.NewManager + Reload(activeWorkspaceID)"]
+  S17 --> S18["im.NewHandlers (qr manager)"]
+  S18 --> S19["bootstrap active session (sessions.EnsureEntry)"]
+  S19 --> S20["return *Runtime (Cfg, Provider, Sessions, Handler, Server, MCP, Skills, Factory, Stores, IMManager, ScheduleEngine...)"]
+```
+
+`imBuilders()` (`runtime.go:43`) deliberately lives in `internal/runtime`, **not** in `internal/im`:
+
+```
+// imBuilders maps each channel to its live connector constructor. It lives
+// here (not in internal/im) so the registry can import the connector
+// subpackages without a cycle.
+```
+
+`runtime.Shutdown` (`runtime.go:120`) reverses the order independently and `errors.Join`s every error: `ScheduleEngine.Stop` → `IMManager.StopAll` → `Server.Shutdown` → `harness.DisposeAll` → `WorkspaceBootstrap.Dispose` → `Stores.Sessions.Close`.
+
+The `Stores` struct (`runtime.go:102`) aggregates 11 SQLite-backed stores: `Sessions / Workspaces / Messages / AppState / ImportedFiles / Usages / Digests / Subagents / Agents / Schedules / IMChannels`.
+
+`setWorkspace` closure (`runtime.go:248`) re-anchors the active workspace without rebuilding the agent: `toolsReg.SetWorkspaceRoot` → `mcpReg.SetRoots` (so filesystem-aware MCP servers see the new project) → `bootstrapSkills` against the new root → `skillPlugin.SetBootstrapResult` → `handler.Skills / SkillRunner` swap → `sessions.RefreshAllTools()`.
+
+## 3. Main-process resolution
+
+```mermaid
+flowchart TD
+  M0["prestart (npm script)"]
+  M0 --> M1["npm run build:agent<br/>(scripts/build-go.js → CGO_ENABLED=0)"]
+  M1 --> M2["npx electron-rebuild -w better-sqlite3"]
+  M2 --> M3["electron-forge start"]
+  M3 --> M4["src/main/index.ts → createWindow()"]
+  M4 --> M5["RuntimeMgr.resolveAgentBinaryPath()<br/>app.isPackaged ? process.resourcesPath/bin/...<br/>else __dirname/../../../bin/..."]
+  M5 --> M6["spawn(bin)"]
+  S1["stdout"] --> T1
+  S6["spawn(bin)"] -.stdout.->S1
+  T1 --grep &quot;&lt;port&gt;…&lt;/port&gt;&quot; line--> T2
+  T2 --> T3["AgentClient.connect(ws://localhost:&lt;port&gt;/ws)"]
+  T3 --> T4["EventRouter.start()<br/>subscribes to AgentClient raw events"]
+  T4 --> T5["AgentClient.request / prompt / abort / subscribe_events / listSessions / getMessages"]
+  T5 --> M1x["ipcMain.handle('agent.*', ...)"]
+  M1x --> W1["window.darvin (typed, via contextBridge)"]
+```
+
+Key files: `src/main/runtime/manager.ts` (`RuntimeMgr` + `resolveAgentBinaryPath`), `src/main/runtime/client.ts` (`AgentClient`), `src/main/store/EventRouter.ts` (pure forwarder: `agent.event` → `webContents.send`). The Electron main opens `remote-debugging-port=9222` only in dev (`!app.isPackaged`) so `electron-cdp` can drive the window without launching a second browser.
+
+`EventRouter` is intentionally thin: it does not read active session, does not consult the store, and does not run any logic beyond `webContents.send`. On `done` it triggers `notifyIfHidden` so a user who switched away sees an OS notification with the title (looked up via `getTitle` callback, FR-10).
+
+## 4. IPC contract layering
+
+`src/shared/darvin-api.ts` is the single source of truth for everything that crosses the process boundary.
+
+```mermaid
+flowchart LR
+  subgraph contract["src/shared/darvin-api.ts — single source of truth"]
+    A["DarvinApi<br/>(~70 request/response methods)<br/>session / message / skill / MCP / workspace<br/>LLM / locale / prefs / attachment<br/>permission / artifact"]
+    P["DarvinPushEvent<br/>(push notification constants)<br/>SessionsChanged / ActiveSessionChanged<br/>SessionEvent / WorkspaceChanged<br/>SkillsChanged / McpServersChanged<br/>McpConnectionChanged"]
+    E["DarvinEvent (streaming union)<br/>text_delta / thinking_delta<br/>tool_start / tool_end<br/>done / error / agent_end<br/>compaction / context_usage<br/>permission_request / artifact"]
+    M["DarvinMessage (message union)<br/>user / assistant / tool_use / tool_result / system"]
+    H["helpers: parseDarvinEvent, assertNever,<br/>BACKEND_DEFAULT_SESSION_ID"]
+  end
+
+  subgraph renderer2["src/renderer/"]
+    R["window.darvin consumer<br/>(typed shapes)"]
+  end
+
+  subgraph preload2["src/preload/index.ts"]
+    Px["contextBridge.exposeInMainWorld('darvin', api)"]
+  end
+
+  subgraph main2["src/main/"]
+    Mx["ipcMain.handle + AgentClient.request"]
+  end
+
+  subgraph go2["src/darvin-agent/internal/gateway/"]
+    Gx["handlers_*.go + parseDarvinEvent"]
+  end
+
+  R -- "imports types" --> contract
+  Px -- "imports types" --> contract
+  Mx -- "imports types" --> contract
+  Gx -- "imports types" --> contract
+```
+
+Rule (enforced by convention, no automated check): adding a new IPC channel means **three places** — `DarvinApi` in `darvin-api.ts` → `ipcMain.handle` in main → `window.darvin` method in preload. Wire types use `<Domain>Wire` suffix to separate internal business types from IPC protocol types. `parseDarvinEvent` and `assertNever` are the helpers every Go / TS side calls.
+
+## 5. Session lifecycle and `SessionRuntime` container
+
+```mermaid
+flowchart TD
+  G0["gateway.SessionManager (in-memory map)"]
+  G0 -- "subscribe(activeID)" --> E0["SessionEntry (no SessionRuntime)<br/>subscribe-only; no agent spun up"]
+  G0 -- "Submit(activeID, prompt)" --> E1["SessionEntry.SessionRuntime<br/>(lazy build on first prompt)"]
+
+  subgraph srt["SessionRuntime (internal/sessionruntime)"]
+    subgraph sub["Subagents"]
+      SUB1["sub-agent 1 session"]
+      SUB2["sub-agent 2 session"]
+    end
+    subgraph delta["DeltaHook (internal/agents/text_delta_hook)"]
+      DH["text_delta accumulator / artifact detect"]
+    end
+    subgraph loop["Loop (internal/sessionruntime/loop)"]
+      L1["Submit / Steer / Stop / Abort / Close"]
+      L2["per-session turn queue (buffer 1)"]
+      L3["Agent (Controller Idle/Running)"]
+    end
+  end
+
+  E1 --> loop
+  loop --> L1
+  L1 --> L2
+  L2 --> L3
+  L3 --> delta
+  L3 --> sub
+
+  CL["SessionRuntime.Close"] --> SUB1
+  CL --> SUB2
+  CL --> DH
+  CL --> loop
+```
+
+`SessionManager` (`internal/gateway/sessionmgr.go`) holds an LRU map (`idleElem` linked list, `DefaultIdleTTL = 24h`, soft cap `DefaultMaxSessions = 5000`) of `*SessionEntry`. An entry without `SessionRuntime` can be **subscribed to** but not **submitted to**. First `Prompt` builds the runtime via `AgentFactory` (`internal/sessionruntime/factory.go`).
+
+`Controller` (`internal/agents/controller.go`) owns the per-agent `Idle / Running` state machine and the per-turn cancel function: `TryStart` transitions Idle→Running, `End` cancels + flips back to Idle, `SetCancel` binds the next turn's cancel, `Abort` fires it without changing state.
+
+`Loop` (`internal/sessionruntime/loop.go`) owns one session's turn queue with **strict steer priority** (`internal/agents/queue.go`'s `promptCh` / `steerCh` channels, both buffer 1). `Submit / Steer / SubmitSkill / Stop / Abort / Close` are the only mutators. `PromptRequest` carries `attachments / images / provider / model` per-turn override + `ReplySink` for headless integrations (scheduled tasks, IM channels).
+
+## 6. Single agent turn — sequence diagram
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant V as Renderer (ChatView)
+  participant E as Main (ipcMain.handle + AgentClient)
+  participant G as Gateway (handler_prompt.go)
+  participant L as Loop (sessionruntime)
+  participant A as Agent (agents)
+  participant LL2 as LLM (llm)
+  participant TR as Tools Registry
+  participant P as Permission (tools/perm)
+  participant SB as Sandbox (tools/sandbox)
+  participant DB as SQLite (database)
+  participant EL as EventLedger (gateway)
+  participant ER as EventRouter (main/store)
+
+  User->>V: type prompt + Enter
+  V->>E: window.darvin.prompt(req)
+  E->>G: ws.send agent.prompt (JSON-RPC 2.0)
+  G->>L: SessionManager.Submit → Loop.Submit
+  L->>L: mint messageID, userMsgID (nanoid 21 chars)
+  L->>A: enqueue(ModePrompt, ...)
+  L->>A: Agent.Run (Controller.TryStart Idle→Running)
+  A->>A: hydrate messages from MessageStore
+  A->>LL2: provider.Prompt (stream)
+  LL2-->>A: text_delta event (×N)
+  LL2-->>A: thinking_delta event (×N)
+  A->>EL: ledger.Append(text_delta) [via DeltaHook]
+  EL-->>ER: gateway WS broadcast agent.event
+  ER-->>V: webContents.send text_delta
+  loop tool loop (zero or more rounds)
+    A->>TR: invoke tool (name, args)
+    TR->>P: ClassifyPermission(name, args)
+    alt auto-allow (safe)
+      P-->>TR: level=safe, need=false
+    else need approval
+      P-->>A: permission_request push
+      A->>EL: ledger.Append(permission_request)
+      EL-->>V: webContents.send permission_request
+      V->>E: window.darvin.permissionResponse(approve|deny)
+      E-->>A: resolve
+    end
+    TR->>SB: Sandbox.ResolveRead / ResolveWrite
+    SB-->>TR: ErrPathEscapes / ok
+    TR-->>A: tool_result
+    A->>LL2: tool_result → next LLM round
+    LL2-->>A: text_delta / tool_start / tool_end / done
+  end
+  A->>A: Controller.End (Running→Idle)
+  A->>DB: store.MessageStore.Append (assistant message)
+  A->>EL: ledger.Append(agent_end)
+  EL-->>V: agent_end
+```
+
+Notes:
+
+- `hydrate` runs **before** the first LLM round (`sessionruntime/hydrate.go`): pulls messages from `MessageStore` so a reloaded session resumes seamlessly.
+- DeltaHook (`agents/text_delta_hook.go`) deduplicates `text_delta` events at the gateway boundary so the wire stays small even if the provider streams rapidly.
+- `agent_end` (terminal event) carries the final assistant text + usage payload; the renderer swaps the streaming placeholder for the persisted message.
+- `Ctrl+C` mid-turn or `window.darvin.abort()` flows as `Controller.Abort()` → context cancel → dispatcher returns → `Controller.End()`.
+
+## 7. MCP bridge — tool call → MCP server → response
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as Agent (agents/dispatcher)
+  participant TR as Tools Registry (tools/registry)
+  participant BR as MCP Bridge (tools/mcp.go)
+  participant RG as mcp.Registry (internal/mcp)
+  participant TR2 as mcp.Transport (http/sse/stdio)
+  participant SRV as MCP Server (external)
+
+  A->>TR: callTool(name, args)
+  TR->>BR: dispatch MCP tool
+  BR->>RG: Registry.Resolve(serverName)
+  alt unresolved
+    RG->>TR2: launcher.Launch (fingerprint → http/sse/stdio)
+    TR2->>SRV: initialize (MCP handshake)
+    SRV-->>TR2: initialize result + capabilities
+    TR2->>SRV: tools/list
+    SRV-->>TR2: [tools]
+    RG->>RG: cache tools + connection
+  end
+  RG->>TR2: callTool (tools/call)
+  TR2->>SRV: tools/call (JSON-RPC)
+  SRV-->>TR2: result
+  TR2-->>BR: result
+  BR-->>TR: tool_result (with redaction)
+  BR-->>A: continue turn
+```
+
+- `mcp.Registry` (`internal/mcp/registry.go`) is the single owner of every server's connection + tools.
+- `transport` (`internal/mcp/transport/`) speaks `http` / `sse` / `stdio` per the server's launch config.
+- `resolver_fingerprint` (`internal/mcp/resolver_fingerprint.go`) determines whether a config change is the same server (no relaunch) or a new one (close + relaunch). `retryResolution` is the user-facing action that runs this fingerprint again.
+- `redact.go` strips secrets from server logs.
+- `notifier.go` (`OnConnectionChanged / OnResolutionChanged / OnToolsChanged`) calls `handler.OnMcp*` so the renderer refetches via push events.
+
+## 8. Tool permission gate
+
+```mermaid
+flowchart TD
+  C0["Agent dispatches tool(name, args)"]
+  C0 --> C1["DangerClassifier (per-tool / MCP plugin self-classify)"]
+  C1 --> C2["ClassifyPermission (tools/permission.go)"]
+  C2 --> SH["shell? command regex<br/>(destructivePatterns / cautionPatterns)"]
+  SH --> C3["level"]
+  C3 --> L1["safe"]
+  C3 --> L2["caution"]
+  C3 --> L3["destructive"]
+  L1 --> A1["auto-allow"]
+  L2 --> A2["permission_request push"]
+  L2 --> A3["renderer modal: Allow / Deny / Allow-always"]
+  L3 --> A4["permission_request push"]
+  A4 --> A5["renderer modal: Allow / Deny"]
+  A2 --> A6{"user response"}
+  A5 --> A6
+  A6 -- allow --> A7["proceed"]
+  A6 -- deny --> A8["abort tool + tool_result error"]
+  A1 --> A7
+```
+
+Shell tool classification (`tools/permission.go`) is pattern-based. `destructivePatterns` (checked first) match: `rm -r / rm -rf`, `git push … --force / -f`, `git reset --hard`, `dd`, `mkfs.*`, `shutdown / reboot / init 0`, fork bomb `:(){`, `chmod -R / chown -R`, `find … -delete`. `cautionPatterns` match: `rm`, `git push`, `git clean`, `chmod / chown`, `kill / pkill`, `sudo`, `mv / cp`.
+
+Non-shell tools fall through with `level=safe, need=false`; plugins that self-classify implement `DangerClassifier` and are consulted by `EvaluatePermission`. Sandbox (`tools/sandbox.go`) enforces path containment (lexical + symlink), read-byte cap (`maxHardReadBytes = 16 MiB`), and the `attach = authorize` semantics.
+
+## 9. IM lifecycle — Create → Start → Inbound → Reply
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant V as Renderer (ImView)
+  participant E as Main (imProxy → AgentClient)
+  participant G as Gateway (handler_im.go)
+  participant M as im.Manager
+  participant DB as SQLite (IMChannels store)
+  participant C as Connector (qq/wecom/weixin)
+  participant SR as SessionRunner (gateway.SessionManager)
+  participant LOOP as Loop (headless session)
+  participant PEER as IM peer (user)
+
+  User->>V: click "添加实例" + save
+  V->>E: window.darvin.imCreate({channel, name, config, enabled})
+  E->>G: ws.send agent.im.create
+  G->>M: Manager.Create(ctx, ch)
+  M->>DB: IMChannelStore.Create
+  alt enabled
+    M->>M: buildInstance → Connector.Start
+    C-->>M: ok / lastError
+  end
+  M->>G: Broadcast ImChanged (push event)
+
+  Note over C,PEER: connector is now connected; long-poll / WS depending on channel
+  PEER->>C: inbound message
+  C->>M: Manager.handleInbound (via setInboundHandler)
+  M->>M: authorized(peer) (access policy gate)
+  M->>SR: SubmitForIM(ctx, imKey, prompt, ReplySink)
+  SR->>LOOP: ensure session + Loop.Submit
+  LOOP-->>SR: final assistant text via ReplySink
+  SR-->>M: sink(reply, runID)
+  M->>C: Connector.Send(ctx, target, outbound)
+  C-->>PEER: outbound message
+```
+
+`Manager.handleInbound` (`internal/im/manager.go`) is registered as the connector's `SetInboundHandler` callback. `SubmitForIM` (`gateway.SessionManager`) creates a dedicated session per IM instance, the agent runs headless (no live WS subscriber), and the `ReplySink` writes back through `Connector.Send`. Each IM instance owns its a dedicated workspace per IM instance (in per `imManager.ensureIMWorkspace`) so the renderer UI groups sessions from the same channel under a stable, named workspace.
+
+## 10. SQLite schema (GORM + `glebarez/sqlite`)
+
+```mermaid
+erDiagram
+  SESSIONS ||--o{ MESSAGES : has
+  SESSIONS ||--o{ USAGES : has
+  SESSIONS ||--o{ SUBAGENTS : spawns
+  SESSIONS }o--|| WORKSPACES : "bound to"
+  SESSIONS ||--o{ DIGESTS : has
+  SESSIONS }o--o| APP_STATE : "active_id"
+  MESSAGES ||--o{ IMPORTED_FILES : "references"
+
+  SESSIONS {
+    string id PK "21-char nanoid"
+    string workspace_id FK
+    string title
+    string system_prompt
+    string model_provider
+    string model_name
+    int created_at
+    int updated_at
+  }
+  MESSAGES {
+    string id PK "21-char nanoid"
+    string session_id FK
+    string role "user|assistant|tool_use|tool_result|system"
+    text content
+    json tool_calls
+    json tool_results
+    int created_at
+  }
+  WORKSPACES {
+    string id PK
+    string name
+    string root_path
+  }
+  APP_STATE {
+    string key PK
+    string value
+  }
+  IMPORTED_FILES {
+    string id PK
+    string path
+    string hash
+    int size
+    int imported_at
+  }
+  MEMORY {
+    string id PK
+    string scope "user|project"
+    text content
+    int created_at
+    int updated_at
+  }
+  MCP_SERVERS {
+    string id PK
+    string name
+    string transport "http|sse|stdio"
+    json config
+    bool enabled
+  }
+  SKILLS_BOOTSTRAP {
+    string id PK
+    string name
+    string source_path
+    bool enabled
+  }
+  SCHEDULED_TASKS {
+    string id PK
+    string name
+    string cron_expr
+    string prompt
+    bool enabled
+  }
+  IM_CHANNELS {
+    string id PK
+    string workspace_id FK
+    string channel "qq|wecom|weixin"
+    string name
+    bool enabled
+    json config
+    string access_mode "open|allowlist|disabled"
+  }
+```
+
+Schema is owned by `internal/agents/store/` (concrete SQLite types in `*_test.go` are exercised by the unit tests). `globalDB` lives in `internal/database/database.go`; main process **never** sees SQLite.
+
+## 11. Why three processes?
 
 - **Renderer stays simple.** It holds UI state and nothing else. No SQLite, no filesystem outside its sandbox, no secrets.
-- **Main stays thin.** ~70 `ipcMain.handle` channels proxy typed JSON-RPC to Go. Adding a new IPC channel is a two-place change in `src/shared/darvin-api.ts`.
+- **Main stays thin.** `~70` `ipcMain.handle` channels proxy typed JSON-RPC to Go. Adding a new IPC channel is a two-place change in `src/shared/darvin-api.ts`.
 - **Go owns everything that matters.** The agent loop, tool registry, context compaction, MCP clients, skills, memory and persistence all live in one process you can attach a debugger to, run `go test` against, and grep through. The single static binary (`CGO_ENABLED=0`) makes the desktop app trivially cross-platform.
 
-## Go runtime layout
+## 12. What's intentionally not in the main process
 
-`src/darvin-agent/` is a Go module (`backend`) with a single assembly entry (`cmd/app/main.go` → `internal/runtime`) and 15+ `internal/` packages.
+- **SQLite** — owned by Go (`globalDB` in `internal/database`). Main only proxies.
+- **LLM keys** — read by Go viper from `LLM_API_KEY` env / user `config.yaml` / repo `config.yaml`. Main never sees the raw key.
+- **Tool execution** — all tool calls run in the Go process so the renderer cannot bypass permissions or sandbox.
+- **IM sessions** — per-channel connectors live in Go, accessed by the renderer through `window.darvin.im*` IPC only.
 
-| Package | Responsibility |
-|---|---|
-| `cmd/app` | 15-line entry: `os.Exit(runApp(os.Args[1:]))`; `runApp` is a var, test-replaceable |
-| `internal/runtime` | `Build(ctx, Options) (*Runtime, error)` loads config + DB + LLM provider, assembles the agent factory, bootstraps skills / MCP, starts the gateway, bootstraps the active session; `Run(args)` wires SIGINT / SIGTERM; `Shutdown(ctx)` closes server / harness / SQLite |
-| `internal/gateway` | WebSocket server, JSON-RPC framing, handler dispatch, per-session manager, per-session event ledger |
-| `internal/sessionruntime` | Per-session agent runtime. `AgentFactory` assembles Agent + Harness + Loop + DeltaHook + Subagents; `Loop` owns the per-session serialized turn queue; `SessionRuntime` is the lifecycle container (Close chains Subagents → DeltaHook → Loop) |
-| `internal/agents` | `Agent.Prompt / Run / Abort / Subscribe`; dispatcher enqueue + `runMsgID`; subpackages `queue / session / store / executor / perm / ctxengine / msgid / protocol / runtime / usage` |
-| `internal/llm` | Streaming protocol + `anthropic` / `openai` / `gemini` providers + model registry; events and errors in separate files |
-| `internal/tools` | Built-in tools + permission registry + MCP bridge; exclusions file whitelist |
-| `internal/skills` | Scanner / loader / frontmatter / registry / plugin / runner / wire; install goes through `skillInstall` (main side) + `wire` (Go side) |
-| `internal/mcp` | Client / launcher / registry / transport (http + sse + stdio) / resolver fingerprint / persistence |
-| `internal/scheduledtask` | Cron-style task engine with per-task run history |
-| `internal/subagent` | Sub-agent orchestration (delegate / parallel / abort / list / read-result) |
-| `internal/memory` | Lightweight memory manager |
-| `internal/database` | GORM + `glebarez/sqlite` single `globalDB`; `internal/agents/store/` owns session / message / app_state / imported_file / memory |
-| `internal/config` | viper configuration loading |
-| `internal/logger` | zap + lumberjack log rotation |
-| `internal/harness` | Frontend / CLI / embedded runner and capability registration |
-| `internal/jsonschema` | Schema normalization and validation |
+## 13. Cross-package rules
 
-Cross-package rules:
+Enforced by `Makefile`'s `lint-agents-boundaries`:
 
-- `agents/` may NOT import capability packages (`llm / tools / skills / mcp`); enforced by `Makefile`'s `lint-agents-boundaries` target.
+- `internal/agents/` may NOT import capability packages (`llm / tools / skills / mcp`).
 - `internal/im/` interfaces are defined in the consumer package (`contract.go`); connector implementations live in `internal/im/<channel>/`.
+- `imBuilders()` lives in `internal/runtime` (not `internal/im`) to avoid a cycle with the connector subpackages.
 
-## IPC contract — single source of truth
+## Next
 
-Every IPC channel, push event, streaming event and message type lives in one file:
-
-- `src/shared/darvin-api.ts`
-  - `DarvinApi` — the request/response interface (~70 methods; session / message / skill / MCP / workspace / LLM / locale / prefs / attachment / permission / artifact)
-  - `DarvinPushEvent` — push event constants (`SessionsChanged / ActiveSessionChanged / SessionEvent / WorkspaceChanged / SkillsChanged / McpServersChanged / McpConnectionChanged`)
-  - `DarvinEvent` — discriminated union (`text_delta / thinking_delta / tool_start / tool_end / done / error / agent_end / compaction / context_usage / permission_request / artifact`)
-  - `DarvinMessage` — discriminated union (`user / assistant / tool_use / tool_result / system`)
-  - Helpers: `parseDarvinEvent`, `assertNever`
-  - Per-channel record shapes (`DarvinIMInstance`, `DarvinIMStatus`, etc.)
-
-Conventions:
-
-- One source. Main / preload / renderer all import from `darvin-api.ts`. No `any` in components.
-- Add a new IPC channel in three places: `DarvinApi` in `darvin-api.ts` → `ipcMain.handle` in main → `window.darvin` method in preload.
-- Wire types use `<Domain>Wire` suffix to separate internal business types from IPC protocol types.
-
-## Main process
-
-`src/main/index.ts` (~67 KB) is the only Electron-side file that holds business knowledge:
-
-- Handles `electron-squirrel-startup` short-circuit on Windows.
-- `createWindow()` builds the `BrowserWindow`; preload points to the Vite output.
-- Dev mode: `loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)`, DevTools open by default, `remote-debugging-port=9222` + `remote-allow-origins=*` (so `electron-cdp` can drive the window for E2E).
-- ~70 `ipcMain.handle` channels (see the full list in `src/shared/darvin-api.ts`).
-- `RuntimeMgr` (subprocess lifecycle) + `AgentClient` (WS JSON-RPC client) + `EventRouter` (pure forwarder).
-- `window-all-closed` quits on non-macOS; `activate` rebuilds the window if needed.
-- After the merge-databases refactor, main no longer holds SQLite; if Go is offline the renderer sees an in-memory cache of the last-known view.
-
-`src/main/runtime/manager.ts`:
-
-- `resolveAgentBinaryPath()` — picks `process.resourcesPath/bin/...` (packaged) or the dev path (`__dirname` three levels up). Missing binary prints a warning and does not throw.
-- `start(workspaceRoot?)` — `spawn(bin)`, reads `<port>…</port>` from stdout (5 s timeout), SIGTERM + 4 s grace period on stop.
-- Exposes `pid() / port() / isResolved() / resolveAgentConfigPath()` (dev only).
-
-`src/main/runtime/client.ts`:
-
-- `class AgentClient` — WebSocket JSON-RPC 2.0 client over `ws://localhost:{port}/ws`.
-- Full method surface: `connect / disconnect / request / prompt / abort / invokeSkill / subscribeEvents / listSessions / getMessages` + namespaced `skills.{list,setEnabled,bootstrap,onChanged}` / `mcp.{list,register,update,unregister,setEnabled,test,retryResolution,bootstrap,onConnectionChanged,onResolutionChanged}` / `tools.list`.
-- Helpers: `parseDarvinEvent`, `BACKEND_DEFAULT_SESSION_ID`.
-
-## Preload
-
-`src/preload/index.ts` exposes a typed surface via `contextBridge.exposeInMainWorld('darvin', api)`. Renderer code never imports `electron`; everything comes through `window.darvin`.
-
-## Renderer
-
-Vue 3 + Vite (`root: 'src/renderer'`, `base: './'` for production relative paths). Specifics:
-
-- **Vue 3 SFC + `<script setup lang="ts">`** + Composition API only. No mixins, no class-based components, no Options API.
-- **Tailwind CSS v4** via `@tailwindcss/vite`. Design tokens live in `src/renderer/styles/theme.css` `@theme` block — components use utility classes (`bg-surface` / `text-text-muted` / `rounded-md`); no `<style>` blocks, no magic values.
-- **Icon system** — ~70 SVG icons in `src/renderer/assets/icons/` auto-globbed through `import.meta.glob`. `Icon` component takes `name` + `:size`. All `stroke="currentColor"`.
-- **i18n** — flat `dictZh` / `dictEn` with `assertSameKeys` enforcing key parity. Renderer-only; main process stays English.
-- **Artifact renderers** — `src/renderer/services/artifact-renderer/` renders AI artifacts inside `sandbox` iframes keyed by type (Code / Document / Html / Image / LocalService / Markdown / Mermaid / Svg / Text / Video). AI output **never** enters the main page DOM.
-
-## IM subsystem (summary)
-
-`src/darvin-agent/internal/im/`:
-
-- `qq/` — QQ official bot, app access token + Discord-style WS gateway.
-- `wecom/` — Enterprise WeChat (WeCom) AI Bot, WS to `wss://openws.work.weixin.qq.com`, `aibot_subscribe` for auth.
-- `weixin/` — Personal WeChat iLink bot, HTTP gateway, QR login + long-poll `getupdates`.
-- `manager.go` — unified lifecycle, maps inbound messages to a bound darvin session, routes outbound replies back to the originating peer.
-- `Prober` — one-shot `Probe(ctx) ([]Check, error)` implemented per connector; the `imTest` RPC returns a structured check report rather than a fake-ok.
-
-See [`docs/IM.md`](./IM.md) for the full IM subsystem design.
-
-## Build, package, cross-platform
-
-- `scripts/build-go.js` — outputs `<repo>/bin/darvin-agent-<platform>-<arch><.exe?>` with `CGO_ENABLED=0`.
-- `npm run build:agent` — compile Go only.
-- `npm run package` — unpacked Electron app (auto-runs `build:agent`).
-- `npm run make` — installers: `squirrel` (Windows) / `zip` (macOS) / `deb` (Linux) / `rpm` (Linux).
-- `forge.config.ts` — `extraResources.filter` keeps **only** the current-platform Go binary, so dev machines with cross-platform binaries in `bin/` don't bloat the installer.
-
-## What's intentionally not in the main process
-
-- SQLite — owned by Go (`globalDB` in `internal/database`). Main only proxies to Go.
-- LLM keys — read by Go viper from `LLM_API_KEY` env / user `config.yaml` / repo `config.yaml`. Main never sees the raw key.
-- Tool execution — all tool calls run in the Go process so the renderer cannot bypass permissions or sandbox.
-- IM sessions — per-channel connectors live in Go, accessed by the renderer through `window.darvin.im*` IPC only.
+- [Quickstart](./QUICKSTART.md) — install, configure, build, troubleshoot.
+- [Guide](./GUIDE.md) — sessions, tools, todos, sub-agents, MCP, skills, memory, artifact sandbox, expert suite, scheduled tasks, IM overview, settings.
+- [IM Channels](./IM.md) — QQ / WeCom / WeChat connectors, real connectivity probe, instance management.
+- [Development](./DEVELOPMENT.md) — dev workflow, lint / test / smoke, Go `fmt` / `vet` / `lint`, project-specific engineering rules.

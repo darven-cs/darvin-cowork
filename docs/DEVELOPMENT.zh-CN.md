@@ -171,12 +171,21 @@ make lint-agents-boundaries   # 禁止 agents/ import 能力包
 
 ## 新增 IPC 通道
 
-1. 在 `src/shared/darvin-api.ts` 定义 request / response / event shape，加方法到 `DarvinApi`。
-2. Go 端实现 JSON-RPC handler（路径 `agent.<domain>.<op>`）。
-3. main 端 `ipcMain.handle('<domain>.<op>', ...)` 转发到 `agentClient`。
-4. preload 端 `window.darvin` 加强类型方法。
-5. 推送事件按需加订阅。
-6. 测试：协议解析 / 序列化（TS）；handler + fake store（Go）。
+```mermaid
+flowchart LR
+  A["1. 在 src/shared/darvin-api.ts<br/>定义 request / response / event shape<br/>+ 加方法到 DarvinApi"]
+  B["2. Go 端实现 JSON-RPC handler<br/>路径 agent.&lt;domain&gt;.&lt;op&gt;"]
+  D["3. main 端 ipcMain.handle('&lt;domain&gt;.&lt;op&gt;', ...)<br/>转发到 agentClient"]
+  E["4. preload 端 window.darvin 加强类型方法<br/>签名来自 darvin-api.ts"]
+  F["5. 推送事件按需加订阅<br/>（DarvinPushEvent）"]
+  G["6. 测试：<br/>- TS：协议解析 / 序列化<br/>- Go：handler + fake store"]
+  H["7. 不要在没有协议形态 Vitest 测试的情况下发布"]
+
+  A --> B --> D --> E
+  E --> F
+  E --> G
+  G --> H
+```
 
 ## 新增 IM 通道
 

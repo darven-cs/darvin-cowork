@@ -12,35 +12,36 @@ The IM subsystem lives in `src/darvin-agent/internal/im/`. It is a pluggable tra
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│   Renderer (ImView / ImInstanceCard.vue)                           │
-│   - per-channel tabs (qq / wecom / weixin)                         │
-│   - add / edit / delete / rename instances                         │
-│   - secret show / hide + clear, delete-confirm                     │
-│   - inline rename, unsaved badge, discard toast                    │
-│   - one-shot test modal (verdict + per-check rows + enable hint)   │
-│   - lastError red banner                                           │
-└─────────────────────────────────────────────────────────────────────┘
-                       │ window.darvin.im*  (JSON-RPC over Electron IPC)
-                       ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│   Main process (imProxy → AgentClient)                              │
-└─────────────────────────────────────────────────────────────────────┘
-                       │  ws://localhost:<port>/ws  (agent.im.*)
-                       ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│   darvin-agent                                                      │
-│   internal/im/                                                      │
-│   - manager.go     lifecycle / per-channel builders / instance map  │
-│   - contract.go    Instance interface + Status + Prober + Check     │
-│   - handlers.go    JSON-RPC handlers for im.* methods               │
-│   - base.go        shared status / inbound plumbing                 │
-│   - qq/            QQ official bot                                  │
-│   - wecom/         WeCom AI Bot WS channel                          │
-│   - weixin/        Personal WeChat iLink HTTP channel (+ QR login)  │
-│   - qrlogin.go     shared QR state machine                          │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph renderer["Renderer — ImView.vue / ImInstanceCard.vue"]
+    R["tabs (qq / wecom / weixin)<br/>add / edit / delete / rename<br/>secret show-hide + clear<br/>delete-confirm modal<br/>test report modal<br/>lastError red banner<br/>unsaved badge + discard toast"]
+  end
+
+  subgraph main["Main — imProxy → AgentClient"]
+    M["window.darvin.im* → AgentClient.request"]
+  end
+
+  subgraph go["darvin-agent — internal/im/"]
+    G0["im.Manager<br/>lifecycle / per-channel builders / instance map<br/>inbound funnel → SessionRunner<br/>outbound Send back to peer"]
+    G1["im.Handlers<br/>JSON-RPC handlers for im.* methods"]
+    G2["im.contract.go<br/>Instance interface / Status / Prober / Check / SessionRunner / Broadcaster"]
+    G3["im.base.go<br/>shared status / inbound plumbing"]
+    G4["im/qq/<br/>official bot (WS gateway + token + REST send)"]
+    G5["im/wecom/<br/>AI Bot WS channel + aibot_subscribe auth"]
+    G6["im/weixin/<br/>iLink HTTP channel + QR login + long-poll getupdates"]
+    G7["im.qrlogin.go<br/>shared QR state machine"]
+  end
+
+  R -- "window.darvin.im* (JSON-RPC over Electron IPC)" --> M
+  M -- "ws://localhost:&lt;port&gt;/ws (agent.im.*)" --> G1
+  G1 --> G0
+  G0 --> G2
+  G0 --> G3
+  G0 --> G4
+  G0 --> G5
+  G0 --> G6
+  G6 --> G7
 ```
 
 ## Channels
@@ -98,6 +99,64 @@ Behavior:
 - The handler in `internal/im/handlers.go` runs `Probe` against a freshly-built instance, then `defer inst.Stop`. The instance never becomes part of the manager's instance map.
 - Errors merge into `Checks` (`level:"fail"`). An empty report is treated as unresolved (not pass).
 - All errors funnel through the single `TestResult` shape — `Checks` carries every judgement, `Error` is a fallback; `imTest` no longer returns JSON-RPC errors for "unknown channel" or "bad config" — those fold into `{code: "channel" / "config_valid", fail}`.
+
+### `imTest` / `Prober` — sequence diagram
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant V as Renderer (ImInstanceCard.vue)
+  participant E as Main (imProxy → AgentClient)
+  participant G as Gateway (handler_im.go)
+  participant H as im.Handlers.handleTest
+  participant M as im.Manager.builders
+  participant C as Connector (qq/wecom/weixin)
+  participant NET as External endpoint
+
+  User->>V: click "测试连接"
+  V->>E: window.darvin.imTest({channel, config})
+  E->>G: ws.send agent.im.test
+  G->>H: handleTest(ctx, params)
+  H->>M: builders[channel]?
+  alt unknown channel
+    H-->>G: TestResult{ ok:false, Checks:[{code:"channel", level:"fail"}] }
+  else known channel
+    H->>M: build(seed) → fresh Connector
+    alt build fails (config invalid)
+      H-->>G: TestResult{ ok:false, Checks:[{code:"config_valid", level:"fail"}] }
+    else build ok
+      H->>C: Probe(ctx)
+      Note over C,NET: connector-specific one-shot probe
+      alt qq
+        C->>NET: POST bots.qq.com/app/getAppAccessToken
+        NET-->>C: 200 with token / 4xx
+      else wecom
+        C->>NET: Dial wss://openws.work.weixin.qq.com
+        C->>NET: aibot_subscribe (bot_id, secret)
+        NET-->>C: ack (errcode)
+      else weixin
+        alt BotToken empty
+          C-->>H: [{code:"login_ok", level:"fail"}]
+        else
+          C->>NET: POST getupdates (timeout:3)
+          NET-->>C: result (ret)
+        end
+      end
+      C-->>H: []Check ([]im.Check)
+      H->>H: defer inst.Stop(ctx)
+      H-->>G: TestResult{ ok:allPass(checks), Checks:checks }
+    end
+  end
+  G-->>E: TestResult (JSON-RPC result)
+  E-->>V: return
+  V->>User: render test-report modal (verdict + per-check rows)
+  alt pass + instance disabled
+    V->>User: show "启用" button → window.darvin.imSetEnabled(id, true)
+  else fail
+    V->>User: hint "保存后重试"
+  end
+```
 
 Stable `code` values emitted by the connectors (renderer i18n maps each `code` to a user-visible title):
 
@@ -187,8 +246,12 @@ The test report modal:
 
 Adding a new IM channel (e.g. Feishu, DingTalk) is intentionally a three-step change:
 
-1. Create `internal/im/<channel>/<channel>.go` with a `Connector` type and (optionally) a `Probe(ctx) ([]Check, error)` method.
-2. Register the builder in `src/darvin-agent/internal/runtime/runtime.go` (`im.ChannelFoo → foo.NewConnector`).
-3. Add the channel constant to `internal/im/contract.go` and the renderer-side credentials UI.
-
-The renderer side picks up new channels automatically through the `imList` payload.
+```mermaid
+flowchart LR
+  S1["1. Create internal/im/&lt;channel&gt;/&lt;channel&gt;.go<br/>Connector type<br/>(optional) Probe(ctx) ([]Check, error)"]
+  S2["2. Register builder in<br/>src/darvin-agent/internal/runtime/runtime.go<br/>imBuilders() = map{...}" ]
+  S3["3. Add channel const in internal/im/contract.go<br/>(ChannelFoo, StateFoo...)<br/>+ renderer-side credentials UI in ImInstanceCard.vue"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> R["Renderer picks up via imList payload<br/>(no other wiring needed)"]
+```

@@ -12,18 +12,34 @@
 
 ## 整体布局
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  侧栏（左侧）           Composer + 对话（中央）        右侧      │
-│  - 首页                 - 消息流                          panel    │
-│  - 新建 / 搜索任务     - 流式 text / thinking          （arte-  │
-│  - 定时任务             - 工具调用 / 工具结果            facts/ │
-│  - 专家套件             - 带附件的 Composer              todos/ │
-│  - 技能                 - per-session 并发                sub-   │
-│  - MCP                                                     agents）│
-│  - IM 通道                                                              │
-│  - 设置                                                                  │
-└──────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph sb["侧栏（左侧）"]
+    B1["首页"]
+    B2["新建 / 搜索任务"]
+    B3["定时任务"]
+    B4["专家套件"]
+    B5["技能"]
+    B6["MCP"]
+    B7["IM 通道"]
+    B8["设置"]
+  end
+
+  subgraph cc["Composer + 对话（中央）"]
+    C1["消息流"]
+    C2["流式 text / thinking"]
+    C3["工具调用 / 工具结果卡片"]
+    C4["带附件的 Composer"]
+    C5["per-session 并发"]
+  end
+
+  subgraph rp["右侧 panel"]
+    R1["ArtifactPanel<br/>（Code / Doc / Html / Image / LocalService / Markdown / Mermaid / Svg / Text / Video — sandboxed iframe）"]
+    R2["TodoPanel"]
+    R3["SubagentPanel"]
+  end
+
+  sb --> cc --> rp
 ```
 
 侧栏条目对应 `src/renderer/views/`（Home / Chat / Im / Skills / Mcp / ExpertSuite / Scheduled / Search / Workspaces / Settings）。
@@ -67,6 +83,38 @@
 
 Sub-agent 在自己的 session 跑；父任务等待结果并合入下一轮。**并行 sub-agent** 共享父任务的 session-wide 并发预算（可配置）。
 
+### 子代理委派 —— 序列图
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant V as 渲染层（ChatView）
+  participant G as Gateway（handler_subagent.go）
+  participant SP as SessionRuntime.parent.Loop
+  participant SA as SessionRuntime.sub.Loop
+  participant FA as Sub-Agent
+  participant EL as EventLedger
+
+  User->>V: 父任务跑到 sub_agent 工具
+  V->>G: ws.send agent.subagent.delegate(role, prompt)
+  G->>SP: ensure sub-agent session（SessionManager.EnsureEntry）
+  SP->>SA: SessionRuntime 构建 + Loop.Submit
+  par 并发子代理
+    SA->>FA: Agent.Prompt
+    FA-->>SA: text_delta / thinking_delta
+    SA->>EL: ledger.Append（sub session_id）
+  end
+  alt 用户中止子代理
+    User->>V: 在 SubagentPanel 点「abort」
+    V->>G: agent.subagent.abort(runID)
+    G->>SA: Loop.Abort（sub session）
+  end
+  SA->>SP: ReplySink(reply, runID) → 父任务合入
+  SP-->>G: 最终 tool_result
+  G-->>V: 父任务 turn 继续
+```
+
 ## MCP——Model Context Protocol
 
 `McpView` 列出每个已注册的 MCP 服务器：传输（`http / sse / stdio`）、连接状态、工具数。每服务器操作：
@@ -78,6 +126,22 @@ Sub-agent 在自己的 session 跑；父任务等待结果并合入下一轮。*
 - **重试解析**——服务器启动配置变更后重新跑 resolver fingerprint。
 
 MCP 服务器还能贡献 prompts / resources；agent 走标准 MCP 生命周期处理它们。
+
+### MCP 连接 / 测试 / 启用 —— 流程图
+
+```mermaid
+flowchart TD
+  R["注册<br/>（window.darvin.mcpRegister → mcp.Registry 落库）"]
+  R --> C["连接<br/>（解析传输 http/sse/stdio + fingerprint）"]
+  C --> H["MCP 握手<br/>（initialize + tools/list）"]
+  H --> T["测试<br/>（实时往返 → 握手耗时 + 工具数）"]
+  T --> E1["启用<br/>（把 server 工具注册到 tool registry）"]
+  E1 --> U["使用<br/>（走 bridge 调 tool → server → 结果）"]
+  E1 --> D1["禁用<br/>（临时从 registry 移除）"]
+  E1 --> U2["注销<br/>（持久化删除）"]
+  D1 -.重新启用.-> E1
+  R -.重试解析.-> C
+```
 
 ## Skills
 
@@ -115,6 +179,29 @@ AI 产物（HTML / SVG / Mermaid / React / Code / Markdown / Image / Video / Tex
 - 在全新 session 里跑（不带 chat 历史）。
 - 完成后以 `ScheduleFired` 通知推回主 session（带 `runId` 便于追溯）。
 - 每次 run 都记到 Go store；失败的 run 保留最后一次输出。
+
+### 定时任务触发 —— 序列图
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant E as Engine（scheduledtask/engine.go）
+  participant SR as SessionRunner（gateway.SessionManager）
+  participant L as Loop（headless session）
+  participant AG as Agent
+  participant B as Broadcaster（EventLedger）
+  participant V as 渲染层
+
+  E->>E: cron tick → 轮询 store 取出到期任务
+  E->>SR: SubmitForSchedule(scheduleID, prompt)
+  SR->>L: ensure fresh session + Loop.Submit
+  L->>AG: Agent.Prompt（headless turn）
+  AG-->>L: agent_end（最终文本 + usage）
+  L-->>SR: ReplySink（或最终 assistant）
+  E->>B: Broadcast ScheduleFired { scheduleId, runId, triggeredAt }
+  B-->>V: webContents.send（ScheduleFired push）
+  Note over E: engine 用 IsRunActive 对账「running」run 行；<br/>failureBadge=5 consecutiveErrors → UI badge
+```
 
 ## IM 通道——总览
 

@@ -34,6 +34,15 @@ npm start
 
 What `prestart` does for you, in order:
 
+```mermaid
+flowchart LR
+  A["npm run build:agent<br/>(scripts/build-go.js)<br/>CGO_ENABLED=0 → bin/darvin-agent-platform-arch(.exe)"]
+  A --> B["npx electron-rebuild -w better-sqlite3<br/>rebuild native binding against Electron ABI"]
+  B --> C["electron-forge start"]
+  C --> D["Vite dev server :5173<br/>+ BrowserWindow (remote-debugging-port=9222 in dev)"]
+  A -.src/darvin-agent/ missing.-> W1["warning + exit 0<br/>Electron still launches (no agent)"]
+```
+
 1. `npm run build:agent` — compiles the Go agent to `bin/darvin-agent-<platform>-<arch><.exe?>` with `CGO_ENABLED=0`. If `src/darvin-agent/` is missing, this step prints a warning and exits 0 — `npm start` still launches Electron (the agent just won't run).
 2. `npx electron-rebuild -w better-sqlite3` — rebuilds `better-sqlite3` against the bundled Electron headers.
 3. `electron-forge start` — opens the Vite dev server (renderer on `:5173`) and the Electron window pointed at it.
@@ -91,6 +100,18 @@ node .claude/skills/electron-cdp/scripts/edrv.mjs ping   # drive the running app
 ```
 
 `npm run smoke` (in CI) verifies that the packaged binary starts, prints `<port>` within the timeout, answers JSON-RPC, and shuts down cleanly. It does **not** touch any LLM endpoint.
+
+```mermaid
+flowchart TD
+  S1["scripts/smoke.sh"]
+  S1 --> S2["spawn darvin-agent binary<br/>(capture stdout)"]
+  S2 --> S3{"stdout matches<br/>&lt;port&gt;…&lt;/port&gt;<br/>within 5s?"}
+  S3 -- no --> S4["FAIL — read .smoke.log<br/>(bad config / syntax)"]
+  S3 -- yes --> S5["AgentClient connects<br/>ws://localhost:&lt;port&gt;/ws"]
+  S5 --> S6["exercise JSON-RPC<br/>(listSessions / getMessages / etc.)"]
+  S6 --> S7["SIGKILL child on exit<br/>(cleanup SQLite lock)"]
+  S7 --> S8["PASS"]
+```
 
 ## Troubleshooting
 

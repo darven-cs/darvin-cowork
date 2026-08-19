@@ -44,9 +44,13 @@
 
 三进程，一次对话：
 
-```
-Vue3 渲染层  ──Electron IPC──►  Electron 主进程  ──WebSocket JSON-RPC 2.0──►  darvin-agent (Go)
- (UI / 状态)                       (壳 / 编排)                                 (agent 循环 / 工具 / LLM)
+```mermaid
+flowchart LR
+  R["Vue3 渲染层<br/>（UI / 状态）"]
+  M["Electron 主进程<br/>（壳 / 编排）"]
+  G["darvin-agent（Go）<br/>（agent 循环 / 工具 / LLM）"]
+  R -- "Electron IPC" --> M
+  M -- "WebSocket JSON-RPC 2.0" --> G
 ```
 
 - **渲染层**：Vue 3 + Tailwind CSS v4，样式全走 `@theme` 设计 token；zh/en 双语，运行时可切换。
